@@ -1,0 +1,321 @@
+"""
+Tree rendering, two ways.
+
+  - render_html: an interactive view for the dashboard, on a dark panel.
+    Every node (species or clade, dated or not) is hoverable for its info.
+  - render_files: a still SVG (and PNG) for the gallery projection and the
+    press kit, on a warm light background.
+
+Both read the Newick written by tree.py plus the per-node metadata sidecar
+(<stem>_nodes.json).
+
+Layout strategy, per shape:
+  - Rectangular (default): the long rank-by-rank chains are collapsed for the
+    drawing only, so the tree shows real branch points, species, and the dated
+    clades. Tips align in a clean column; dated clades carry a name + age.
+  - Unrooted: same collapse, no tip alignment so labels sit at the leaves.
+  - Circular: full chains kept so the radial layout has room to breathe; the
+    dated clades show as bigger orange dots without text labels (hover gives
+    the age). Tip labels sit around the ring.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config  # noqa: E402
+
+# Layout names the dashboard offers, mapped to toytree's codes. Rectangular reads
+# best for this kind of tree, so it leads.
+LAYOUTS = {"Rectangular": "r", "Circular": "c", "Unrooted": "unrooted"}
+
+# Legend colors the dashboard reads (matched to the dark palette below).
+LEAF_COLOR = "#46c79a"          # species (leaf)
+DATED_NODE_COLOR = "#f0a24a"    # clade with a divergence age
+PLAIN_NODE_COLOR = "#6f8a82"    # clade without one
+
+# Two palettes plus sizing. Dark is the dashboard; light is the press kit.
+_DARK = {
+    "bg": "#0e1b1a", "leaf": LEAF_COLOR, "dated": DATED_NODE_COLOR,
+    "plain": PLAIN_NODE_COLOR, "edge": "#5f7d75", "tip": "#e8f3ef",
+    "label": "#ffd97a", "align": "#26352f", "nodestroke": "#0e1b1a",
+    "w": 1000, "h": 820, "shrink": 150,
+    # plain dots are bigger here so the hover hit area is easy to land on
+    "leaf_size": 7, "dated_size": 10, "plain_size": 9,
+}
+_LIGHT = {
+    "bg": "#f7f3ec", "leaf": "#1f8f6a", "dated": "#d27d2c",
+    "plain": "#b9c4bd", "edge": "#7e988f", "tip": "#23332e",
+    "label": "#a85a1f", "align": "#d4ddd6", "nodestroke": "#ffffff",
+    "w": 1150, "h": 860, "shrink": 160,
+    # plain dots stay small in the static render (no hover to worry about)
+    "leaf_size": 7, "dated_size": 9, "plain_size": 4,
+}
+
+
+def load_meta(meta_path) -> dict:
+    p = Path(meta_path)
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def _hover_text(label: str, info: dict) -> str:
+    if info.get("is_leaf"):
+        sci = info.get("scientific_name") or label.replace("_", " ")
+        common = info.get("common_name")
+        return f"{common} ({sci})" if common else sci
+    clade = info.get("scientific_name") or label.replace("_", " ") or "node"
+    parts = [clade]
+    if info.get("rank"):
+        parts.append(info["rank"])
+    parts.append(f"{info['mya']} MYA" if info.get("mya") is not None
+                 else "age not set")
+    return ", ".join(parts)
+
+
+def _collapse_unary(newick_path, dated: set) -> str:
+    """Collapse single-child internal nodes (the long rank chains) so the
+    drawing shows clean branches, the species, and the dated clades. Dated
+    clades are kept even when they end up unary. Newick on disk is untouched.
+    """
+    from ete3 import Tree
+    t = Tree(Path(newick_path).read_text(), format=1)
+    for node in t.traverse("postorder"):
+        if (not node.is_leaf() and not node.is_root()
+                and len(node.children) == 1 and node.name not in dated):
+            node.delete(preserve_branch_length=True,
+                        prevent_nondicotomic=False)
+    return t.write(format=1, format_root_node=True)
+
+
+def _prepare(newick_path, meta: dict, pal: dict, *,
+             collapse: bool, plain_visible: bool, show_dated_labels: bool,
+             show_scientific: bool = True):
+    """Build the toytree object plus the idx-ordered style lists. The flags let
+    each layout (rectangular / unrooted / circular) choose how dense to draw.
+    """
+    import toytree
+
+    dated = {k for k, v in meta.items()
+             if not v.get("is_leaf") and v.get("mya") is not None}
+    nwk_str = (_collapse_unary(newick_path, dated) if collapse
+               else Path(newick_path).read_text())
+    tre = toytree.tree(nwk_str)
+    nnodes = tre.nnodes
+
+    hover = {}
+    sizes = [pal["plain_size"] if plain_visible else 0] * nnodes
+    colors = [pal["plain"]] * nnodes
+    nlabels = [""] * nnodes
+
+    for node in tre.traverse():
+        i = node.idx
+        info = meta.get(node.name, {"is_leaf": node.is_leaf()})
+        hover[i] = _hover_text(node.name, info)
+        if node.is_leaf():
+            sizes[i] = pal["leaf_size"]
+            colors[i] = pal["leaf"]
+        elif node.name in dated:
+            sizes[i] = pal["dated_size"]
+            colors[i] = pal["dated"]
+            if show_dated_labels:
+                nlabels[i] = f"{node.name} {info.get('mya')}"
+        else:
+            sizes[i] = pal["plain_size"] if plain_visible else 0
+            colors[i] = pal["plain"]
+
+    tre = tre.set_node_data("meta", hover, default="")
+
+    tip_labels = []
+    for tname in tre.get_tip_labels():
+        info = meta.get(tname, {})
+        common = info.get("common_name")
+        sci = info.get("scientific_name") or tname.replace("_", " ")
+        if show_scientific and common:
+            tip_labels.append(f"{common}\n({sci})")
+        elif show_scientific:
+            tip_labels.append(f"({sci})")
+        else:
+            tip_labels.append(common or sci)
+
+    return tre, tip_labels, sizes, colors, nlabels
+
+
+def _layout_settings(layout: str, pal: dict):
+    """Per-layout drawing knobs."""
+    if layout == "c":
+        # Keep the full chain so the radial layout has structure to spread.
+        side = max(pal["w"], pal["h"])
+        return dict(
+            collapse=False, plain_visible=False, show_dated_labels=False,
+            align=True, use_edges=False, edge_type="c",
+            w=side, h=side, padding=30, shrink=90,
+        )
+    if layout == "unrooted":
+        side = max(pal["w"], pal["h"])
+        return dict(
+            collapse=True, plain_visible=True, show_dated_labels=True,
+            align=False, use_edges=False, edge_type="p",
+            w=side, h=side, padding=60, shrink=120,
+        )
+    # rectangular
+    return dict(
+        collapse=True, plain_visible=True, show_dated_labels=True,
+        align=True, use_edges=False, edge_type="p",
+        w=pal["w"], h=pal["h"], padding=70, shrink=pal["shrink"],
+    )
+
+
+def _draw(newick_path, meta: dict, layout: str,
+          show_scientific: bool = True, dark: bool = True):
+    pal = _DARK if dark else _LIGHT
+    s = _layout_settings(layout, pal)
+    tre, tip_labels, sizes, colors, nlabels = _prepare(
+        newick_path, meta, pal,
+        collapse=s["collapse"], plain_visible=s["plain_visible"],
+        show_dated_labels=s["show_dated_labels"],
+        show_scientific=show_scientific,
+    )
+    return tre.draw(
+        width=s["w"], height=s["h"], layout=layout, edge_type=s["edge_type"],
+        use_edge_lengths=s["use_edges"], tip_labels_align=s["align"],
+        tip_labels=tip_labels,
+        tip_labels_style={"font-size": "12.5px", "fill": pal["tip"],
+                          "-toyplot-anchor-shift": "14px"},
+        node_hover="meta",
+        node_mask=False,
+        node_labels=nlabels,
+        node_labels_style={"font-size": "10.5px", "fill": pal["label"],
+                           "font-weight": "bold",
+                           "-toyplot-anchor-shift": "-7px",
+                           "baseline-shift": "8px", "text-anchor": "end"},
+        node_sizes=sizes,
+        node_colors=colors,
+        node_style={"stroke": pal["nodestroke"], "stroke-width": 1.0},
+        edge_style={"stroke": pal["edge"], "stroke-width": 1.7},
+        edge_align_style={"stroke": pal["align"], "stroke-width": 0.8,
+                          "stroke-dasharray": "1,4"},
+        padding=s["padding"],
+        shrink=s["shrink"],
+    )
+
+
+_TEXT_RE = re.compile(r"<text ([^>]*)>([^<]*)</text>", re.S)
+
+
+def _two_line(svg_or_html: str) -> str:
+    """SVG ignores raw newlines in <text>, so turn "common\\n(scientific)" into
+    stacked <tspan>s with the scientific line italicized. A lone parenthesized
+    scientific name (no common name) is italicized in place.
+    """
+    def repl(m):
+        attrs, body = m.group(1), m.group(2)
+        if "\n" in body:
+            lines = body.split("\n")
+            xm = re.search(r'x="(-?[0-9.]+)"', attrs)
+            x = xm.group(1) if xm else "0"
+            rest = "".join(
+                f'<tspan x="{x}" dy="1.2em" style="font-style:italic">'
+                f"{ln}</tspan>"
+                for ln in lines[1:]
+            )
+            return f"<text {attrs}>{lines[0]}{rest}</text>"
+        if body.startswith("(") and body.endswith(")"):
+            return (f'<text {attrs}><tspan style="font-style:italic">'
+                    f"{body}</tspan></text>")
+        return m.group(0)
+    return _TEXT_RE.sub(repl, svg_or_html)
+
+
+def _bg_rect(svg_or_html: str, color: str) -> str:
+    """Paint the panel color as the first element inside the SVG itself so the
+    background covers the whole drawing regardless of the panel around it.
+    """
+    rect = (f'<rect x="0" y="0" width="100%" height="100%" '
+            f'fill="{color}" stroke="none"></rect>')
+    return re.sub(r"(<svg\b[^>]*>)", lambda m: m.group(1) + rect,
+                  svg_or_html, count=1)
+
+
+
+
+_EMPTY_LABEL_RE = re.compile(
+    r'(<g class="toytree-NodeLabel"\s+transform="translate\([^)]+\)">'
+    r'<title>[^<]+</title>)</g>')
+
+
+def _hover_targets(svg_or_html: str) -> str:
+    """Toyplot/toytree puts the hover <title> on the NodeLabel group. For
+    plain (undated) internal nodes that group has no visible <text>, so the
+    browser has nothing to hover over. Inject a transparent circle inside each
+    empty NodeLabel so the cursor can land near the marker and trigger the
+    tooltip. Dated nodes already carry a <text> child and are unaffected.
+    """
+    return _EMPTY_LABEL_RE.sub(
+        r'\1<circle r="14" fill="transparent" stroke="none" '
+        r'pointer-events="all"/></g>',
+        svg_or_html)
+
+
+def render_html(newick_path, meta: dict, layout: str = "r",
+                show_scientific: bool = True) -> str:
+    """Return interactive HTML on a dark panel for the dashboard."""
+    import toyplot.html
+
+    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific, dark=True)
+    html = toyplot.html.tostring(canvas).replace("meta: ", "")
+    html = _two_line(html)
+    bg = _DARK["bg"]
+    html = _bg_rect(html, bg)
+    html = _hover_targets(html)
+    return (f'<div style="background:{bg};border-radius:10px;padding:10px;'
+            f'display:inline-block;min-width:100%;box-sizing:border-box">'
+            f"{html}</div>")
+
+
+def render_files(newick_path, meta: dict, out_stem: str,
+                 layout: str = "r", out_dir: Path | None = None,
+                 show_scientific: bool = True) -> Path:
+    """Save a still SVG (and PNG) on a warm light background for the press kit."""
+    import toyplot.svg
+
+    out_dir = out_dir or config.OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific, dark=False)
+
+    svg_path = out_dir / f"{out_stem}.svg"
+    toyplot.svg.render(canvas, str(svg_path))
+    svg = _bg_rect(_two_line(svg_path.read_text()), _LIGHT["bg"])
+    svg = _hover_targets(svg)
+    svg_path.write_text(svg)
+    print(f"rendered {svg_path.name}")
+
+    png_path = out_dir / f"{out_stem}.png"
+    s = _layout_settings(layout, _LIGHT)
+    try:
+        import cairosvg
+        cairosvg.svg2png(bytestring=svg.encode("utf-8"),
+                         write_to=str(png_path),
+                         output_width=s["w"], output_height=s["h"])
+        print(f"rendered {out_stem}.png")
+    except Exception:
+        try:
+            import toyplot.png
+            toyplot.png.render(canvas, str(png_path))
+            print(f"rendered {out_stem}.png (toyplot)")
+        except Exception:
+            pass
+    return svg_path
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print('usage: python -m src.render "<Tree_Name>"')
+        raise SystemExit(1)
+    from src import tree as tree_mod
+    result = tree_mod.build_tree(sys.argv[1])
+    stem = sys.argv[1].strip().replace(" ", "_").lower()
+    render_files(result["path"], result["meta"], f"{stem}_tree")

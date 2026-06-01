@@ -1,0 +1,37 @@
+# {r}Evolving Kinship pipeline. All open source, no paid services.
+
+# Data layer
+pandas>=2.0
+SQLAlchemy>=2.0
+python-dotenv>=1.0
+
+# Online (Supabase / Postgres) driver. Not needed for offline SQLite mode.
+psycopg2-binary>=2.9
+
+# Taxonomy and tree building
+ete3>=3.1.3
+numpy>=1.24
+six
+
+# Offline tree rendering to SVG/PNG (headless, no web service)
+toytree>=2.0
+toyplot>=1.0
+# Renders the post-processed SVG (italic tspans, paper background) to PNG.
+# Falls back gracefully to toyplot's PNG if cairosvg can't import.
+cairosvg>=2.7
+
+# Sonification (chord) + meditation tracks
+MIDIUtil>=1.2.1
+scipy>=1.10
+soundfile>=0.12
+
+# Audio chorus + spectrogram sound kinship tree
+librosa>=0.10
+matplotlib>=3.7
+
+# Request station + dashboard
+streamlit>=1.30
+
+# Python 3.13 removed the stdlib 'cgi' module that ete3 still imports on load.
+# This backport restores it, so installs work on Python 3.13 and 3.14.
+legacy-cgi; python_version >= "3.13"

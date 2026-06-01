@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+
+# Secrets and local config
+.env
+
+# Local offline database
+revolving_kinship.db
+*.sqlite
+
+# Generated outputs (kept out of version control, rebuilt by `make run`)
+outputs/*
+!outputs/.gitkeep
+
+# ete3 taxonomy cache
+.etetoolkit/
+
+# Local virtual environment
+.venv/
