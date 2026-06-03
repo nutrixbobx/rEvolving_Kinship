@@ -14,6 +14,7 @@ Run it with:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -39,6 +40,34 @@ def _label(hit: dict) -> str:
         return f"{hit['common_name']} ({hit['scientific_name']}) [{hit['rank']}]"
     return f"{hit['scientific_name']} [{hit['rank']}]"
 
+
+from src import species_profile  # noqa: E402
+from src import species_player  # noqa: E402
+from src import tree_settings  # noqa: E402
+
+# --- Sidebar: admin login ---
+with st.sidebar:
+    st.markdown("### Admin")
+    if "is_admin" not in st.session_state:
+        st.session_state.is_admin = False
+    expected_pw = os.environ.get("ADMIN_PASSWORD", "")
+    if not st.session_state.is_admin:
+        pw_in = st.text_input("Admin password", type="password",
+                              help=("Set ADMIN_PASSWORD in .env to enable. "
+                                    "Leave blank in .env to keep the app open."))
+        if st.button("Sign in", key="admin_signin"):
+            if expected_pw and pw_in == expected_pw:
+                st.session_state.is_admin = True
+                st.rerun()
+            elif not expected_pw:
+                st.warning("ADMIN_PASSWORD not set in .env.")
+            else:
+                st.error("Wrong password.")
+    else:
+        st.success("Admin mode is on")
+        if st.button("Sign out", key="admin_signout"):
+            st.session_state.is_admin = False
+            st.rerun()
 
 st.title("{r}Evolving Kinship")
 station_tab, dash_tab = st.tabs(["Request station", "Dashboard"])
@@ -212,6 +241,35 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                             st.rerun()
                     except Exception as exc:
                         st.error(f"Build failed: {exc}")
+            with st.expander("Quick look at a species", expanded=False):
+                sci_names = sorted(df["scientific_name"].dropna().unique().tolist())
+                ql = st.selectbox("Pick", [""] + sci_names,
+                                  format_func=lambda x: x or "(none)",
+                                  key=f"ql_{pick_tree}")
+                if ql:
+                    row = df[df["scientific_name"] == ql].iloc[0]
+                    try:
+                        profile = species_profile.find_profile(
+                            ql, row.get("common_name"))
+                    except Exception:
+                        profile = None
+                    if profile and profile.get("image_path"):
+                        st.image(profile["image_path"], use_container_width=True)
+                        if profile.get("image_attribution"):
+                            st.caption(profile["image_attribution"][:80])
+                    if profile:
+                        st.markdown(f"**{row.get('common_name') or ql}**  "
+                                    f"*{ql}*")
+                        st.write((profile.get("summary") or "")[:500])
+                        link_bits = []
+                        for lab, key in (("Wikipedia", "wikipedia_url"),
+                                         ("iNaturalist", "inaturalist_url"),
+                                         ("GBIF", "gbif_url")):
+                            if profile.get(key):
+                                link_bits.append(f"[{lab}]({profile[key]})")
+                        if link_bits:
+                            st.markdown(" · ".join(link_bits))
+
             if st.button("Export species list for TimeTree"):
                 from src import timetree
                 p = timetree.export_species_list(pick_tree)
@@ -266,13 +324,95 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
 
             if nwk.exists() and meta:
                 with st.expander("Listen to each species", expanded=False):
-                    from src import species_player
-                    players = species_player.players_for_tree(pick_tree, meta)
-                    if not players:
-                        st.caption("No recordings found for any species yet. "
-                                   "Build the chorus first to fetch them.")
-                    for html, h in players:
-                        components.html(html, height=h, scrolling=False)
+                    from src import species_audio
+                    admin = st.session_state.get("is_admin", False)
+                    tip_rows = [(n, i) for n, i in meta.items()
+                                if i.get("is_leaf")]
+                    if not tip_rows:
+                        st.caption("Build the tree first.")
+                    for tip_name, info in tip_rows:
+                        sci = (info.get("scientific_name")
+                               or tip_name.replace("_", " "))
+                        common = info.get("common_name")
+                        try:
+                            profile = species_profile.find_profile(sci, common)
+                        except Exception:
+                            profile = None
+                        try:
+                            rec = species_audio.find_recording(sci, common)
+                        except Exception:
+                            rec = None
+
+                        st.divider()
+                        c_img, c_text = st.columns([1, 3])
+                        with c_img:
+                            if profile and profile.get("image_path"):
+                                st.image(profile["image_path"],
+                                         use_container_width=True)
+                                if profile.get("image_attribution"):
+                                    st.caption(
+                                        profile["image_attribution"][:90])
+                            else:
+                                st.caption("(no photo)")
+                        with c_text:
+                            head = f"**{common or sci}**"
+                            if common:
+                                head += f"  *({sci})*"
+                            st.markdown(head)
+                            summ = (profile or {}).get("summary") or ""
+                            if summ:
+                                trim = summ[:700]
+                                if len(summ) > 700:
+                                    trim += "…"
+                                st.write(trim)
+                            links = []
+                            for lab, k in (("Wikipedia", "wikipedia_url"),
+                                           ("iNaturalist", "inaturalist_url"),
+                                           ("GBIF", "gbif_url")):
+                                if (profile or {}).get(k):
+                                    links.append(f"[{lab}]({profile[k]})")
+                            if links:
+                                st.markdown(" · ".join(links))
+                            anc = (profile or {}).get("ancestors") or []
+                            if anc:
+                                chips = " › ".join(
+                                    a["name"] for a in anc[-7:])
+                                st.caption(chips)
+                            if rec:
+                                html = species_player.player_html(
+                                    common, sci, rec["path"],
+                                    rec.get("attribution"))
+                                components.html(
+                                    html, height=290, scrolling=False)
+                            else:
+                                st.caption("(no open recording found)")
+                            if admin:
+                                with st.expander("Edit profile (admin)"):
+                                    cur = species_profile.list_overrides().get(
+                                        sci, {})
+                                    img_url = st.text_input(
+                                        "Custom image URL",
+                                        value=cur.get("image_url", ""),
+                                        key=f"oi_{sci}")
+                                    summ_in = st.text_area(
+                                        "Custom summary",
+                                        value=cur.get("summary", ""),
+                                        key=f"os_{sci}")
+                                    cs, cc = st.columns(2)
+                                    with cs:
+                                        if st.button("Save",
+                                                     key=f"sov_{sci}"):
+                                            species_profile.save_override(
+                                                sci, image_url=img_url,
+                                                summary=summ_in)
+                                            st.success("Saved.")
+                                            st.rerun()
+                                    with cc:
+                                        if st.button("Clear",
+                                                     key=f"cov_{sci}"):
+                                            species_profile.clear_override(sci)
+                                            st.success("Cleared.")
+                                            st.rerun()
 
         st.divider()
         build_col, rename_col = st.columns([1, 2])
@@ -291,6 +431,22 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                         st.error(str(exc))
                     except Exception as exc:
                         st.error(f"Build failed: {exc}")
+
+            st.markdown("---")
+            st.markdown("**Photo tree**")
+            photo_tree = config.OUTPUT_DIR / f"{stem}_photo_tree.png"
+            if photo_tree.exists():
+                st.image(photo_tree.read_bytes())
+            if st.button("Build / refresh photo tree",
+                         key=f"phototree_{pick_tree}"):
+                with st.spinner("Fetching photos and composing the tree."):
+                    try:
+                        from src import image_tree
+                        image_tree.build_image_tree(pick_tree)
+                        st.success("Built.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Photo tree build failed: {exc}")
         with rename_col:
             new_name = st.text_input("Rename this tree", value=pick_tree,
                                      key=f"rename_{pick_tree}")
@@ -302,6 +458,31 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+
+        if st.session_state.get("is_admin"):
+            with st.expander("Tree personalization (admin)"):
+                cur = tree_settings.get_tree_settings(pick_tree)
+                owner_in = st.text_input(
+                    "Owner name",
+                    value=cur.get("owner", ""),
+                    key=f"owner_{pick_tree}",
+                    help="Used in the header of generated graphics.")
+                tmpl_in = st.text_input(
+                    "Title template",
+                    value=cur.get(
+                        "title_template",
+                        tree_settings.DEFAULT_TEMPLATE),
+                    key=f"tmpl_{pick_tree}",
+                    help="Use {owner} as the placeholder.")
+                if st.button("Save personalization",
+                             key=f"save_owner_{pick_tree}"):
+                    tree_settings.set_tree_settings(
+                        pick_tree, owner=owner_in.strip(),
+                        title_template=tmpl_in.strip())
+                    st.success("Saved.")
+                    st.rerun()
+                st.caption(f"Will render as: "
+                           f"“{tree_settings.title_for(pick_tree)}”")
 
         # ------- Edit a species ---------------------------------------------
         with st.expander("Edit a species in this tree"):
