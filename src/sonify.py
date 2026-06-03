@@ -28,6 +28,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src import usage_log  # noqa: E402
 
 # Fixed time-pitch frame so the same clade always sounds at the same Hz, across
 # trees. These bounds bracket the curated chronology and typical TimeTree dates.
@@ -141,6 +142,7 @@ def sonify_tree(ages: dict, stem: str) -> dict:
 
     mid = write_midi(voices, out_dir / f"{stem}_chord.mid")
     wav = write_wav(voices, out_dir / f"{stem}_chord.wav")
+    usage_log.log_event("sonify_chord", stem)
     print(f"wrote {mid.name} and {wav.name}")
     return {"voices": voices, "midi": mid, "wav": wav}
 

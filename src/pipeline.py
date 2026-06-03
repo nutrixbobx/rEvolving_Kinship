@@ -40,7 +40,7 @@ def run(tree_name: str, layout: str = "r") -> dict:
     }
 
     itol_export.export_all(df, leaves, ages)                      # 2. iTOL files
-    render.render_files(result["path"], meta, f"{stem}_tree", layout=layout)  # 3.
+    render.render_files(result["path"], meta, f"{stem}_tree", layout=layout, tree_name=tree_name)  # 3.
     sonify.sonify_tree(ages or result["internal_clades"], stem)  # 4. chord
     export_web.export_bundle(tree_name, result)                  # 5. web bundle
 

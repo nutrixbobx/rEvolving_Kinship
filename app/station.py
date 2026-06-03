@@ -15,6 +15,7 @@ Run it with:
 from __future__ import annotations
 
 import os
+import traceback
 import sys
 from pathlib import Path
 
@@ -44,6 +45,56 @@ def _label(hit: dict) -> str:
 from src import species_profile  # noqa: E402
 from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
+from src import ai_blurb  # noqa: E402
+from src import usage_log  # noqa: E402
+
+
+# Light Python-level memoization. Streamlit's @st.cache_data had reliability
+# issues with the large HTML payloads (and the previous wrappers contained a
+# self-recursing bug). The underlying functions already disk-cache, so this
+# in-memory dict is enough for a session.
+_PROFILE_CACHE: dict = {}
+_AUDIO_CACHE: dict = {}
+_PLAYER_CACHE: dict = {}
+
+
+def _cached_profile(sci, common):
+    key = (sci, common)
+    if key in _PROFILE_CACHE:
+        return _PROFILE_CACHE[key]
+    try:
+        v = species_profile.find_profile(sci, common)
+    except Exception:
+        v = None
+    _PROFILE_CACHE[key] = v
+    return v
+
+
+def _cached_audio(sci, common):
+    key = (sci, common)
+    if key in _AUDIO_CACHE:
+        return _AUDIO_CACHE[key]
+    try:
+        from src import species_audio as _sa
+        rec = _sa.find_recording(sci, common)
+    except Exception:
+        rec = None
+    out = (None if not rec
+           else {"path": str(rec["path"]),
+                 "attribution": rec.get("attribution", ""),
+                 "source": rec.get("source", "")})
+    _AUDIO_CACHE[key] = out
+    return out
+
+
+def _cached_player_html(common, sci, path_str, attribution):
+    key = (common, sci, path_str, attribution)
+    if key in _PLAYER_CACHE:
+        return _PLAYER_CACHE[key]
+    from pathlib import Path
+    out = species_player.player_html(common, sci, Path(path_str), attribution)
+    _PLAYER_CACHE[key] = out
+    return out
 
 # --- Sidebar: admin login ---
 with st.sidebar:
@@ -70,6 +121,11 @@ with st.sidebar:
             st.rerun()
 
 st.title("{r}Evolving Kinship")
+st.markdown(
+    '<div style="color:#7a8d86;font-style:italic;font-size:14px;'
+    'margin-top:-12px;margin-bottom:18px">'
+    + tree_settings.PROJECT_SLOGAN + "</div>",
+    unsafe_allow_html=True)
 station_tab, dash_tab = st.tabs(["Request station", "Dashboard"])
 
 # ---------------------------------------------------------------------------
@@ -249,8 +305,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 if ql:
                     row = df[df["scientific_name"] == ql].iloc[0]
                     try:
-                        profile = species_profile.find_profile(
-                            ql, row.get("common_name"))
+                        profile = _cached_profile(ql, row.get("common_name"))
                     except Exception:
                         profile = None
                     if profile and profile.get("image_path"):
@@ -315,104 +370,57 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             if nwk.exists() and meta:
                 html = render_mod.render_html(
                     nwk, meta, layout=render_mod.LAYOUTS[layout_name],
-                    show_scientific=show_sci,
+                    show_scientific=show_sci, tree_name=pick_tree,
                 )
                 components.html(html, height=880, scrolling=True)
+                # Download the current layout (SVG + PNG)
+                dl_cols = st.columns(2)
+                with dl_cols[0]:
+                    if st.button(f"Build {layout_name} SVG / PNG",
+                                 key=f"dl_build_{pick_tree}_{layout_name}"):
+                        layout_code = render_mod.LAYOUTS[layout_name]
+                        out = render_mod.render_files(
+                            nwk, meta,
+                            f"{stem}_tree_{layout_name.lower()}",
+                            layout=layout_code, tree_name=pick_tree)
+                        usage_log.log_event("render_tree", pick_tree)
+                        st.success("Files ready below.")
+                        st.rerun()
+                with dl_cols[1]:
+                    svg_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.svg"
+                    png_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.png"
+                    if svg_p.exists():
+                        st.download_button(
+                            f"SVG ({layout_name})", svg_p.read_bytes(),
+                            file_name=svg_p.name, mime="image/svg+xml",
+                            key=f"dl_svg_{pick_tree}_{layout_name}")
+                    if png_p.exists():
+                        st.download_button(
+                            f"PNG ({layout_name})", png_p.read_bytes(),
+                            file_name=png_p.name, mime="image/png",
+                            key=f"dl_png_{pick_tree}_{layout_name}")
+                # AI blurb under the tree, as plain text
+                try:
+                    b = ai_blurb.blurb_for_tree(pick_tree)
+                    usage_log.log_event(
+                        "ai_blurb_template" if b.get("source") == "template"
+                        else "ai_blurb_remote", pick_tree)
+                    st.markdown("&nbsp;")
+                    body = b["text"].replace("\n\n", "  \n\n")
+                    st.markdown(body)
+                    note_src = b.get("source", "-")
+                    cached_tag = " (cached)" if b.get("cached") else ""
+                    st.caption(f"note source: {note_src}{cached_tag}")
+                    if st.button("Refresh this note",
+                                 key=f"blurb_refresh_{pick_tree}"):
+                        ai_blurb.blurb_for_tree(pick_tree,
+                                                force_refresh=True)
+                        st.rerun()
+                except Exception as exc:
+                    st.warning(f"note unavailable: {exc}")
             else:
                 st.caption("This tree has not been built yet. Use the button "
                            "below.")
-
-            if nwk.exists() and meta:
-                with st.expander("Listen to each species", expanded=False):
-                    from src import species_audio
-                    admin = st.session_state.get("is_admin", False)
-                    tip_rows = [(n, i) for n, i in meta.items()
-                                if i.get("is_leaf")]
-                    if not tip_rows:
-                        st.caption("Build the tree first.")
-                    for tip_name, info in tip_rows:
-                        sci = (info.get("scientific_name")
-                               or tip_name.replace("_", " "))
-                        common = info.get("common_name")
-                        try:
-                            profile = species_profile.find_profile(sci, common)
-                        except Exception:
-                            profile = None
-                        try:
-                            rec = species_audio.find_recording(sci, common)
-                        except Exception:
-                            rec = None
-
-                        st.divider()
-                        c_img, c_text = st.columns([1, 3])
-                        with c_img:
-                            if profile and profile.get("image_path"):
-                                st.image(profile["image_path"],
-                                         use_container_width=True)
-                                if profile.get("image_attribution"):
-                                    st.caption(
-                                        profile["image_attribution"][:90])
-                            else:
-                                st.caption("(no photo)")
-                        with c_text:
-                            head = f"**{common or sci}**"
-                            if common:
-                                head += f"  *({sci})*"
-                            st.markdown(head)
-                            summ = (profile or {}).get("summary") or ""
-                            if summ:
-                                trim = summ[:700]
-                                if len(summ) > 700:
-                                    trim += "…"
-                                st.write(trim)
-                            links = []
-                            for lab, k in (("Wikipedia", "wikipedia_url"),
-                                           ("iNaturalist", "inaturalist_url"),
-                                           ("GBIF", "gbif_url")):
-                                if (profile or {}).get(k):
-                                    links.append(f"[{lab}]({profile[k]})")
-                            if links:
-                                st.markdown(" · ".join(links))
-                            anc = (profile or {}).get("ancestors") or []
-                            if anc:
-                                chips = " › ".join(
-                                    a["name"] for a in anc[-7:])
-                                st.caption(chips)
-                            if rec:
-                                html = species_player.player_html(
-                                    common, sci, rec["path"],
-                                    rec.get("attribution"))
-                                components.html(
-                                    html, height=290, scrolling=False)
-                            else:
-                                st.caption("(no open recording found)")
-                            if admin:
-                                with st.expander("Edit profile (admin)"):
-                                    cur = species_profile.list_overrides().get(
-                                        sci, {})
-                                    img_url = st.text_input(
-                                        "Custom image URL",
-                                        value=cur.get("image_url", ""),
-                                        key=f"oi_{sci}")
-                                    summ_in = st.text_area(
-                                        "Custom summary",
-                                        value=cur.get("summary", ""),
-                                        key=f"os_{sci}")
-                                    cs, cc = st.columns(2)
-                                    with cs:
-                                        if st.button("Save",
-                                                     key=f"sov_{sci}"):
-                                            species_profile.save_override(
-                                                sci, image_url=img_url,
-                                                summary=summ_in)
-                                            st.success("Saved.")
-                                            st.rerun()
-                                    with cc:
-                                        if st.button("Clear",
-                                                     key=f"cov_{sci}"):
-                                            species_profile.clear_override(sci)
-                                            st.success("Cleared.")
-                                            st.rerun()
 
         st.divider()
         build_col, rename_col = st.columns([1, 2])
@@ -484,8 +492,9 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 st.caption(f"Will render as: "
                            f"“{tree_settings.title_for(pick_tree)}”")
 
-        # ------- Edit a species ---------------------------------------------
-        with st.expander("Edit a species in this tree"):
+        # ------- Edit a species (admin only) --------------------------------
+        if st.session_state.get("is_admin"):
+          with st.expander("Edit a species in this tree (admin)"):
             label_by_sci = {
                 r["scientific_name"]: (
                     f"{r['common_name']} ({r['scientific_name']})"
@@ -549,7 +558,8 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
-        with st.expander("Remove species, or delete this tree"):
+        if st.session_state.get("is_admin"):
+          with st.expander("Remove species, or delete this tree (admin)"):
             to_remove = st.multiselect(
                 "Species to remove from this tree",
                 list(label_by_sci.keys()) if label_by_sci else [],
@@ -569,3 +579,147 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 removed = db.delete_tree(pick_tree)
                 st.success(f"Deleted {removed} rows from {pick_tree}.")
                 st.rerun()
+
+        # ------- Energy + offset invitation -------------------------------
+        st.divider()
+        totals = usage_log.get_totals()
+        tree_wh = usage_log.tree_total(pick_tree)
+        tree_rel = usage_log.relatable(tree_wh)
+        last = usage_log.last_event_summary()
+        st.markdown(
+            f"#### Approximate footprint  ·  "
+            f"{totals['events']} builds across the app  ·  "
+            f"about {totals['total_wh']} Wh "
+            f"(~{totals['total_co2_g']:.1f} g CO₂eq)")
+        if tree_wh > 0:
+            st.markdown(
+                f"This tree alone: about **{tree_wh} Wh**, "
+                f"{tree_rel}.")
+        if last:
+            st.caption(
+                f"Last build · {last['type']} · {last['wh']} Wh "
+                f"({last['relatable']})")
+        st.caption(usage_log.invitation(pick_tree))
+
+        # ------- Listen to each species (last, isolated) ----------
+        st.divider()
+        st.markdown("### Listen to each species")
+        try:
+            if nwk.exists() and meta:
+                with st.expander("Listen to each species", expanded=False):
+                    from src import species_audio
+                    admin = st.session_state.get("is_admin", False)
+                    tip_rows = [(n, i) for n, i in meta.items()
+                                if i.get("is_leaf")]
+                    if not tip_rows:
+                        st.caption("Build the tree first.")
+                    for tip_name, info in tip_rows:
+                        sci = (info.get("scientific_name")
+                               or tip_name.replace("_", " "))
+                        common = info.get("common_name")
+                        try:
+                            profile = _cached_profile(sci, common)
+                        except Exception as exc:
+                            profile = None
+                            if admin:
+                                st.warning(f"profile {sci}: {exc}")
+                        try:
+                            rec = _cached_audio(sci, common)
+                        except Exception as exc:
+                            rec = None
+                            if admin:
+                                st.warning(f"audio {sci}: {exc}")
+    
+                        st.divider()
+                        c_img, c_text = st.columns([1, 3])
+                        with c_img:
+                            if profile and profile.get("image_path"):
+                                st.image(profile["image_path"],
+                                         use_container_width=True)
+                                if profile.get("image_attribution"):
+                                    st.caption(
+                                        profile["image_attribution"][:90])
+                            else:
+                                st.caption("(no photo)")
+                        with c_text:
+                            head = f"**{common or sci}**"
+                            if common:
+                                head += f"  *({sci})*"
+                            st.markdown(head)
+                            summ = (profile or {}).get("summary") or ""
+                            if summ:
+                                trim = summ[:700]
+                                if len(summ) > 700:
+                                    trim += "…"
+                                st.write(trim)
+                            links = []
+                            for lab, k in (("Wikipedia", "wikipedia_url"),
+                                           ("iNaturalist", "inaturalist_url"),
+                                           ("GBIF", "gbif_url")):
+                                if (profile or {}).get(k):
+                                    links.append(f"[{lab}]({profile[k]})")
+                            if links:
+                                st.markdown(" · ".join(links))
+                            anc = (profile or {}).get("ancestors") or []
+                            if anc:
+                                chips = " › ".join(
+                                    a["name"] for a in anc[-7:])
+                                st.caption(chips)
+                            if rec:
+                                try:
+                                    html = _cached_player_html(
+                                        common, sci, str(rec["path"]),
+                                        rec.get("attribution",""))
+                                    components.html(
+                                        html, height=290, scrolling=False)
+                                except Exception as exc:
+                                    st.warning(f"player {sci}: {exc}")
+                                    if admin:
+                                        st.code(traceback.format_exc())
+                            else:
+                                st.caption("(no open recording found)")
+                            if admin:
+                                with st.expander("Edit profile (admin)"):
+                                    cur = species_profile.list_overrides().get(
+                                        sci, {})
+                                    img_url = st.text_input(
+                                        "Custom image URL",
+                                        value=cur.get("image_url", ""),
+                                        key=f"oi_{sci}")
+                                    summ_in = st.text_area(
+                                        "Custom summary",
+                                        value=cur.get("summary", ""),
+                                        key=f"os_{sci}")
+                                    cs, cc = st.columns(2)
+                                    with cs:
+                                        if st.button("Save",
+                                                     key=f"sov_{sci}"):
+                                            species_profile.save_override(
+                                                sci, image_url=img_url,
+                                                summary=summ_in)
+                                            st.success("Saved.")
+                                            st.rerun()
+                                    with cc:
+                                        if st.button("Clear",
+                                                     key=f"cov_{sci}"):
+                                            species_profile.clear_override(sci)
+                                            st.success("Cleared.")
+                                            st.rerun()
+        except Exception as _listen_exc:
+            st.warning(f"Listen section failed: {_listen_exc}")
+            if st.session_state.get("is_admin"):
+                st.code(traceback.format_exc(), language="python")
+
+
+# --- Site footer with CC license ---
+st.markdown(
+    '<div style="margin-top:48px;padding:16px 0;border-top:1px solid #d4ddd6;'
+    'color:#7a8d86;font-size:12px;text-align:center;line-height:1.5">'
+    '<b>{r}Evolving Kinship</b> · ' + tree_settings.PROJECT_SLOGAN + '<br>'
+    '<a href="https://creativecommons.org/licenses/by-sa/4.0/" '
+    'style="color:#7a8d86;text-decoration:none">'
+    'CC BY-SA 4.0</a> · Maya · '
+    '<a href="https://shared-rivers.org" '
+    'style="color:#7a8d86;text-decoration:none">Shared Rivers</a>'
+    '</div>',
+    unsafe_allow_html=True)

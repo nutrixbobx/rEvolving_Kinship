@@ -16,6 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src import usage_log  # noqa: E402
 
 SR = 22050
 SECONDS = 6.0
