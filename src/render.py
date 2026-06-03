@@ -260,8 +260,136 @@ def _hover_targets(svg_or_html: str) -> str:
         svg_or_html)
 
 
+
+
+def _header_band(svg_or_html: str, tree_name: str | None) -> str:
+    """Inject a small header band into the SVG with the project mark, slogan,
+    and per-tree title. Read at the gallery, on press kits, on the dashboard."""
+    if tree_name is None:
+        return svg_or_html
+    try:
+        from src import tree_settings
+        mark = tree_settings.PROJECT_MARK
+        slogan = tree_settings.PROJECT_SLOGAN
+        title = tree_settings.title_for(tree_name)
+    except Exception:
+        return svg_or_html
+    band = (
+        f'<g class="kinship-header" pointer-events="none">'
+        f'  <text x="14" y="22" fill="#a85a1f" font-family="Georgia,serif" '
+        f'font-weight="bold" font-size="14">{mark}</text>'
+        f'  <text x="14" y="38" fill="#5e6f68" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="10" font-style="italic">{slogan}</text>'
+        f'  <text x="50%" y="32" fill="#243b34" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="14" text-anchor="middle" font-style="italic">{title}</text>'
+        f'</g>'
+    )
+    return re.sub(r"(<svg\b[^>]*>(?:<rect[^>]*></rect>)?)",
+                  lambda m: m.group(1) + band, svg_or_html, count=1)
+
+
+
+
+def _build_image_map(meta: dict) -> dict:
+    """Map each tip's common name and scientific name to its image URL,
+    drawing on the species_profile disk cache. Returns a JSON-safe dict."""
+    try:
+        from src import species_profile
+    except Exception:
+        return {}
+    out = {}
+    for tip_name, info in meta.items():
+        if not info.get("is_leaf"):
+            continue
+        sci = info.get("scientific_name") or tip_name.replace("_", " ")
+        common = info.get("common_name")
+        try:
+            p = species_profile.find_profile(sci, common)
+        except Exception:
+            p = None
+        if not p:
+            continue
+        url = p.get("image_url")
+        if not url:
+            continue
+        if common:
+            out[common] = url
+        out[sci] = url
+        out[tip_name.replace("_", " ")] = url
+    return out
+
+
+def _hover_image_overlay(svg_or_html: str, image_map: dict) -> str:
+    """Inject a floating image preview that fades in when the cursor enters
+    a tip label. Image URLs come from species_profile."""
+    if not image_map:
+        return svg_or_html
+    import json as _json
+    js_map = _json.dumps(image_map)
+    overlay = f"""
+<div id="kinship-hover" style="position:fixed;pointer-events:none;opacity:0;
+     transition:opacity 0.2s ease;z-index:9999;background:#0e1b1a;
+     padding:6px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.6);
+     font-family:Helvetica,Arial,sans-serif;">
+  <img id="kinship-hover-img" style="display:block;width:200px;height:200px;
+       object-fit:cover;border-radius:4px;background:#0e1b1a;">
+  <div id="kinship-hover-cap" style="color:#e8f3ef;font-size:11px;
+       margin-top:4px;text-align:center;max-width:200px;"></div>
+</div>
+<script>
+(function() {{
+  var IMG = {js_map};
+  var box = document.getElementById('kinship-hover');
+  var img = document.getElementById('kinship-hover-img');
+  var cap = document.getElementById('kinship-hover-cap');
+  function bareKey(t) {{
+    t = (t || '').trim();
+    var idx = t.indexOf('(');
+    if (idx >= 0) t = t.substring(0, idx).trim();
+    return t;
+  }}
+  document.addEventListener('mousemove', function(e) {{
+    box.style.left = Math.min(window.innerWidth - 220, e.clientX + 14) + 'px';
+    box.style.top  = Math.min(window.innerHeight - 240, e.clientY + 14) + 'px';
+  }});
+  var texts = document.querySelectorAll('text');
+  texts.forEach(function(t) {{
+    var raw = t.textContent || '';
+    var key = bareKey(raw);
+    // tip-label tspans hold the italic (sci) line; check both
+    if (!IMG[key]) {{
+      var insideKey = bareKey(raw.replace(/[()]/g, ''));
+      if (IMG[insideKey]) key = insideKey;
+      else return;
+    }}
+    t.style.cursor = 'pointer';
+    t.addEventListener('mouseenter', function() {{
+      img.src = IMG[key]; cap.textContent = key; box.style.opacity = '1';
+    }});
+    t.addEventListener('mouseleave', function() {{
+      box.style.opacity = '0';
+    }});
+  }});
+}})();
+</script>
+"""
+    return svg_or_html + overlay
+
+
+
+
+def _cc_footer(svg_or_html: str) -> str:
+    """Append a small CC BY-SA notice as a <text> near the bottom of the SVG."""
+    footer = ('<text x="50%" y="98%" fill="#6b7d76" '
+              'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+              'text-anchor="middle">CC BY-SA Maya · Shared Rivers · '
+              '{r}Evolving Kinship</text>')
+    return re.sub(r"(</svg>)", footer + r"\1", svg_or_html, count=1)
+
+
 def render_html(newick_path, meta: dict, layout: str = "r",
-                show_scientific: bool = True) -> str:
+                show_scientific: bool = True,
+                tree_name: str | None = None) -> str:
     """Return interactive HTML on a dark panel for the dashboard."""
     import toyplot.html
 
@@ -271,6 +399,9 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     bg = _DARK["bg"]
     html = _bg_rect(html, bg)
     html = _hover_targets(html)
+    html = _header_band(html, tree_name)
+    html = _hover_image_overlay(html, _build_image_map(meta))
+    html = _cc_footer(html)
     return (f'<div style="background:{bg};border-radius:10px;padding:10px;'
             f'display:inline-block;min-width:100%;box-sizing:border-box">'
             f"{html}</div>")
@@ -278,7 +409,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
 
 def render_files(newick_path, meta: dict, out_stem: str,
                  layout: str = "r", out_dir: Path | None = None,
-                 show_scientific: bool = True) -> Path:
+                 show_scientific: bool = True,
+                 tree_name: str | None = None) -> Path:
     """Save a still SVG (and PNG) on a warm light background for the press kit."""
     import toyplot.svg
 
@@ -290,6 +422,8 @@ def render_files(newick_path, meta: dict, out_stem: str,
     toyplot.svg.render(canvas, str(svg_path))
     svg = _bg_rect(_two_line(svg_path.read_text()), _LIGHT["bg"])
     svg = _hover_targets(svg)
+    svg = _header_band(svg, tree_name)
+    svg = _cc_footer(svg)
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")
 
@@ -318,4 +452,4 @@ if __name__ == "__main__":
     from src import tree as tree_mod
     result = tree_mod.build_tree(sys.argv[1])
     stem = sys.argv[1].strip().replace(" ", "_").lower()
-    render_files(result["path"], result["meta"], f"{stem}_tree")
+    render_files(result["path"], result["meta"], f"{stem}_tree", tree_name=sys.argv[1])

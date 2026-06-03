@@ -18,6 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src import usage_log  # noqa: E402
 
 BG = "#0e1b1a"
 EDGE = "#5f7d75"
@@ -141,20 +142,28 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
         profiles_by_tip[tip] = p
         print(f"  {sci:30} -> {'OK' if (p and p.get('image_path')) else '-'}")
 
-    fig_w = 16
-    fig_h = max(8, 1.2 * n + 2.0)
+    fig_w = 14
+    fig_h = max(8, 1.05 * n + 2.0)
     fig = plt.figure(figsize=(fig_w, fig_h), facecolor=BG)
     draw_header(fig, tree_name)
 
-    ax_tree = fig.add_axes([0.02, 0.03, 0.40, 0.88])
+    # Wide tree column, tight square photo immediately after it, attribution
+    # filling the rest of the row. No internal margins around the photo.
+    ax_tree = fig.add_axes([0.02, 0.05, 0.58, 0.88])
     _draw_tree(ax_tree, tre, pos, meta, dated, max_depth, n)
 
-    top, bot = 0.07, 0.03
+    top, bot = 0.07, 0.05
     row_h = (1 - top - bot) / n
+    photo_left = 0.62
+    photo_h_in = row_h * 0.92 * fig_h
+    photo_w_frac = min(0.18, photo_h_in / fig_w)
+    attr_left = photo_left + photo_w_frac + 0.012
+
     for i, tip in enumerate(tips):
         y_bottom = 1 - top - (i + 1) * row_h
-        h = row_h * 0.84
-        ax = fig.add_axes([0.43, y_bottom + (row_h - h) / 2, 0.51, h])
+        h = row_h * 0.92
+        ax = fig.add_axes([photo_left, y_bottom + (row_h - h) / 2,
+                           photo_w_frac, h])
         ax.set_facecolor(BG)
         p = profiles_by_tip.get(tip)
         if p and p.get("image_path"):
@@ -171,13 +180,12 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
                 attr_raw = (p.get("image_attribution") or "")
                 if attr_raw:
                     import textwrap as _tw
-                    # wrap to fit within image bounds; right justified
-                    wrapped = "\n".join(_tw.wrap(attr_raw, width=44)[:3])
-                    ax.text(0.985, 0.02, wrapped, color="#e8f3ef", fontsize=6.5,
-                            ha="right", va="bottom",
-                            transform=ax.transAxes,
-                            bbox=dict(facecolor="#000", alpha=0.55,
-                                      edgecolor="none", pad=2.5))
+                    wrapped = "\n".join(
+                        _tw.wrap(attr_raw, width=68, max_lines=3,
+                                 placeholder="…"))
+                    fig.text(attr_left, y_bottom + row_h / 2,
+                             wrapped, color="#9ab3ab", fontsize=7,
+                             ha="left", va="center", linespacing=1.35)
             except Exception:
                 ax.text(0.5, 0.5, "image failed to load", ha="center",
                         va="center", color="#5b6e69", fontsize=9,
@@ -187,12 +195,17 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
                     color="#5b6e69", fontsize=9, transform=ax.transAxes)
         ax.set_xticks([])
         ax.set_yticks([])
-        for s in ax.spines.values():
-            s.set_visible(False)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
 
+    fig.text(0.5, 0.012,
+             "CC BY-SA Maya · Shared Rivers · {r}Evolving Kinship",
+             color="#6b7d76", fontsize=8, ha="center", va="bottom",
+             family="Helvetica")
     out = out_dir / f"{stem}_photo_tree.png"
     fig.savefig(str(out), facecolor=BG, dpi=130)
     plt.close(fig)
+    usage_log.log_event("build_photo_tree", tree_name)
     print(f"wrote {out.name}")
     return out
 

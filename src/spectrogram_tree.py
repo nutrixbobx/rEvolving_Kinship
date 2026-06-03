@@ -18,6 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src import usage_log  # noqa: E402
 
 
 # Palette matched to the dashboard tree.
@@ -186,9 +187,14 @@ def build_sound_tree(tree_name: str, out_dir: Path | None = None) -> Path:
         for s in ax.spines.values():
             s.set_visible(False)
 
+    fig.text(0.5, 0.012,
+             "CC BY-SA Maya · Shared Rivers · {r}Evolving Kinship",
+             color="#6b7d76", fontsize=8, ha="center", va="bottom",
+             family="Helvetica")
     out = out_dir / f"{stem}_sound_tree.png"
     fig.savefig(str(out), facecolor=BG, dpi=130)
     plt.close(fig)
+    usage_log.log_event("build_sound_tree", tree_name)
     print(f"wrote {out.name}")
     return out
 
