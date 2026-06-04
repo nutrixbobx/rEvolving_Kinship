@@ -174,25 +174,40 @@ with station_tab:
                 "Cloud the build persists until the container restarts.")
             if st.button("Start NCBI build", type="primary",
                          key="build_ncbi"):
+                # Step 1: if NCBI_TAXA_URL is set (e.g. Supabase Storage),
+                # try the fast URL download first (~30 seconds).
+                from src import setup_ncbi
+                ncbi_url = os.environ.get("NCBI_TAXA_URL")
+                if ncbi_url:
+                    with st.spinner(
+                            f"Downloading NCBI taxonomy from your bucket. "
+                            f"This takes about 30 seconds."):
+                        if setup_ncbi.ensure_taxonomy_from_url():
+                            st.success(
+                                "NCBI taxonomy downloaded from your bucket. "
+                                "Reload the page to activate autocomplete.")
+                            st.stop()
+                        else:
+                            st.warning(
+                                "Bucket download failed. Trying full NCBI "
+                                "build as a fallback (about five minutes).")
+                # Step 2: full ete3 build from NCBI FTP (slow path).
                 with st.spinner(
-                        "Building the NCBI taxonomy. Do not close this tab. "
-                        "This takes about five minutes on a typical server."):
+                        "Building the NCBI taxonomy from scratch. Do not "
+                        "close this tab. This takes about five minutes."):
                     try:
                         from ete3 import NCBITaxa
-                        NCBITaxa()  # triggers download + build on first call
+                        NCBITaxa()
                         st.success(
                             "NCBI taxonomy built. Reload the page to "
                             "activate kiosk autocomplete.")
                     except Exception as exc:
                         st.error(f"Build failed: {exc}")
                         st.info(
-                            "If the network blocks the NCBI FTP download, "
-                            "upload taxdump.tar.gz to your Supabase Storage "
-                            "and run "
-                            "`python -m src.build_taxonomy <local-path>` "
-                            "from a local machine, then commit "
-                            "`~/.etetoolkit/taxa.sqlite` to a Supabase "
-                            "Storage bucket and point NCBI_TAXA_DB at it.")
+                            "Upload taxdump.tar.gz or a pre-built "
+                            "taxa.sqlite.gz to your Supabase Storage and set "
+                            "NCBI_TAXA_URL in your Streamlit secrets to "
+                            "point at it. See DEPLOYMENT.md for the steps.")
 
     st.markdown("**Search** a common or scientific name")
     query = st.text_input(

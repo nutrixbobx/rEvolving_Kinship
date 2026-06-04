@@ -152,3 +152,119 @@ Never commit:
 - `taxdump.tar.gz` (large, gitignored)
 
 The `.gitignore` is already set up for all of these.
+
+
+## Where is YOUR-PASSWORD in Supabase?
+
+Two different things sit behind the word "password" in Supabase. Make sure
+you grab the right one.
+
+**The database password** is what goes into the connection string. You set
+it when you created the project. To find it again:
+
+1. In your Supabase dashboard, click your project.
+2. Left sidebar → **Project Settings** (gear icon at bottom).
+3. **Database** in the settings menu.
+4. Scroll to **Database Password**. There is a **Reset database password**
+   button. Click it once and you'll see the new password in a banner; copy
+   it immediately. Then update your Streamlit Cloud `DATABASE_URL` secret
+   with the new password.
+
+When Supabase shows you the connection string under **Connection string →
+URI**, the password is the part between `postgres:` and `@db.`. If you've
+never noted it down, just reset it — that's the fastest way.
+
+The other "password" in Supabase is your account login. That is for the
+dashboard, not for the database. Don't put your login password into
+`DATABASE_URL`.
+
+
+## Hosting the NCBI taxonomy in Supabase Storage
+
+This eliminates the five-minute rebuild on every container cold start.
+Once your taxonomy file lives in a Supabase bucket, the app downloads it
+in about thirty seconds.
+
+### Step A. Build the taxonomy once on your Mac
+
+```bash
+cd revolving_kinship
+source .venv/bin/activate
+python -c "from ete3 import NCBITaxa; NCBITaxa()"
+```
+
+After a few minutes you'll have `~/.etetoolkit/taxa.sqlite` (~600 MB).
+
+### Step B. Compress it (cuts size in half, saves bandwidth)
+
+```bash
+gzip -k ~/.etetoolkit/taxa.sqlite
+# produces ~/.etetoolkit/taxa.sqlite.gz, around 250-300 MB
+```
+
+### Step C. Create a Supabase Storage bucket
+
+1. In Supabase dashboard → **Storage** (left sidebar) → **New bucket**.
+2. Name it `ncbi-taxonomy`. Toggle **Public bucket: ON** (so the app can
+   fetch without auth).
+3. Click **Create bucket**.
+
+### Step D. Upload the file
+
+The Supabase dashboard's drag-and-drop has a 50 MB limit per file, which
+is too small. Use the CLI instead:
+
+1. Install the Supabase CLI once: `brew install supabase/tap/supabase`
+2. Log in: `supabase login` (browser flow)
+3. **Link your project once** (the `storage cp` command needs this; it
+   doesn't accept `--project-ref` directly):
+
+```bash
+cd revolving_kinship
+supabase link --project-ref YOUR-PROJECT-REF
+```
+
+It will prompt for your database password (same one in `DATABASE_URL`).
+
+4. Upload, using **three slashes** after `ss:` and the `--linked` flag:
+
+```bash
+supabase storage cp \
+  ~/.etetoolkit/taxa.sqlite.gz \
+  ss:///ncbi-taxonomy/taxa.sqlite.gz \
+  --linked
+```
+
+Your project ref is the subdomain from your Supabase URL
+(`https://YOUR-PROJECT-REF.supabase.co`). You can also find it in
+**Project Settings → General**.
+
+If the upload says the bucket does not exist, create `ncbi-taxonomy` in
+the dashboard first (Storage → New bucket → Public ON → Create).
+
+### Step E. Get the public URL
+
+In **Storage → ncbi-taxonomy → taxa.sqlite.gz**, click the row to open
+the file. Copy the **Public URL** at the top. It looks like:
+
+    https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/ncbi-taxonomy/taxa.sqlite.gz
+
+### Step F. Add it to your Streamlit Cloud secrets
+
+Open **Manage app → Settings → Secrets** and add this line:
+
+    NCBI_TAXA_URL = "https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/ncbi-taxonomy/taxa.sqlite.gz"
+
+Save. The app restarts.
+
+### Step G. Trigger the download on the deployed app
+
+Open the **Request station** tab. If the warning about the missing NCBI
+database is still showing, expand **Build NCBI taxonomy on this server**
+and click **Start NCBI build**. The new code path tries `NCBI_TAXA_URL`
+first; you'll see a thirty-second download spinner instead of a
+five-minute build, and the app picks up the taxonomy from your bucket.
+
+After this, every cold start of your Streamlit container takes thirty
+seconds of NCBI bootstrapping instead of five minutes, and the bandwidth
+stays comfortably inside Supabase's free tier (~250 MB per restart).
