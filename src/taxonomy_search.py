@@ -41,7 +41,8 @@ def _connect() -> sqlite3.Connection:
             "blocked)."
         )
     # read only, so the kiosk can never corrupt the taxonomy
-    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True,
+                           check_same_thread=False)
 
 
 def search_species(query: str, limit: int = 10) -> list[dict]:
