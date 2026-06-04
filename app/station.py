@@ -758,8 +758,8 @@ st.markdown(
     '<b>{r}Evolving Kinship</b> · ' + tree_settings.PROJECT_SLOGAN + '<br>'
     '<a href="https://creativecommons.org/licenses/by-sa/4.0/" '
     'style="color:#7a8d86;text-decoration:none">'
-    'CC BY-SA 4.0</a> · Maya · '
+    'CC BY-SA 4.0</a> · Maya Nutria · '
     '<a href="https://shared-rivers.org" '
-    'style="color:#7a8d86;text-decoration:none">Shared Rivers</a>'
+    'style="color:#7a8d86;text-decoration:none">Shared Rivers 2026</a>'
     '</div>',
     unsafe_allow_html=True)
