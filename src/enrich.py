@@ -18,28 +18,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 from src import db  # noqa: E402
 
-_ncbi = None
+import threading
+_ncbi_local = threading.local()
 
 
 def get_ncbi():
-    """Return a cached NCBITaxa handle. On first ever use this downloads and
-    builds the local NCBI taxonomy database (a few hundred MB), then reuses it.
+    """Return a per-thread NCBITaxa handle.
+
+    The underlying SQLite connection inside NCBITaxa can only be used from the
+    thread that opened it. Streamlit runs callbacks across a worker pool, so a
+    module-level cache breaks the second a different thread touches it. We
+    keep one NCBITaxa per thread via threading.local(). Opening a connection
+    to an already-built taxa.sqlite is fast (~milliseconds), so this is cheap.
+    On first ever use, ete3 downloads and builds the database (a few hundred
+    MB); after that, it's just open-and-go.
     """
-    global _ncbi
-    if _ncbi is None:
-        import os
-        from ete3 import NCBITaxa
-        from ete3.ncbi_taxonomy.ncbiquery import DEFAULT_TAXADB
-        # ete3 only auto-builds the database when called with its own default
-        # path (or a brand new custom path). Passing the default path back to it
-        # explicitly skips the build, so use the default unless NCBI_TAXA_DB
-        # points somewhere genuinely different.
-        custom = os.environ.get("NCBI_TAXA_DB")
-        if custom and os.path.abspath(custom) != os.path.abspath(DEFAULT_TAXADB):
-            _ncbi = NCBITaxa(dbfile=custom)
-        else:
-            _ncbi = NCBITaxa()
-    return _ncbi
+    cached = getattr(_ncbi_local, "ncbi", None)
+    if cached is not None:
+        return cached
+    import os
+    from ete3 import NCBITaxa
+    from ete3.ncbi_taxonomy.ncbiquery import DEFAULT_TAXADB
+    # ete3 only auto-builds the database when called with its own default
+    # path (or a brand new custom path). Passing the default path back to it
+    # explicitly skips the build, so use the default unless NCBI_TAXA_DB
+    # points somewhere genuinely different.
+    custom = os.environ.get("NCBI_TAXA_DB")
+    if custom and os.path.abspath(custom) != os.path.abspath(DEFAULT_TAXADB):
+        ncbi = NCBITaxa(dbfile=custom)
+    else:
+        ncbi = NCBITaxa()
+    _ncbi_local.ncbi = ncbi
+    return ncbi
 
 
 def resolve_names(names: list[str]) -> dict[str, int]:
