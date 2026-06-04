@@ -22,6 +22,19 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
+# === Streamlit Cloud bridge: copy st.secrets to os.environ so the rest of the
+# code (which reads from os.environ everywhere) works whether you are running
+# locally with a .env file or on Streamlit Cloud with secrets.toml.
+try:
+    if hasattr(st, "secrets"):
+        for _k in ("DATABASE_URL", "ADMIN_PASSWORD",
+                   "XENO_CANTO_API_KEY", "GROQ_API_KEY", "HF_TOKEN",
+                   "NCBI_TAXA_DB"):
+            if _k in st.secrets and not os.environ.get(_k):
+                os.environ[_k] = str(st.secrets[_k])
+except Exception:
+    pass
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 from src import db  # noqa: E402
@@ -148,11 +161,38 @@ with station_tab:
     ready = ts.is_ready()
     if not ready:
         st.warning(
-            "The NCBI database is not built yet, so live search and validation "
-            "are off. Build it once with a pipeline run, or "
-            "`python -m src.build_taxonomy`. You can still add names below and "
-            "they will resolve on the next run."
+            "The NCBI taxonomy database is not built on this server yet, so "
+            "live search and validation are off. Build it once below "
+            "(takes about five minutes; after that, kiosk autocomplete "
+            "works instantly). You can also add names without validation "
+            "and they will resolve on the next run."
         )
+        with st.expander("Build NCBI taxonomy on this server", expanded=False):
+            st.caption(
+                "This downloads about 80 MB from NCBI and builds the local "
+                "taxonomy SQLite (~600 MB). One-time setup. On Streamlit "
+                "Cloud the build persists until the container restarts.")
+            if st.button("Start NCBI build", type="primary",
+                         key="build_ncbi"):
+                with st.spinner(
+                        "Building the NCBI taxonomy. Do not close this tab. "
+                        "This takes about five minutes on a typical server."):
+                    try:
+                        from ete3 import NCBITaxa
+                        NCBITaxa()  # triggers download + build on first call
+                        st.success(
+                            "NCBI taxonomy built. Reload the page to "
+                            "activate kiosk autocomplete.")
+                    except Exception as exc:
+                        st.error(f"Build failed: {exc}")
+                        st.info(
+                            "If the network blocks the NCBI FTP download, "
+                            "upload taxdump.tar.gz to your Supabase Storage "
+                            "and run "
+                            "`python -m src.build_taxonomy <local-path>` "
+                            "from a local machine, then commit "
+                            "`~/.etetoolkit/taxa.sqlite` to a Supabase "
+                            "Storage bucket and point NCBI_TAXA_DB at it.")
 
     st.markdown("**Search** a common or scientific name")
     query = st.text_input(
