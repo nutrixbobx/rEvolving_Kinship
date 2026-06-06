@@ -36,8 +36,10 @@ ENERGY_WH = {
     "build_sound_tree": 4.5,   # spectrograms for ~10 species
     "build_photo_tree": 5.5,   # fetches species photos if not cached
     "build_meditation": 3.0,
-    "ai_blurb_remote": 4.0,    # remote model call
-    "ai_blurb_template": 0.1,  # local string only
+    "blurb_remote": 4.0,         # LLM call to Groq / Hugging Face
+    "blurb_template": 0.1,       # local string template, no model call
+    "ai_blurb_remote": 4.0,      # legacy alias, kept for old logs
+    "ai_blurb_template": 0.1,    # legacy alias
     "fetch_species_profile": 0.4,
     "fetch_species_audio": 1.2,
 }
@@ -158,6 +160,33 @@ def last_event_summary() -> dict | None:
 def tree_total(tree_name: str) -> float:
     events = _load()
     return round(sum(e.get("wh", 0) for e in events if e.get("tree") == tree_name), 1)
+
+
+
+
+
+# Water cost. Modern data centers (including upstream power generation cooling)
+# consume roughly 1.8 L of water per kWh, or 1.8 mL per Wh. Rough estimate;
+# real value depends on grid mix and data center cooling design.
+WATER_ML_PER_WH = 1.8
+
+
+def wh_to_water_ml(wh: float) -> float:
+    return wh * WATER_ML_PER_WH
+
+
+def water_relatable(wh: float) -> str:
+    """Return a short, human-readable water comparison."""
+    ml = wh_to_water_ml(wh)
+    if ml < 1:
+        return f"about {ml * 1000:.0f} drops of water"
+    if ml < 30:
+        return f"about {ml:.0f} mL of water (a sip)"
+    if ml < 500:
+        return f"about {ml:.0f} mL of water (a glass)"
+    if ml < 4000:
+        return f"about {ml / 240:.1f} cups of water"
+    return f"about {ml / 3785:.2f} gallons of water"
 
 
 if __name__ == "__main__":
