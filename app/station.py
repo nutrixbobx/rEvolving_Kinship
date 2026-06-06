@@ -145,6 +145,15 @@ station_tab, dash_tab = st.tabs(["Request station", "Dashboard"])
 # Request station (the kiosk)
 # ---------------------------------------------------------------------------
 with station_tab:
+    with st.expander("How this works (read me first)", expanded=False):
+        st.markdown(
+            "**Step 1.** Name one or more species you feel kin to (right here, below). Search by common name (coyote) or "
+            "scientific name (Canis latrans), pick the match, hit **Add to the tree**.\n\n"
+            "**Step 2.** Switch to the **Dashboard** tab at the top, pick your tree, and click **Build / rebuild** to draw "
+            "it, sound it, fetch photos, and write a short note.\n\n"
+            "**Step 3.** Hover the tree, listen to each species, build a meditation track, download the press files. "
+            "Everything is open and downloadable, including the raw Newick tree."
+        )
     st.subheader("Name a species you feel kin to")
 
     trees = db.list_trees()
@@ -232,6 +241,7 @@ with station_tab:
 
     notes = st.text_area(
         "Notes (optional)", "",
+        height=68,
         help="Any extra context to keep with this species: a grocery equivalent, "
              "a memory, where it was spotted, anything.",
     )
@@ -271,10 +281,16 @@ with dash_tab:
         st.info("No species yet. Add some on the request station tab, or run "
                 "`make load` to import the sample data.")
     else:
-        st.subheader("Trees in the warehouse")
-        st.dataframe(trees, use_container_width=True, hide_index=True)
-
-        pick_tree = st.selectbox("Look at a tree", trees["tree_name"].tolist())
+        with st.expander("How to build your tree (read me first)", expanded=False):
+            st.markdown(
+                "Pick a tree below, then click **Build / rebuild** on the right to "
+                "compute its topology, draw it, sound the chord, fetch the photos, and "
+                "write a short note. The first build takes a minute or two. "
+                "After that, every other section comes alive: hover the tips, listen to "
+                "each species, download the press files, mix a meditation track."
+            )
+        pick_tree = st.selectbox("Pick a tree",
+                                 trees["tree_name"].tolist())
         df = db.read_tree(pick_tree)
         headers = {
             "common_name": "Common", "scientific_name": "Scientific",
@@ -299,6 +315,26 @@ with dash_tab:
 
         view, side = st.columns([3, 1])
         with side:
+            # Visible build button up here so mobile users don't have to scroll
+            # past the whole page to find it.
+            if st.button(f"Build / rebuild  “{pick_tree}”",
+                         type="primary",
+                         key=f"build_top_{pick_tree}",
+                         use_container_width=True):
+                with st.spinner("Resolving taxonomy, building the tree, "
+                                "rendering, and sonifying. The first ever run "
+                                "also downloads the NCBI taxonomy, which takes "
+                                "a few minutes."):
+                    try:
+                        from src import pipeline
+                        pipeline.run(pick_tree)
+                        st.success("Built. Reloading.")
+                        st.rerun()
+                    except SystemExit as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        st.error(f"Build failed: {exc}")
+            st.markdown("&nbsp;")
             layout_name = st.radio("Layout", list(render_mod.LAYOUTS.keys()))
             show_sci = st.checkbox("Show scientific names", value=True)
             st.markdown(
@@ -458,14 +494,18 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 try:
                     b = ai_blurb.blurb_for_tree(pick_tree)
                     usage_log.log_event(
-                        "ai_blurb_template" if b.get("source") == "template"
-                        else "ai_blurb_remote", pick_tree)
+                        "blurb_template" if b.get("source") == "template"
+                        else "blurb_remote", pick_tree)
                     st.markdown("&nbsp;")
                     body = b["text"].replace("\n\n", "  \n\n")
                     st.markdown(body)
-                    note_src = b.get("source", "-")
+                    src_lbl = {
+                        "template": "generated from this tree’s structure",
+                        "groq": "written by an LLM via Groq",
+                        "hugging-face": "written by an LLM via Hugging Face",
+                    }.get(b.get("source", ""), b.get("source", ""))
                     cached_tag = " (cached)" if b.get("cached") else ""
-                    st.caption(f"note source: {note_src}{cached_tag}")
+                    st.caption(f"{src_lbl}{cached_tag}")
                     if st.button("Refresh this note",
                                  key=f"blurb_refresh_{pick_tree}"):
                         ai_blurb.blurb_for_tree(pick_tree,
@@ -639,29 +679,37 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
         st.divider()
         totals = usage_log.get_totals()
         tree_wh = usage_log.tree_total(pick_tree)
-        tree_rel = usage_log.relatable(tree_wh)
         last = usage_log.last_event_summary()
-        st.markdown(
-            f"#### Approximate footprint  ·  "
-            f"{totals['events']} builds across the app  ·  "
-            f"about {totals['total_wh']} Wh "
-            f"(~{totals['total_co2_g']:.1f} g CO₂eq)")
+        st.markdown(f"#### Approximate footprint of *{pick_tree}*")
         if tree_wh > 0:
             st.markdown(
-                f"This tree alone: about **{tree_wh} Wh**, "
-                f"{tree_rel}.")
-        if last:
+                f"This tree has used about **{tree_wh} Wh** of electricity "
+                f"({usage_log.relatable(tree_wh)}) and "
+                f"**{usage_log.wh_to_water_ml(tree_wh):.0f} mL of water** "
+                f"({usage_log.water_relatable(tree_wh)}) for data-center cooling.")
+        else:
+            st.caption("This tree has not been built yet, so no measurable "
+                       "electricity or water has been used for it.")
+        if last and last.get("tree") == pick_tree:
             st.caption(
-                f"Last build · {last['type']} · {last['wh']} Wh "
+                f"Last build event · {last['type']} · {last['wh']} Wh "
                 f"({last['relatable']})")
-        st.caption(usage_log.invitation(pick_tree))
+        st.markdown(usage_log.invitation(pick_tree))
+        st.markdown(
+            f'<div style="color:#9ab3ab;font-size:11px;margin-top:8px">'
+            f'Across the whole app: {totals["events"]} builds, '
+            f'about {totals["total_wh"]} Wh '
+            f'(~{totals["total_co2_g"]:.1f} g CO₂eq, '
+            f'{usage_log.wh_to_water_ml(totals["total_wh"]):.0f} mL of water).'
+            f'</div>',
+            unsafe_allow_html=True)
 
         # ------- Listen to each species (last, isolated) ----------
         st.divider()
         st.markdown("### Listen to each species")
         try:
             if nwk.exists() and meta:
-                with st.expander("Listen to each species", expanded=False):
+                with st.expander("Listen to each species", expanded=True):
                     from src import species_audio
                     admin = st.session_state.get("is_admin", False)
                     tip_rows = [(n, i) for n, i in meta.items()
