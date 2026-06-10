@@ -814,15 +814,23 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 st.code(traceback.format_exc(), language="python")
 
 
-# --- Site footer with CC license ---
+# --- Site footer with CC license + support links ---
 st.markdown(
     '<div style="margin-top:48px;padding:16px 0;border-top:1px solid #d4ddd6;'
-    'color:#7a8d86;font-size:12px;text-align:center;line-height:1.5">'
+    'color:#7a8d86;font-size:12px;text-align:center;line-height:1.7">'
     '<b>{r}Evolving Kinship</b> · ' + tree_settings.PROJECT_SLOGAN + '<br>'
     '<a href="https://creativecommons.org/licenses/by-sa/4.0/" '
     'style="color:#7a8d86;text-decoration:none">'
     'CC BY-SA 4.0</a> · Maya Nutria · '
     '<a href="https://shared-rivers.org" '
     'style="color:#7a8d86;text-decoration:none">Shared Rivers 2026</a>'
+    '<br>'
+    '<span style="color:#9ab3ab">Support this work · </span>'
+    '<a href="https://buymeacoffee.com/shared.rivers" target="_blank" '
+    'style="color:#a85a1f;text-decoration:none">buy me a coffee</a>'
+    ' · '
+    '<a href="https://fundraising.fracturedatlas.org/shared-rivers-confluences" target="_blank" '
+    'style="color:#a85a1f;text-decoration:none">'
+    'donate via Fractured Atlas (tax-deductible)</a>'
     '</div>',
     unsafe_allow_html=True)
