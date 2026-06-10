@@ -825,12 +825,12 @@ st.markdown(
     '<a href="https://shared-rivers.org" '
     'style="color:#7a8d86;text-decoration:none">Shared Rivers 2026</a>'
     '<br>'
-    '<span style="color:#9ab3ab">Support this work · </span>'
+    '<span style="color:#9ab3ab">Support our work: </span>'
     '<a href="https://buymeacoffee.com/shared.rivers" target="_blank" '
     'style="color:#a85a1f;text-decoration:none">buy me a coffee</a>'
     ' · '
     '<a href="https://fundraising.fracturedatlas.org/shared-rivers-confluences" target="_blank" '
     'style="color:#a85a1f;text-decoration:none">'
-    'donate via Fractured Atlas (tax-deductible)</a>'
+    'tax-deductible donations</a>'
     '</div>',
     unsafe_allow_html=True)
