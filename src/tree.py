@@ -22,17 +22,22 @@ import config  # noqa: E402
 from src import db, enrich  # noqa: E402
 
 
+import re as _re
+_UNSAFE_CHARS = _re.compile(r'[\s/\\:*?"<>|#%&{}\(\),;]+')
+
+
 def _safe(name: str) -> str:
-    """Make a name safe for a Newick label: no spaces, no problem characters."""
-    return (
-        name.strip()
-        .replace(" ", "_")
-        .replace("(", "")
-        .replace(")", "")
-        .replace(":", "")
-        .replace(",", "")
-        .replace(";", "")
-    )
+    """Filesystem- and Newick-safe slug. Strips path-dangerous characters,
+    collapses runs of separators, leaves ASCII letters / digits / underscores /
+    hyphens. Used for output file stems and Newick node labels.
+    """
+    if not isinstance(name, str):
+        return "tree"
+    s = name.strip()
+    s = _UNSAFE_CHARS.sub("_", s)
+    s = _re.sub(r"[^A-Za-z0-9_\-]+", "", s)
+    s = _re.sub(r"_+", "_", s).strip("_-")
+    return s or "tree"
 
 
 def name_tree(topo, taxid_translator=None):

@@ -46,7 +46,10 @@ db.init_db()
 
 
 def _stem(name: str) -> str:
-    return name.strip().replace(" ", "_").lower()
+    """Tree-name slug used for output filenames. Delegates to tree._safe so
+    rename and rebuild share one canonical definition of safety."""
+    from src.tree import _safe as _tree_safe
+    return _tree_safe(name).lower()
 
 
 def _label(hit: dict) -> str:
