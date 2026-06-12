@@ -1,22 +1,26 @@
 """
-Warehouse layer.
+Warehouse layer (v2 — 4NF+ schema on Supabase Postgres).
 
-One SQLAlchemy engine, two homes:
+The public API is intentionally the same as v1 (init_db, read_tree,
+list_trees, insert_request, rename_tree, delete_species, delete_tree,
+update_fields, append_dedup) so consumers (tree.py, pipeline.py, station.py,
+etl.py) keep working without changes. Internally the calls translate between
+the old flat row shape and the new normalized tables:
 
-  - SQLite when DATABASE_URL is unset. Zero install, runs offline on the
-    gallery mini-PC. This is the default.
-  - Postgres / Supabase when DATABASE_URL points at one. Same code, plus the
-    governance views and a path to embed results back into the website.
+    contributor                                 — anyone who writes data
+    species              (PK species_id)        — one row per real species
+    clade                (PK clade_id)          — taxonomic ancestry, shared
+    species_clade        (M2M)                  — species → clades
+    species_name         (PK name_id)           — multilingual / multicultural
+    tree                 (PK tree_id)           — first-class trees with slug
+    tree_species         (PK tree_id, species_id) — m2m + per-tree note
 
-This module replaces the old Google BigQuery layer. Everything the rest of the
-pipeline needs from the database goes through the functions here, so the BI
-tools, the website, and the kiosk all read from one stable surface.
-
-Run `python -m src.db init` to create the table (and, on Postgres, the views).
+NCBI taxonomy stays where it was (taxa.sqlite via ete3, file-based).
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -24,56 +28,38 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-try:  # load a local .env if python-dotenv is installed
+try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
     pass
 
-# Allow running as a module (`python -m src.db`) or a script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
 _engine: Engine | None = None
 
-# The columns the pipeline writes. id, created_at are filled by the database.
-# class and order are SQL reserved words, so those columns carry a trailing _.
+# Column names the v1 code expects on a read_tree() DataFrame. The
+# v_legacy_species_rows view in schema_v2.sql produces all but `domain` and
+# `story` which we add on the read path below.
 WRITE_COLUMNS = [
-    "tree_name",
-    "common_name",
-    "scientific_name",
-    "ncbi_taxid",
-    "domain",
-    "kingdom",
-    "phylum",
-    "class_",
-    "order_",
-    "family",
-    "genus",
-    "story",
-    "submitted_by",
-    "notes",
+    "tree_name", "common_name", "scientific_name", "ncbi_taxid",
+    "domain", "kingdom", "phylum", "class_", "order_", "family", "genus",
+    "story", "submitted_by", "notes",
 ]
 
-# Columns added after the first release. init_db backfills any that are missing
-# on an existing database, so older warehouses upgrade in place.
-_OPTIONAL_COLUMNS = {
-    "domain": "TEXT", "kingdom": "TEXT", "phylum": "TEXT", "class_": "TEXT",
-    "order_": "TEXT", "family": "TEXT", "genus": "TEXT",
-    "story": "TEXT", "submitted_by": "TEXT", "notes": "TEXT",
-}
-
-# Columns the editor in the dashboard is allowed to change. The natural key
-# (tree_name, scientific_name) is protected; rename a tree with rename_tree().
 EDITABLE_COLUMNS = [c for c in WRITE_COLUMNS
                     if c not in ("tree_name", "scientific_name")]
 
 
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
 def get_engine() -> Engine:
-    """Return the shared engine, building it from DATABASE_URL on first use."""
     global _engine
     if _engine is None:
-        _engine = create_engine(config.DATABASE_URL, future=True)
+        _engine = create_engine(config.DATABASE_URL, future=True,
+                                pool_pre_ping=True)
     return _engine
 
 
@@ -82,235 +68,112 @@ def is_postgres() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Schema
+# Slug + safe-name helpers (kept here so the DB layer can guarantee uniqueness)
 # ---------------------------------------------------------------------------
-_SQLITE_DDL = [
-    f"""
-    CREATE TABLE IF NOT EXISTS {config.TABLE_NAME} (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        tree_name       TEXT    NOT NULL,
-        common_name     TEXT,
-        scientific_name TEXT    NOT NULL,
-        ncbi_taxid      INTEGER,
-        domain          TEXT,
-        kingdom         TEXT,
-        phylum          TEXT,
-        class_          TEXT,
-        order_          TEXT,
-        family          TEXT,
-        genus           TEXT,
-        story           TEXT,
-        submitted_by    TEXT,
-        notes           TEXT,
-        created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-    """,
-    f"""
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_tree_species
-        ON {config.TABLE_NAME} (tree_name, lower(scientific_name))
-    """,
-]
-
-_POSTGRES_DDL = [
-    f"""
-    CREATE TABLE IF NOT EXISTS {config.TABLE_NAME} (
-        id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        tree_name       TEXT        NOT NULL,
-        common_name     TEXT,
-        scientific_name TEXT        NOT NULL,
-        ncbi_taxid      INTEGER,
-        domain          TEXT,
-        kingdom         TEXT,
-        phylum          TEXT,
-        class_          TEXT,
-        order_          TEXT,
-        family          TEXT,
-        genus           TEXT,
-        story           TEXT,
-        submitted_by    TEXT,
-        notes           TEXT,
-        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-    """,
-    f"""
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_tree_species
-        ON {config.TABLE_NAME} (tree_name, lower(scientific_name))
-    """,
-    f"""
-    CREATE OR REPLACE VIEW v_tree_summary AS
-    SELECT tree_name,
-           count(*) AS species_count,
-           count(*) FILTER (WHERE ncbi_taxid IS NOT NULL) AS resolved_count,
-           min(created_at) AS first_request,
-           max(created_at) AS latest_request
-    FROM {config.TABLE_NAME}
-    GROUP BY tree_name
-    """,
-    f"""
-    CREATE OR REPLACE VIEW v_species_public AS
-    SELECT tree_name, common_name, scientific_name, ncbi_taxid, domain,
-           kingdom, phylum, class_, order_, family, genus, notes
-    FROM {config.TABLE_NAME}
-    WHERE ncbi_taxid IS NOT NULL
-    ORDER BY tree_name, scientific_name
-    """,
-]
+_SLUG_UNSAFE = re.compile(r'[\s/\\:*?"<>|#%&{}\(\),;]+')
 
 
-def _ensure_columns(conn, pg: bool) -> None:
-    """Add any optional columns missing from an existing table (migration)."""
-    if pg:
-        rows = conn.execute(
-            text("SELECT column_name FROM information_schema.columns "
-                 "WHERE table_name = :t"),
-            {"t": config.TABLE_NAME},
-        ).fetchall()
-        have = {r[0] for r in rows}
-    else:
-        rows = conn.execute(
-            text(f"PRAGMA table_info({config.TABLE_NAME})")
-        ).fetchall()
-        have = {r[1] for r in rows}
-    for col, sqltype in _OPTIONAL_COLUMNS.items():
-        if col not in have:
-            conn.execute(
-                text(f"ALTER TABLE {config.TABLE_NAME} ADD COLUMN {col} {sqltype}")
-            )
+def _safe_slug(name: str) -> str:
+    if not isinstance(name, str):
+        return "tree"
+    s = name.strip().lower()
+    s = _SLUG_UNSAFE.sub("_", s)
+    s = re.sub(r"[^a-z0-9_\-]+", "", s)
+    s = re.sub(r"_+", "_", s).strip("_-")
+    return s or "tree"
 
 
+# ---------------------------------------------------------------------------
+# init_db — verify the v2 schema is present in Supabase
+# ---------------------------------------------------------------------------
 def init_db() -> None:
-    """Create the table, migrate missing columns, and (Postgres) the views."""
-    pg = is_postgres()
-    statements = _POSTGRES_DDL if pg else _SQLITE_DDL
-    engine = get_engine()
-    with engine.begin() as conn:
-        for stmt in statements:
-            if "CREATE OR REPLACE VIEW" not in stmt:
-                conn.execute(text(stmt))
-        _ensure_columns(conn, pg)
-        if pg:
-            for stmt in statements:
-                if "CREATE OR REPLACE VIEW" in stmt:
-                    conn.execute(text(stmt))
-    where = "Postgres/Supabase" if pg else "SQLite"
-    print(f"warehouse ready ({where}): {config.DATABASE_URL.split('@')[-1]}")
-
-
-# ---------------------------------------------------------------------------
-# Writes
-# ---------------------------------------------------------------------------
-def _existing_keys() -> set[tuple[str, str]]:
-    """Set of (tree_name, lowercased scientific_name) already in the table."""
+    """Verify the v2 schema is applied. wipe_and_init.sql + schema_v2.sql must
+    be run in the Supabase SQL editor before the app starts."""
     engine = get_engine()
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(f"SELECT tree_name, scientific_name FROM {config.TABLE_NAME}")
-        ).fetchall()
-    return {(r[0], (r[1] or "").strip().lower()) for r in rows}
+        n = conn.execute(text(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_schema = 'public' "
+            "AND table_name IN ('tree','species','species_name',"
+            "'tree_species','clade','contributor')"
+        )).scalar() or 0
+    if int(n) < 6:
+        raise RuntimeError(
+            "v2 schema missing. Run db/wipe_and_init.sql then "
+            "db/schema_v2.sql in the Supabase SQL editor.")
+    where = "Postgres/Supabase" if is_postgres() else "SQLite"
+    print(f"warehouse ready ({where}, schema v2): "
+          f"{config.DATABASE_URL.split('@')[-1]}")
 
 
-def append_dedup(df: pd.DataFrame) -> int:
-    """Append rows, skipping any species already recorded for that tree."""
-    init_db()
-    df = df.copy()
-    for col in WRITE_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-    df = df[WRITE_COLUMNS]
-
-    df["scientific_name"] = df["scientific_name"].astype(str).str.strip()
-    df["tree_name"] = df["tree_name"].astype(str).str.strip()
-    df = df[df["scientific_name"] != ""]
-    df["_key"] = list(zip(df["tree_name"], df["scientific_name"].str.lower()))
-    df = df.drop_duplicates(subset="_key")
-
-    have = _existing_keys()
-    df = df[~df["_key"].isin(have)].drop(columns="_key")
-    if df.empty:
-        return 0
-
-    df["ncbi_taxid"] = (
-        pd.to_numeric(df["ncbi_taxid"], errors="coerce").astype("Int64")
-    )
-    df = df.astype(object).where(pd.notna(df), None)
-    df.to_sql(config.TABLE_NAME, get_engine(), if_exists="append", index=False)
-    return len(df)
-
-
-def insert_request(
-    tree_name: str,
-    scientific_name: str,
-    common_name: str | None = None,
-    ncbi_taxid: int | None = None,
-    domain: str | None = None,
-    story: str | None = None,
-    submitted_by: str | None = None,
-    lineage: dict | None = None,
-    notes: str | None = None,
-) -> bool:
-    """Add a single kiosk request. Returns True if it was new, False if a
-    duplicate for that tree."""
-    row = {
-        "tree_name": tree_name,
-        "common_name": common_name,
-        "scientific_name": scientific_name,
-        "ncbi_taxid": ncbi_taxid,
-        "domain": domain,
-        "story": story,
-        "submitted_by": submitted_by,
-        "notes": notes,
-    }
-    if lineage:
-        for col in ("kingdom", "phylum", "class_", "order_", "family", "genus"):
-            if lineage.get(col) is not None:
-                row[col] = lineage[col]
-        if lineage.get("domain") and not domain:
-            row["domain"] = lineage["domain"]
-    return append_dedup(pd.DataFrame([row])) == 1
-
-
-def update_fields(tree_name: str, scientific_name: str, fields: dict) -> int:
-    """Set arbitrary editable columns on one row. Returns rows updated. The
-    natural key (tree_name, scientific_name) is protected; use rename_tree or
-    delete + re-add to change those.
-    """
-    fields = {k: v for k, v in fields.items() if k in EDITABLE_COLUMNS}
-    if not fields:
-        return 0
-    assignments = ", ".join(f"{k} = :{k}" for k in fields)
-    params = dict(fields)
-    params["tn"] = tree_name
-    params["sn"] = scientific_name.strip().lower()
+# ---------------------------------------------------------------------------
+# Contributors
+# ---------------------------------------------------------------------------
+def get_or_create_contributor(display_name: str | None) -> str | None:
+    """Return contributor_id (UUID string) or None if no name supplied."""
+    if not display_name:
+        return None
     engine = get_engine()
     with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                f"UPDATE {config.TABLE_NAME} SET {assignments} "
-                f"WHERE tree_name = :tn AND lower(scientific_name) = :sn"
-            ),
-            params,
-        )
-        return result.rowcount or 0
+        row = conn.execute(
+            text("SELECT contributor_id FROM contributor "
+                 "WHERE display_name = :n LIMIT 1"),
+            {"n": display_name},
+        ).fetchone()
+        if row:
+            return str(row[0])
+        new = conn.execute(
+            text("INSERT INTO contributor (display_name, role) "
+                 "VALUES (:n, 'visitor') RETURNING contributor_id"),
+            {"n": display_name},
+        ).fetchone()
+        return str(new[0])
 
 
-def update_taxid(tree_name: str, scientific_name: str, taxid: int) -> None:
-    """Persist a resolved NCBI TaxID back to the row (used by enrichment)."""
+# ---------------------------------------------------------------------------
+# Trees
+# ---------------------------------------------------------------------------
+def get_tree_id(tree_name: str) -> str | None:
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT tree_id FROM tree WHERE name = :n LIMIT 1"),
+            {"n": tree_name.strip()},
+        ).fetchone()
+    return str(row[0]) if row else None
+
+
+def get_or_create_tree(tree_name: str,
+                       owner_display_name: str | None = None) -> str:
+    name = tree_name.strip()
+    existing = get_tree_id(name)
+    if existing:
+        return existing
+    slug = _safe_slug(name)
+    owner_id = get_or_create_contributor(owner_display_name) if owner_display_name else None
+    # If the slug collides (different display name, same slug) append a suffix.
     engine = get_engine()
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                f"UPDATE {config.TABLE_NAME} SET ncbi_taxid = :tid "
-                f"WHERE tree_name = :tn AND lower(scientific_name) = :sn"
-            ),
-            {"tid": int(taxid), "tn": tree_name,
-             "sn": scientific_name.strip().lower()},
-        )
+        attempt = slug
+        for i in range(1, 50):
+            row = conn.execute(
+                text("SELECT 1 FROM tree WHERE slug = :s"),
+                {"s": attempt},
+            ).fetchone()
+            if not row:
+                break
+            attempt = f"{slug}-{i}"
+        new = conn.execute(
+            text("INSERT INTO tree (name, slug, owner_id) "
+                 "VALUES (:n, :s, :o) RETURNING tree_id"),
+            {"n": name, "s": attempt, "o": owner_id},
+        ).fetchone()
+        return str(new[0])
 
 
 def rename_tree(old: str, new: str) -> int:
-    """Rename a tree. Returns the number of rows updated. Fails gracefully if
-    the new name collides with an existing tree by raising (the caller decides
-    how to surface that in the UI)."""
+    """Rename a tree by string-old / string-new for back-compat with the kiosk.
+    Returns 1 on success, 0 if no such tree."""
     old, new = old.strip(), new.strip()
     if not new:
         raise ValueError("New tree name is empty.")
@@ -318,71 +181,388 @@ def rename_tree(old: str, new: str) -> int:
         return 0
     engine = get_engine()
     with engine.begin() as conn:
-        collision = conn.execute(
-            text(f"SELECT count(*) FROM {config.TABLE_NAME} "
-                 f"WHERE tree_name = :n"),
+        # Collision check
+        col = conn.execute(
+            text("SELECT count(*) FROM tree WHERE name = :n"),
             {"n": new},
         ).scalar()
-        if collision:
+        if col:
             raise ValueError(f"A tree named '{new}' already exists.")
+        # Update both name and slug
+        new_slug = _safe_slug(new)
+        attempt = new_slug
+        for i in range(1, 50):
+            row = conn.execute(
+                text("SELECT 1 FROM tree WHERE slug = :s AND name <> :o"),
+                {"s": attempt, "o": old},
+            ).fetchone()
+            if not row:
+                break
+            attempt = f"{new_slug}-{i}"
         result = conn.execute(
-            text(f"UPDATE {config.TABLE_NAME} SET tree_name = :n "
-                 f"WHERE tree_name = :o"),
-            {"n": new, "o": old},
+            text("UPDATE tree SET name = :n, slug = :s WHERE name = :o"),
+            {"n": new, "s": attempt, "o": old},
         )
-        return result.rowcount or 0
-
-
-# ---------------------------------------------------------------------------
-# Deletes
-# ---------------------------------------------------------------------------
-def delete_species(tree_name: str, scientific_name: str) -> int:
-    engine = get_engine()
-    with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                f"DELETE FROM {config.TABLE_NAME} "
-                f"WHERE tree_name = :tn AND lower(scientific_name) = :sn"
-            ),
-            {"tn": tree_name, "sn": scientific_name.strip().lower()},
-        )
-        return result.rowcount or 0
+        return int(result.rowcount or 0)
 
 
 def delete_tree(tree_name: str) -> int:
     engine = get_engine()
     with engine.begin() as conn:
         result = conn.execute(
-            text(f"DELETE FROM {config.TABLE_NAME} WHERE tree_name = :tn"),
-            {"tn": tree_name},
+            text("DELETE FROM tree WHERE name = :n"),
+            {"n": tree_name},
         )
-        return result.rowcount or 0
+        return int(result.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------
-# Reads
+# Species
 # ---------------------------------------------------------------------------
+def get_or_create_species(ncbi_taxid: int, scientific_name: str,
+                          rank: str | None = None) -> str:
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT species_id FROM species WHERE ncbi_taxid = :t"),
+            {"t": int(ncbi_taxid)},
+        ).fetchone()
+        if row:
+            return str(row[0])
+        new = conn.execute(
+            text("INSERT INTO species (ncbi_taxid, canonical_scientific_name, rank) "
+                 "VALUES (:t, :n, :r) RETURNING species_id"),
+            {"t": int(ncbi_taxid), "n": scientific_name, "r": rank},
+        ).fetchone()
+        return str(new[0])
+
+
+def add_species_name(species_id: str, name_text: str,
+                     language: str = "en",
+                     category: str = "common",
+                     source: str = "community",
+                     is_preferred: bool = False,
+                     contributor_id: str | None = None) -> None:
+    if not name_text or not name_text.strip():
+        return
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO species_name
+                    (species_id, name_text, language_code, name_category,
+                     source, is_preferred, contributed_by)
+                VALUES (:s, :n, :l, :c, :src, :p, :by)
+                ON CONFLICT (species_id, name_text, language_code, name_category)
+                DO NOTHING
+            """),
+            {"s": species_id, "n": name_text.strip(), "l": language,
+             "c": category, "src": source, "p": is_preferred,
+             "by": contributor_id},
+        )
+
+
+# ---------------------------------------------------------------------------
+# tree_species (the actual link rows)
+# ---------------------------------------------------------------------------
+def add_species_to_tree(tree_id: str, species_id: str,
+                        note: str | None = None,
+                        added_by: str | None = None) -> bool:
+    engine = get_engine()
+    with engine.begin() as conn:
+        # Check existing
+        row = conn.execute(
+            text("SELECT 1 FROM tree_species "
+                 "WHERE tree_id = :t AND species_id = :s"),
+            {"t": tree_id, "s": species_id},
+        ).fetchone()
+        if row:
+            return False
+        conn.execute(
+            text("INSERT INTO tree_species (tree_id, species_id, note, added_by) "
+                 "VALUES (:t, :s, :n, :a)"),
+            {"t": tree_id, "s": species_id, "n": note, "a": added_by},
+        )
+        return True
+
+
+def delete_species(tree_name: str, scientific_name: str) -> int:
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("""
+                DELETE FROM tree_species ts
+                USING tree t, species s
+                WHERE ts.tree_id = t.tree_id
+                  AND ts.species_id = s.species_id
+                  AND t.name = :tn
+                  AND lower(s.canonical_scientific_name) = lower(:sn)
+            """),
+            {"tn": tree_name, "sn": scientific_name.strip()},
+        )
+        return int(result.rowcount or 0)
+
+
+# ---------------------------------------------------------------------------
+# The "back-compat insert" path used by the kiosk and the dashboard editor.
+# ---------------------------------------------------------------------------
+def insert_request(
+    tree_name: str,
+    scientific_name: str,
+    common_name: str | None = None,
+    ncbi_taxid: int | None = None,
+    domain: str | None = None,        # ignored in v2 (lives in cultural layer)
+    story: str | None = None,         # routed into the story table
+    submitted_by: str | None = None,
+    lineage: dict | None = None,      # ignored in v2 for now (TODO: upsert clade)
+    notes: str | None = None,
+) -> bool:
+    """Add a species to a tree. Same signature as v1 so the kiosk's
+    add-to-tree path keeps working without a rewrite. Returns True if a new
+    tree_species row was created, False if the species was already in the tree.
+
+    The taxid + scientific name path is required (we can't dedup without
+    a taxid). If you don't have one, raise.
+    """
+    if ncbi_taxid is None:
+        raise ValueError(
+            "v2 requires an NCBI TaxID for every species. The kiosk's "
+            "species search returns one; the manual-name path is no "
+            "longer supported.")
+
+    contributor_id = get_or_create_contributor(submitted_by)
+    tree_id = get_or_create_tree(tree_name, owner_display_name=submitted_by)
+    species_id = get_or_create_species(int(ncbi_taxid), scientific_name.strip())
+
+    if common_name:
+        add_species_name(species_id, common_name, language="en",
+                         category="common", source="community",
+                         is_preferred=True, contributor_id=contributor_id)
+
+    is_new = add_species_to_tree(tree_id, species_id,
+                                 note=notes,
+                                 added_by=contributor_id)
+    # Story optional: if supplied, write to story table
+    if story:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO story (species_id, tree_id, body_text,
+                                       contributed_by)
+                    VALUES (:s, :t, :b, :c)
+                """),
+                {"s": species_id, "t": tree_id, "b": story,
+                 "c": contributor_id},
+            )
+    return is_new
+
+
+# ---------------------------------------------------------------------------
+# Edits (back-compat for the dashboard editor)
+# ---------------------------------------------------------------------------
+def update_fields(tree_name: str, scientific_name: str, fields: dict) -> int:
+    """Update editable fields on a species in a tree. v1 wrote to columns;
+    v2 distributes the changes:
+        common_name → upserted into species_name (en, common, preferred=true)
+        notes       → updated in tree_species.note
+        story       → inserted into story table
+        ncbi_taxid  → ignored (species is keyed by taxid; changing it is a
+                      delete + re-add)
+        kingdom..genus → TODO: upsert clade + species_clade (logged for now)
+    Returns the number of underlying writes performed."""
+    fields = {k: v for k, v in fields.items() if k in EDITABLE_COLUMNS}
+    if not fields:
+        return 0
+
+    engine = get_engine()
+    n_writes = 0
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("""SELECT s.species_id, t.tree_id
+                    FROM tree t, species s, tree_species ts
+                    WHERE ts.tree_id = t.tree_id
+                      AND ts.species_id = s.species_id
+                      AND t.name = :tn
+                      AND lower(s.canonical_scientific_name) = lower(:sn)
+                    LIMIT 1"""),
+            {"tn": tree_name, "sn": scientific_name},
+        ).fetchone()
+        if not row:
+            return 0
+        species_id, tree_id = str(row[0]), str(row[1])
+
+        if "common_name" in fields:
+            new_name = (fields["common_name"] or "").strip()
+            if new_name:
+                conn.execute(
+                    text("""
+                        INSERT INTO species_name
+                            (species_id, name_text, language_code,
+                             name_category, source, is_preferred)
+                        VALUES (:s, :n, 'en', 'common', 'community', true)
+                        ON CONFLICT (species_id, name_text, language_code, name_category)
+                        DO UPDATE SET is_preferred = true
+                    """),
+                    {"s": species_id, "n": new_name},
+                )
+                n_writes += 1
+
+        if "notes" in fields:
+            conn.execute(
+                text("UPDATE tree_species SET note = :n "
+                     "WHERE tree_id = :t AND species_id = :s"),
+                {"n": fields["notes"], "t": tree_id, "s": species_id},
+            )
+            n_writes += 1
+
+        if "story" in fields and fields["story"]:
+            conn.execute(
+                text("""
+                    INSERT INTO story (species_id, tree_id, body_text)
+                    VALUES (:s, :t, :b)
+                """),
+                {"s": species_id, "t": tree_id, "b": fields["story"]},
+            )
+            n_writes += 1
+        # kingdom..genus / domain: TODO in next phase (clade upsert)
+    return n_writes
+
+
+def update_taxid(*args, **kwargs) -> None:
+    """No-op in v2 — species is keyed by ncbi_taxid; you can't change it."""
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Reads (back-compat: same DataFrame shape as v1)
+# ---------------------------------------------------------------------------
+_READ_TREE_SQL = text("""
+    SELECT
+        t.name                              AS tree_name,
+        (SELECT sn.name_text FROM species_name sn
+            WHERE sn.species_id = s.species_id
+              AND sn.language_code = 'en'
+              AND sn.name_category = 'common'
+            ORDER BY sn.is_preferred DESC, sn.contributed_at ASC LIMIT 1)
+                                            AS common_name,
+        s.canonical_scientific_name         AS scientific_name,
+        s.ncbi_taxid                        AS ncbi_taxid,
+        NULL::text                          AS domain,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'kingdom' LIMIT 1)
+                                            AS kingdom,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'phylum' LIMIT 1)
+                                            AS phylum,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'class' LIMIT 1)
+                                            AS class_,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'order' LIMIT 1)
+                                            AS order_,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'family' LIMIT 1)
+                                            AS family,
+        (SELECT c.name FROM species_clade sc JOIN clade c
+            ON c.clade_id = sc.clade_id
+            WHERE sc.species_id = s.species_id AND c.rank = 'genus' LIMIT 1)
+                                            AS genus,
+        (SELECT st.body_text FROM story st
+            WHERE st.species_id = s.species_id AND st.is_published = true
+            ORDER BY st.contributed_at DESC LIMIT 1)
+                                            AS story,
+        co.display_name                     AS submitted_by,
+        ts.note                             AS notes,
+        ts.added_at                         AS created_at
+    FROM tree_species ts
+    JOIN tree t        ON t.tree_id     = ts.tree_id
+    JOIN species s     ON s.species_id  = ts.species_id
+    LEFT JOIN contributor co ON co.contributor_id = ts.added_by
+    WHERE t.name = :tn
+    ORDER BY s.canonical_scientific_name
+""")
+
+
 def read_tree(tree_name: str) -> pd.DataFrame:
-    return pd.read_sql(
-        text(
-            f"SELECT * FROM {config.TABLE_NAME} "
-            f"WHERE tree_name = :tn ORDER BY scientific_name"
-        ),
-        get_engine(),
-        params={"tn": tree_name},
-    )
+    """All rows for one tree, in v1-compatible column shape."""
+    return pd.read_sql(_READ_TREE_SQL, get_engine(), params={"tn": tree_name})
 
 
 def list_trees() -> pd.DataFrame:
+    """One row per tree with a species count. v1-compatible shape."""
     return pd.read_sql(
-        text(
-            f"SELECT tree_name, count(*) AS species_count, "
-            f"sum(CASE WHEN ncbi_taxid IS NOT NULL THEN 1 ELSE 0 END) "
-            f"AS resolved_count FROM {config.TABLE_NAME} "
-            f"GROUP BY tree_name ORDER BY tree_name"
-        ),
+        text("""
+            SELECT
+                t.name                                       AS tree_name,
+                (SELECT count(*) FROM tree_species ts
+                    WHERE ts.tree_id = t.tree_id)            AS species_count,
+                (SELECT count(*) FROM tree_species ts JOIN species s
+                    ON s.species_id = ts.species_id
+                    WHERE ts.tree_id = t.tree_id
+                      AND s.ncbi_taxid IS NOT NULL)          AS resolved_count
+            FROM tree t
+            ORDER BY t.name
+        """),
         get_engine(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Bulk loader (back-compat for etl.py)
+# ---------------------------------------------------------------------------
+def append_dedup(df: pd.DataFrame) -> int:
+    """Append rows from a CSV-shaped DataFrame, skipping species already in
+    that tree. Same return semantics as v1: number of new rows added."""
+    if df.empty:
+        return 0
+    init_db()
+    inserted = 0
+    for _, row in df.iterrows():
+        sci = row.get("scientific_name")
+        tree_name = row.get("tree_name")
+        if not isinstance(sci, str) or not sci.strip():
+            continue
+        if not isinstance(tree_name, str) or not tree_name.strip():
+            continue
+        taxid = row.get("ncbi_taxid")
+        try:
+            taxid_int = int(taxid) if taxid not in (None, "") and pd.notna(taxid) else None
+        except (TypeError, ValueError):
+            taxid_int = None
+        if taxid_int is None:
+            # Try to resolve from taxonomy_search at load time
+            try:
+                from src import taxonomy_search as ts
+                hit = ts.resolve_exact(sci.strip())
+                if hit:
+                    taxid_int = hit["taxid"]
+            except Exception:
+                pass
+        if taxid_int is None:
+            print(f"  skip {sci}: no NCBI TaxID resolved")
+            continue
+        try:
+            is_new = insert_request(
+                tree_name=tree_name.strip(),
+                scientific_name=sci.strip(),
+                common_name=(row.get("common_name") or None),
+                ncbi_taxid=taxid_int,
+                domain=row.get("domain"),
+                story=row.get("story"),
+                submitted_by=row.get("submitted_by") or "csv-import",
+                notes=row.get("notes"),
+            )
+            if is_new:
+                inserted += 1
+        except Exception as exc:
+            print(f"  err {sci}: {exc}")
+    return inserted
 
 
 if __name__ == "__main__":
