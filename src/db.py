@@ -286,6 +286,87 @@ def add_species_to_tree(tree_id: str, species_id: str,
         return True
 
 
+def link_species_to_clades(species_id: str,
+                            clade_chain: list[dict]) -> int:
+    """Given an ordered chain of clade dicts (root -> species), upsert each
+    clade and link species_clade. Sets clade.parent_clade_id to the previous
+    surviving clade so the in-table tree reflects ancestry filtered to the
+    ranks we store. Returns the number of clades linked. Idempotent."""
+    if not clade_chain:
+        return 0
+    n = 0
+    parent_id: str | None = None
+    engine = get_engine()
+    with engine.begin() as conn:
+        for cl in clade_chain:
+            taxid_int = int(cl["taxid"])
+            existing = conn.execute(
+                text("SELECT clade_id FROM clade WHERE ncbi_taxid = :t"),
+                {"t": taxid_int},
+            ).fetchone()
+            if existing:
+                clade_id = str(existing[0])
+                # Backfill mya/parent if missing
+                conn.execute(
+                    text("""
+                        UPDATE clade
+                        SET parent_clade_id = COALESCE(parent_clade_id, :p),
+                            divergence_mya  = COALESCE(divergence_mya, :m)
+                        WHERE clade_id = :c
+                    """),
+                    {"p": parent_id, "m": cl.get("mya"), "c": clade_id},
+                )
+            else:
+                row = conn.execute(
+                    text("""
+                        INSERT INTO clade
+                          (ncbi_taxid, name, rank, parent_clade_id,
+                           divergence_mya)
+                        VALUES (:t, :n, :r, :p, :m)
+                        ON CONFLICT (ncbi_taxid) DO NOTHING
+                        RETURNING clade_id
+                    """),
+                    {"t": taxid_int, "n": cl["name"], "r": cl.get("rank"),
+                     "p": parent_id, "m": cl.get("mya")},
+                ).fetchone()
+                if row:
+                    clade_id = str(row[0])
+                else:
+                    # Race: someone else inserted between our SELECT and INSERT.
+                    re_row = conn.execute(
+                        text("SELECT clade_id FROM clade WHERE ncbi_taxid = :t"),
+                        {"t": taxid_int},
+                    ).fetchone()
+                    clade_id = str(re_row[0])
+            # Link species_clade (no-op if already there)
+            conn.execute(
+                text("""
+                    INSERT INTO species_clade (species_id, clade_id)
+                    VALUES (:s, :c)
+                    ON CONFLICT DO NOTHING
+                """),
+                {"s": species_id, "c": clade_id},
+            )
+            parent_id = clade_id
+            n += 1
+    return n
+
+
+def _link_clades_for_taxid(species_id: str, ncbi_taxid: int) -> int:
+    """Resolve the NCBI lineage for a taxid and link the filtered clade chain
+    to one species. Used by insert_request and backfill_clades. Best-effort:
+    if NCBI lookup fails, returns 0 without raising."""
+    try:
+        from src import taxonomy_search as ts
+        lin = ts.lineage_clades_for_taxid(int(ncbi_taxid))
+    except Exception as exc:
+        print(f"  clade lookup failed for taxid {ncbi_taxid}: {exc}")
+        return 0
+    if not lin or not lin.get("clades"):
+        return 0
+    return link_species_to_clades(species_id, lin["clades"])
+
+
 def delete_species(tree_name: str, scientific_name: str) -> int:
     engine = get_engine()
     with engine.begin() as conn:
@@ -333,6 +414,9 @@ def insert_request(
     contributor_id = get_or_create_contributor(submitted_by)
     tree_id = get_or_create_tree(tree_name, owner_display_name=submitted_by)
     species_id = get_or_create_species(int(ncbi_taxid), scientific_name.strip())
+    # Populate clade + species_clade. Idempotent: re-adding the same species
+    # to a different tree just no-ops on the conflicts.
+    _link_clades_for_taxid(species_id, int(ncbi_taxid))
 
     if common_name:
         add_species_name(species_id, common_name, language="en",
@@ -448,7 +532,26 @@ _READ_TREE_SQL = text("""
                                             AS common_name,
         s.canonical_scientific_name         AS scientific_name,
         s.ncbi_taxid                        AS ncbi_taxid,
-        NULL::text                          AS domain,
+        (CASE
+            WHEN s.ncbi_taxid = 9606 THEN 'Human'
+            WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                            ON c.clade_id = sc.clade_id
+                            WHERE sc.species_id = s.species_id
+                              AND c.ncbi_taxid = 50557) THEN 'Insect'
+            WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                            ON c.clade_id = sc.clade_id
+                            WHERE sc.species_id = s.species_id
+                              AND c.ncbi_taxid = 33208) THEN 'Animal'
+            WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                            ON c.clade_id = sc.clade_id
+                            WHERE sc.species_id = s.species_id
+                              AND c.ncbi_taxid = 33090) THEN 'Plant'
+            WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                            ON c.clade_id = sc.clade_id
+                            WHERE sc.species_id = s.species_id
+                              AND c.ncbi_taxid = 4751) THEN 'Fungi'
+            ELSE 'Other'
+        END)                                AS domain,
         (SELECT c.name FROM species_clade sc JOIN clade c
             ON c.clade_id = sc.clade_id
             WHERE sc.species_id = s.species_id AND c.rank = 'kingdom' LIMIT 1)
@@ -565,11 +668,40 @@ def append_dedup(df: pd.DataFrame) -> int:
     return inserted
 
 
+def backfill_clades() -> tuple[int, int]:
+    """Walk every species and re-run the clade link. For species inserted
+    before the v2 clade pipeline landed, this is the one-shot to populate
+    their kingdom..genus rows. Returns (species_processed, clades_linked)."""
+    engine = get_engine()
+    init_db()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT species_id, ncbi_taxid, canonical_scientific_name "
+                 "FROM species ORDER BY canonical_scientific_name")
+        ).fetchall()
+    total_linked = 0
+    for r in rows:
+        species_id = str(r[0])
+        taxid = int(r[1]) if r[1] is not None else None
+        sci = r[2]
+        if not taxid:
+            print(f"  skip {sci}: no NCBI taxid")
+            continue
+        n = _link_clades_for_taxid(species_id, taxid)
+        print(f"  {sci:40} linked {n} clades")
+        total_linked += n
+    return len(rows), total_linked
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "init"
     if cmd == "init":
         init_db()
     elif cmd == "trees":
         print(list_trees().to_string(index=False))
+    elif cmd == "backfill-clades":
+        n_species, n_links = backfill_clades()
+        print(f"done. {n_species} species walked, {n_links} clade links written.")
     else:
-        print(f"unknown command: {cmd}  (try: init, trees)")
+        print(f"unknown command: {cmd}  "
+              "(try: init, trees, backfill-clades)")
