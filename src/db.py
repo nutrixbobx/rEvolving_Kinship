@@ -245,8 +245,23 @@ def add_species_name(species_id: str, name_text: str,
                      contributor_id: str | None = None) -> None:
     if not name_text or not name_text.strip():
         return
+    name_text = name_text.strip()
     engine = get_engine()
     with engine.begin() as conn:
+        # If marking this as preferred, demote any others first so there is
+        # only one preferred name per (species, language, category).
+        if is_preferred:
+            conn.execute(
+                text("""
+                    UPDATE species_name
+                    SET is_preferred = false
+                    WHERE species_id = :s
+                      AND language_code = :l
+                      AND name_category = :c
+                      AND lower(name_text) <> lower(:n)
+                """),
+                {"s": species_id, "l": language, "c": category, "n": name_text},
+            )
         conn.execute(
             text("""
                 INSERT INTO species_name
@@ -254,9 +269,9 @@ def add_species_name(species_id: str, name_text: str,
                      source, is_preferred, contributed_by)
                 VALUES (:s, :n, :l, :c, :src, :p, :by)
                 ON CONFLICT (species_id, name_text, language_code, name_category)
-                DO NOTHING
+                DO UPDATE SET is_preferred = EXCLUDED.is_preferred
             """),
-            {"s": species_id, "n": name_text.strip(), "l": language,
+            {"s": species_id, "n": name_text, "l": language,
              "c": category, "src": source, "p": is_preferred,
              "by": contributor_id},
         )
@@ -478,7 +493,22 @@ def update_fields(tree_name: str, scientific_name: str, fields: dict) -> int:
 
         if "common_name" in fields:
             new_name = (fields["common_name"] or "").strip()
+            # Always demote any other preferred common name for this species
+            # in this language, so there's only ever one preferred at a time.
+            conn.execute(
+                text("""
+                    UPDATE species_name
+                    SET is_preferred = false
+                    WHERE species_id = :s
+                      AND language_code = 'en'
+                      AND name_category = 'common'
+                      AND lower(name_text) <> lower(:n)
+                """),
+                {"s": species_id, "n": new_name},
+            )
+            n_writes += 1
             if new_name:
+                # Insert or promote the new preferred name
                 conn.execute(
                     text("""
                         INSERT INTO species_name
@@ -528,7 +558,8 @@ _READ_TREE_SQL = text("""
             WHERE sn.species_id = s.species_id
               AND sn.language_code = 'en'
               AND sn.name_category = 'common'
-            ORDER BY sn.is_preferred DESC, sn.contributed_at ASC LIMIT 1)
+              AND sn.is_preferred = true
+            ORDER BY sn.contributed_at DESC LIMIT 1)
                                             AS common_name,
         s.canonical_scientific_name         AS scientific_name,
         s.ncbi_taxid                        AS ncbi_taxid,
