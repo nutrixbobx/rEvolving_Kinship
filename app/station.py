@@ -590,30 +590,6 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 st.caption(f"Will render as: "
                            f"“{tree_settings.title_for(pick_tree)}”")
 
-        if st.session_state.get("is_admin"):
-            with st.expander("Database maintenance (admin)"):
-                st.markdown(
-                    "**Backfill clades.** Run this once if some of your "
-                    "species are showing **None** for Genus / Family / "
-                    "Order / Class / Phylum / Kingdom / Group. Usually "
-                    "happens when species were added while the NCBI "
-                    "taxonomy was still downloading on the server. Walks "
-                    "every species in your warehouse and re-links its "
-                    "clade ancestry. Idempotent, safe to re-run.")
-                if st.button("Backfill clades for all species",
-                             key="backfill_clades_btn"):
-                    with st.spinner(
-                            "Walking species and looking up each lineage "
-                            "in NCBI. About one second per species."):
-                        try:
-                            n_species, n_links = db.backfill_clades()
-                            st.success(
-                                f"Done. {n_species} species walked, "
-                                f"{n_links} clade links written.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Backfill failed: {exc}")
-
         # ------- Edit a species (admin only) --------------------------------
         if st.session_state.get("is_admin"):
           with st.expander("Edit a species in this tree (admin)"):
