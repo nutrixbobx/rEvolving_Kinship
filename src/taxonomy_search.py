@@ -191,3 +191,53 @@ if __name__ == "__main__":
     for hit in search_species(q):
         print(f"  {hit['taxid']:>8}  {hit['scientific_name']}  "
               f"({hit['common_name']})  [{hit['rank']}]")
+
+
+def lineage_clades_for_taxid(taxid: int) -> dict:
+    """Return the ordered clade chain (root -> species) for one taxid.
+
+    Filters to the Linnaean major ranks (kingdom, phylum, class, order, family,
+    genus) plus any clade name that lives in config.LCA_CHRONOLOGY_MYA. This is
+    what db.insert_request walks to populate the clade + species_clade tables.
+
+    Returns
+    -------
+    {
+        "clades": [{"taxid": int, "name": str, "rank": str | None,
+                    "mya": float | None}, ...],   # root -> species
+        "domain": "Human" | "Insect" | "Animal" | "Plant" | "Fungi" | "Other"
+    }
+    """
+    from src import enrich
+    import config as _config
+
+    ncbi = enrich.get_ncbi()
+    taxid = int(taxid)
+    lineage = ncbi.get_lineage(taxid) or []
+    if not lineage:
+        return {"clades": [], "domain": "Other"}
+
+    ranks = ncbi.get_rank(lineage)
+    names = ncbi.get_taxid_translator(lineage)
+    chronology = _config.LCA_CHRONOLOGY_MYA
+    keep_ranks = set(_RANK_TO_COLUMN.keys())  # kingdom..genus
+
+    out = []
+    for tid in lineage:
+        name = names.get(tid)
+        if not name:
+            continue
+        rank = (ranks.get(tid) or "").strip()
+        in_keeper_rank = rank in keep_ranks
+        in_chronology  = name in chronology
+        if not (in_keeper_rank or in_chronology):
+            continue
+        out.append({
+            "taxid": int(tid),
+            "name": name,
+            "rank": rank if rank not in ("no rank", "clade", "") else None,
+            "mya": float(chronology[name]) if name in chronology else None,
+        })
+
+    return {"clades": out, "domain": _group_for(set(lineage))}
+
