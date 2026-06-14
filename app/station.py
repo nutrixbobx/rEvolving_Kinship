@@ -142,7 +142,7 @@ st.markdown(
     'margin-top:-12px;margin-bottom:18px">'
     + tree_settings.PROJECT_SLOGAN + "</div>",
     unsafe_allow_html=True)
-station_tab, dash_tab = st.tabs(["Request station", "Dashboard"])
+station_tab, dash_tab, map_tab = st.tabs(["Request station", "Dashboard", "Range map"])
 
 # ---------------------------------------------------------------------------
 # Request station (the kiosk)
@@ -815,6 +815,67 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             st.warning(f"Listen section failed: {_listen_exc}")
             if st.session_state.get("is_admin"):
                 st.code(traceback.format_exc(), language="python")
+
+
+# ---------------------------------------------------------------------------
+# Range map tab — interactive species range map via GBIF
+# ---------------------------------------------------------------------------
+with map_tab:
+    st.subheader("Where these kin live")
+    st.markdown(
+        "Each species' occurrence density from "
+        "[GBIF](https://www.gbif.org/), drawn on one map so you can see how "
+        "the kin in your tree overlap and where they don't. Drag to pan, "
+        "scroll to zoom. Toggle species on or off in the top-right panel."
+    )
+
+    map_trees = db.list_trees()
+    if map_trees.empty:
+        st.info("Add species in the Request station tab first, then build a "
+                "tree. Once a tree exists, its range map shows up here.")
+    else:
+        map_pick = st.selectbox("Pick a tree",
+                                map_trees["tree_name"].tolist(),
+                                key="map_tree_pick")
+        from src import gbif_map
+        species_for_map = gbif_map.species_for_tree(map_pick)
+
+        if not species_for_map:
+            st.caption("This tree has no species yet.")
+        else:
+            with st.spinner(
+                    f"Resolving {len(species_for_map)} species in GBIF "
+                    "(cached after the first lookup)..."):
+                mapped, unmapped = gbif_map.resolve_species(species_for_map)
+
+            if not mapped:
+                st.warning(
+                    "None of these species have GBIF occurrence records yet. "
+                    "Common for very recently described species or for "
+                    "uncommon synonyms.")
+            else:
+                html = gbif_map.build_map_html(species_for_map, height=620)
+                components.html(html, height=640)
+                st.caption(
+                    "Map data © OpenStreetMap, © CARTO. Occurrence data © "
+                    "GBIF and its contributing institutions. Coverage is "
+                    "uneven globally; blank does not mean absent, it means "
+                    "undocumented in GBIF's records.")
+
+            if unmapped:
+                with st.expander(
+                        f"{len(unmapped)} species without GBIF records"):
+                    for sp in unmapped:
+                        st.caption(
+                            f"- {sp.get('common_name') or sp.get('scientific_name')}"
+                            f"  *({sp.get('scientific_name')})*")
+                    st.caption(
+                        "These species are either too recently described to "
+                        "be in GBIF, or the scientific name we have is a "
+                        "synonym GBIF doesn't recognize directly. "
+                        "Tip: editing the scientific name in the dashboard "
+                        "(admin only) to the canonical GBIF name resolves "
+                        "most of these.")
 
 
 # --- Site footer with CC license + support links ---
