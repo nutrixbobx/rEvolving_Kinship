@@ -724,6 +724,301 @@ def backfill_clades() -> tuple[int, int]:
     return len(rows), total_linked
 
 
+
+
+# ---------------------------------------------------------------------------
+# Community-layer reads (Library tab)
+#
+# All return pandas DataFrames suitable for st.dataframe. Joins resolve
+# species + tree + contributor display so the dataframes are self-explanatory
+# without extra UI work.
+# ---------------------------------------------------------------------------
+def list_stories() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT st.story_id, st.title,
+               s.canonical_scientific_name        AS species,
+               t.name                              AS tree,
+               st.language_code                    AS language,
+               st.region_code                      AS region,
+               SUBSTRING(st.body_text, 1, 240)     AS body_preview,
+               co.display_name                     AS contributor,
+               st.contributed_at
+        FROM story st
+        LEFT JOIN species s     ON s.species_id = st.species_id
+        LEFT JOIN tree t        ON t.tree_id    = st.tree_id
+        LEFT JOIN contributor co ON co.contributor_id = st.contributed_by
+        WHERE st.is_published = true
+        ORDER BY st.contributed_at DESC
+    """), get_engine())
+
+
+def list_dishes() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT d.dish_id, d.name, d.cuisine, d.origin_region, d.description,
+               (SELECT count(DISTINCT ds.species_id) FROM dish_species ds
+                  WHERE ds.dish_id = d.dish_id) AS ingredient_count,
+               co.display_name AS contributor,
+               d.contributed_at
+        FROM dish d
+        LEFT JOIN contributor co ON co.contributor_id = d.contributed_by
+        ORDER BY d.contributed_at DESC
+    """), get_engine())
+
+
+def list_dish_ingredients(dish_id: str | None = None) -> pd.DataFrame:
+    base = """
+        SELECT d.name AS dish, d.cuisine,
+               s.canonical_scientific_name AS species_scientific,
+               (SELECT sn.name_text FROM species_name sn
+                  WHERE sn.species_id = s.species_id
+                    AND sn.language_code = 'en'
+                    AND sn.name_category = 'common'
+                    AND sn.is_preferred = true LIMIT 1) AS species_common,
+               ds.role, ds.quantity_note
+        FROM dish_species ds
+        JOIN dish d    ON d.dish_id    = ds.dish_id
+        JOIN species s ON s.species_id = ds.species_id
+    """
+    if dish_id:
+        return pd.read_sql(
+            text(base + " WHERE d.dish_id = :d ORDER BY ds.role"),
+            get_engine(), params={"d": dish_id})
+    return pd.read_sql(
+        text(base + " ORDER BY d.name, ds.role"), get_engine())
+
+
+def list_pantheons() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT p.pantheon_id, p.name, p.region, p.tradition_type,
+               (SELECT count(*) FROM deity
+                  WHERE pantheon_id = p.pantheon_id) AS deities_count,
+               (SELECT count(DISTINCT sd.species_id)
+                  FROM deity de
+                  JOIN species_deity sd ON sd.deity_id = de.deity_id
+                  WHERE de.pantheon_id = p.pantheon_id) AS species_count
+        FROM pantheon p
+        ORDER BY p.name
+    """), get_engine())
+
+
+def list_species_deities() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT s.canonical_scientific_name AS species,
+               (SELECT sn.name_text FROM species_name sn
+                  WHERE sn.species_id = s.species_id
+                    AND sn.language_code = 'en'
+                    AND sn.name_category = 'common'
+                    AND sn.is_preferred = true LIMIT 1) AS common_name,
+               de.name AS deity, p.name AS pantheon,
+               sd.relationship, sd.note
+        FROM species_deity sd
+        JOIN species s   ON s.species_id   = sd.species_id
+        JOIN deity de    ON de.deity_id    = sd.deity_id
+        JOIN pantheon p  ON p.pantheon_id  = de.pantheon_id
+        ORDER BY s.canonical_scientific_name, p.name, de.name
+    """), get_engine())
+
+
+def list_cultural_connections() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT cc.connection_id,
+               s.canonical_scientific_name AS species,
+               (SELECT sn.name_text FROM species_name sn
+                  WHERE sn.species_id = s.species_id
+                    AND sn.language_code = 'en'
+                    AND sn.name_category = 'common'
+                    AND sn.is_preferred = true LIMIT 1) AS common_name,
+               cc.culture, cc.significance_type, cc.description, cc.source,
+               co.display_name AS contributor
+        FROM cultural_connection cc
+        JOIN species s ON s.species_id = cc.species_id
+        LEFT JOIN contributor co ON co.contributor_id = cc.contributed_by
+        ORDER BY s.canonical_scientific_name, cc.culture
+    """), get_engine())
+
+
+def list_all_names() -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT s.canonical_scientific_name AS species,
+               sn.name_text,
+               sn.language_code   AS language,
+               sn.name_category   AS category,
+               sn.region_code     AS region,
+               sn.is_preferred,
+               sn.source,
+               co.display_name    AS contributor
+        FROM species_name sn
+        JOIN species s ON s.species_id = sn.species_id
+        LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
+        ORDER BY s.canonical_scientific_name, sn.language_code,
+                 sn.is_preferred DESC, sn.name_text
+    """), get_engine())
+
+
+def list_species_for_picker() -> pd.DataFrame:
+    """For dropdowns: species_id + canonical + preferred common name."""
+    return pd.read_sql(text("""
+        SELECT s.species_id, s.canonical_scientific_name,
+               (SELECT sn.name_text FROM species_name sn
+                  WHERE sn.species_id = s.species_id
+                    AND sn.language_code = 'en'
+                    AND sn.name_category = 'common'
+                    AND sn.is_preferred = true LIMIT 1) AS common_name
+        FROM species s
+        ORDER BY common_name NULLS LAST, s.canonical_scientific_name
+    """), get_engine())
+
+
+# ---------------------------------------------------------------------------
+# Community-layer writes (Library admin entry forms)
+# ---------------------------------------------------------------------------
+def add_story(body_text: str,
+              species_id: str | None = None,
+              tree_id: str | None = None,
+              title: str | None = None,
+              language: str = "en",
+              region: str | None = None,
+              contributor_id: str | None = None) -> str:
+    if not body_text or not body_text.strip():
+        raise ValueError("Story body text is required.")
+    if not species_id and not tree_id:
+        raise ValueError("Story must be linked to a species or a tree.")
+    engine = get_engine()
+    with engine.begin() as conn:
+        new = conn.execute(
+            text("""INSERT INTO story (species_id, tree_id, title, body_text,
+                                       language_code, region_code,
+                                       contributed_by)
+                    VALUES (:s, :t, :ti, :b, :l, :r, :c)
+                    RETURNING story_id"""),
+            {"s": species_id, "t": tree_id, "ti": title,
+             "b": body_text.strip(), "l": language,
+             "r": region, "c": contributor_id},
+        ).fetchone()
+        return str(new[0])
+
+
+def add_dish(name: str,
+             origin_region: str | None = None,
+             cuisine: str | None = None,
+             description: str | None = None,
+             contributor_id: str | None = None) -> str:
+    if not name or not name.strip():
+        raise ValueError("Dish name is required.")
+    engine = get_engine()
+    with engine.begin() as conn:
+        new = conn.execute(
+            text("""INSERT INTO dish (name, origin_region, cuisine,
+                                       description, contributed_by)
+                    VALUES (:n, :o, :c, :d, :by)
+                    RETURNING dish_id"""),
+            {"n": name.strip(), "o": origin_region, "c": cuisine,
+             "d": description, "by": contributor_id},
+        ).fetchone()
+        return str(new[0])
+
+
+def link_dish_species(dish_id: str, species_id: str,
+                      role: str = "ingredient",
+                      quantity_note: str | None = None) -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO dish_species
+                       (dish_id, species_id, role, quantity_note)
+                    VALUES (:d, :s, :r, :q)
+                    ON CONFLICT (dish_id, species_id, role)
+                    DO UPDATE SET quantity_note = EXCLUDED.quantity_note"""),
+            {"d": dish_id, "s": species_id, "r": role, "q": quantity_note},
+        )
+
+
+def add_pantheon(name: str, region: str | None = None,
+                 tradition_type: str = "mythological") -> str:
+    if not name or not name.strip():
+        raise ValueError("Pantheon name is required.")
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT pantheon_id FROM pantheon WHERE name = :n"),
+            {"n": name.strip()},
+        ).fetchone()
+        if row:
+            return str(row[0])
+        new = conn.execute(
+            text("""INSERT INTO pantheon (name, region, tradition_type)
+                    VALUES (:n, :r, :t)
+                    RETURNING pantheon_id"""),
+            {"n": name.strip(), "r": region, "t": tradition_type},
+        ).fetchone()
+        return str(new[0])
+
+
+def add_deity(pantheon_id: str, name: str,
+              aliases: list[str] | None = None,
+              domain: str | None = None) -> str:
+    if not name or not name.strip():
+        raise ValueError("Deity name is required.")
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT deity_id FROM deity "
+                 "WHERE pantheon_id = :p AND name = :n"),
+            {"p": pantheon_id, "n": name.strip()},
+        ).fetchone()
+        if row:
+            return str(row[0])
+        new = conn.execute(
+            text("""INSERT INTO deity (pantheon_id, name, aliases, domain)
+                    VALUES (:p, :n, :a, :d)
+                    RETURNING deity_id"""),
+            {"p": pantheon_id, "n": name.strip(),
+             "a": aliases or [], "d": domain},
+        ).fetchone()
+        return str(new[0])
+
+
+def link_species_deity(species_id: str, deity_id: str,
+                       relationship: str = "sacred_to",
+                       note: str | None = None,
+                       contributor_id: str | None = None) -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO species_deity
+                       (species_id, deity_id, relationship,
+                        note, contributed_by)
+                    VALUES (:s, :d, :r, :n, :c)
+                    ON CONFLICT (species_id, deity_id, relationship)
+                    DO UPDATE SET note = EXCLUDED.note"""),
+            {"s": species_id, "d": deity_id, "r": relationship,
+             "n": note, "c": contributor_id},
+        )
+
+
+def add_cultural_connection(species_id: str, culture: str,
+                            significance_type: str | None = None,
+                            description: str | None = None,
+                            source: str | None = None,
+                            contributor_id: str | None = None) -> str:
+    if not culture or not culture.strip():
+        raise ValueError("Culture is required.")
+    engine = get_engine()
+    with engine.begin() as conn:
+        new = conn.execute(
+            text("""INSERT INTO cultural_connection
+                       (species_id, culture, significance_type, description,
+                        source, contributed_by)
+                    VALUES (:s, :c, :t, :d, :src, :by)
+                    RETURNING connection_id"""),
+            {"s": species_id, "c": culture.strip(),
+             "t": significance_type, "d": description,
+             "src": source, "by": contributor_id},
+        ).fetchone()
+        return str(new[0])
+
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "init"
     if cmd == "init":
