@@ -21,3 +21,4 @@ outputs/*
 
 # Streamlit Cloud secrets (real values)
 .streamlit/secrets.toml
+.DS_Store
