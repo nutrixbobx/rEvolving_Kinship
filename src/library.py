@@ -1,13 +1,15 @@
 """
 The kinship Library tab.
 
-Two halves: a public browse of every community knowledge surface (names,
-stories, dishes, pantheons, cultural connections), and an admin-only entry
-panel for adding new rows directly from the dashboard.
+Two halves: a public browse of every community knowledge surface (species,
+trees, names, stories, dishes, pantheons, cultural connections), and an
+admin-only entry panel for adding new rows from the dashboard.
 
-Browse uses st.dataframe per domain so any visitor can scroll through what
-the community has gathered. Admin forms write to Supabase via the helpers
-in db.py.
+Reads are cached per session with @st.cache_data so opening the tab doesn't
+refetch every dataframe on every Streamlit rerun. Cache is cleared
+automatically after any successful admin write so visitors see new entries
+immediately. Each expander shows a row count in its title so visitors know
+what's inside before clicking.
 """
 
 from __future__ import annotations
@@ -18,6 +20,86 @@ from src import db
 
 
 # ---------------------------------------------------------------------------
+# Cached read wrappers
+# ---------------------------------------------------------------------------
+# 90-second TTL: short enough that cross-user changes propagate quickly,
+# long enough that interaction-driven reruns are free.
+_TTL = 90
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_species_overview():
+    return db.list_species_overview()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_trees():
+    return db.list_trees()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_names():
+    return db.list_all_names()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_stories():
+    return db.list_stories()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_dishes():
+    return db.list_dishes()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_dish_ingredients():
+    return db.list_dish_ingredients()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_pantheons():
+    return db.list_pantheons()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_species_deities():
+    return db.list_species_deities()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_cultural():
+    return db.list_cultural_connections()
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_species_picker():
+    return db.list_species_for_picker()
+
+
+def _invalidate_all_caches() -> None:
+    """Clear every cached read. Called after an admin write so the Browse
+    tab reflects the change on the very next render."""
+    for fn in (_cached_species_overview, _cached_trees, _cached_names,
+               _cached_stories, _cached_dishes, _cached_dish_ingredients,
+               _cached_pantheons, _cached_species_deities,
+               _cached_cultural, _cached_species_picker):
+        fn.clear()
+
+
+def _csv_download(df, name: str, key: str) -> None:
+    """Compact CSV download button under each dataframe."""
+    if df.empty:
+        return
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        f"Download {name}.csv  ·  {len(df)} rows",
+        csv, file_name=f"{name}.csv", mime="text/csv",
+        key=f"dl_{key}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 def render(is_admin: bool) -> None:
@@ -25,9 +107,11 @@ def render(is_admin: bool) -> None:
     st.markdown(
         "Everything the community has woven around these species: the names "
         "they're called across languages, the stories they appear in, the "
-        "dishes they're cooked into, the pantheons they show up in, and the "
-        "cultural connections we want to keep."
+        "dishes they're cooked into, the pantheons they show up in, the "
+        "cultural connections we want to keep. Reads are cached for about a "
+        "minute and a half; new entries appear immediately."
     )
+
     browse, add = st.tabs(["Browse", "Add (admin only)"])
 
     with browse:
@@ -43,79 +127,105 @@ def render(is_admin: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Browse: read-only views of every domain
+# Browse: read-only views of every domain, each with row count + CSV export
 # ---------------------------------------------------------------------------
 def _render_browse() -> None:
-    st.markdown("&nbsp;")
-
-    with st.expander("Multilingual names",
-                     expanded=False):
-        df = db.list_all_names()
-        if df.empty:
-            st.caption("No names recorded yet beyond what NCBI gave us. Add "
-                       "your first one in the admin tab.")
+    # Species overview is the natural lead — one row per real species with
+    # rolled-up counts across every other surface.
+    df_sp = _cached_species_overview()
+    with st.expander(
+            f"Species  ·  {len(df_sp)} canonical species", expanded=True):
+        if df_sp.empty:
+            st.caption("No species yet. The Request station tab is where "
+                       "everything starts.")
         else:
-            st.caption(
-                f"{len(df)} names across "
-                f"{df['language'].nunique()} languages.")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df_sp, use_container_width=True, hide_index=True)
+            _csv_download(df_sp, "species_overview", "species_csv")
 
-    with st.expander("Stories", expanded=True):
-        df = db.list_stories()
-        if df.empty:
+    df_tr = _cached_trees()
+    with st.expander(
+            f"Trees  ·  {len(df_tr)} kinship trees", expanded=False):
+        if df_tr.empty:
+            st.caption("No trees yet.")
+        else:
+            st.dataframe(df_tr, use_container_width=True, hide_index=True)
+            _csv_download(df_tr, "trees", "trees_csv")
+
+    df_nm = _cached_names()
+    n_langs = df_nm["language"].nunique() if not df_nm.empty else 0
+    with st.expander(
+            f"Multilingual names  ·  {len(df_nm)} names "
+            f"in {n_langs} languages", expanded=False):
+        if df_nm.empty:
+            st.caption("No names recorded yet beyond what NCBI gave us. "
+                       "Add your first one in the Add tab.")
+        else:
+            st.dataframe(df_nm, use_container_width=True, hide_index=True)
+            _csv_download(df_nm, "names", "names_csv")
+
+    df_st = _cached_stories()
+    with st.expander(
+            f"Stories  ·  {len(df_st)} stories", expanded=False):
+        if df_st.empty:
             st.caption("No stories yet. The Add tab is where they begin.")
         else:
-            st.caption(f"{len(df)} stories.")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df_st, use_container_width=True, hide_index=True)
+            _csv_download(df_st, "stories", "stories_csv")
 
-    with st.expander("Dishes and recipes", expanded=False):
-        dishes = db.list_dishes()
-        if dishes.empty:
-            st.caption("No dishes yet. The Armenian Dolma tree was the seed; "
-                       "the Library is where the kitchen lives.")
+    df_di = _cached_dishes()
+    with st.expander(
+            f"Dishes and recipes  ·  {len(df_di)} dishes", expanded=False):
+        if df_di.empty:
+            st.caption("No dishes yet. The Armenian Dolma tree was the "
+                       "seed; the Library is where the kitchen lives.")
         else:
-            st.caption(f"{len(dishes)} dishes.")
-            st.dataframe(dishes, use_container_width=True, hide_index=True)
-            ingredients = db.list_dish_ingredients()
-            if not ingredients.empty:
-                st.markdown("**Ingredients across all dishes**")
-                st.dataframe(ingredients, use_container_width=True,
+            st.dataframe(df_di, use_container_width=True, hide_index=True)
+            _csv_download(df_di, "dishes", "dishes_csv")
+            df_ing = _cached_dish_ingredients()
+            if not df_ing.empty:
+                st.markdown(
+                    f"**Ingredients across all dishes**  ·  {len(df_ing)} links")
+                st.dataframe(df_ing, use_container_width=True,
                              hide_index=True)
+                _csv_download(df_ing, "dish_ingredients", "ingredients_csv")
 
-    with st.expander("Pantheons and deities", expanded=False):
-        pantheons = db.list_pantheons()
-        if pantheons.empty:
+    df_pa = _cached_pantheons()
+    df_sd = _cached_species_deities()
+    with st.expander(
+            f"Pantheons and deities  ·  {len(df_pa)} pantheons, "
+            f"{len(df_sd)} species links", expanded=False):
+        if df_pa.empty:
             st.caption("No pantheons yet. Greek, Mayan, Yoruba, Hindu, "
                        "Cherokee, Armenian — any tradition is welcome.")
         else:
-            st.caption(f"{len(pantheons)} pantheons.")
-            st.dataframe(pantheons, use_container_width=True,
-                         hide_index=True)
-            species_deities = db.list_species_deities()
-            if not species_deities.empty:
+            st.dataframe(df_pa, use_container_width=True, hide_index=True)
+            _csv_download(df_pa, "pantheons", "pantheons_csv")
+            if not df_sd.empty:
                 st.markdown("**Species linked to deities**")
-                st.dataframe(species_deities, use_container_width=True,
+                st.dataframe(df_sd, use_container_width=True,
                              hide_index=True)
+                _csv_download(df_sd, "species_deities", "species_deities_csv")
 
-    with st.expander("Cultural connections", expanded=False):
-        df = db.list_cultural_connections()
-        if df.empty:
+    df_cc = _cached_cultural()
+    with st.expander(
+            f"Cultural connections  ·  {len(df_cc)} connections",
+            expanded=False):
+        if df_cc.empty:
             st.caption("Nothing here yet. Cultural connections capture the "
                        "looser ties: a species as totem, as medicinal, as "
                        "ceremonial, as foundational to a foodway.")
         else:
-            st.caption(f"{len(df)} cultural connections.")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df_cc, use_container_width=True, hide_index=True)
+            _csv_download(df_cc, "cultural_connections", "cultural_csv")
 
 
 # ---------------------------------------------------------------------------
-# Admin entry forms
+# Admin entry forms (write paths)
 # ---------------------------------------------------------------------------
 def _species_picker(label: str, key: str,
                     allow_none: bool = False,
                     help: str | None = None) -> str | None:
-    """Dropdown of every species in the warehouse. Returns species_id."""
-    df = db.list_species_for_picker()
+    df = _cached_species_picker()
     if df.empty:
         st.warning("No species in the database yet. Add some via the "
                    "Request station tab first.")
@@ -133,18 +243,15 @@ def _species_picker(label: str, key: str,
                     f"({row['canonical_scientific_name']})")
         return row["canonical_scientific_name"]
 
-    picked = st.selectbox(label, options, format_func=fmt, key=key,
-                          help=help)
-    return picked or None
+    return st.selectbox(label, options, format_func=fmt, key=key,
+                        help=help) or None
 
 
 def _tree_picker(label: str, key: str,
                  allow_none: bool = True) -> str | None:
-    """Dropdown of every tree. Returns tree_id."""
-    trees = db.list_trees()
+    trees = _cached_trees()
     if trees.empty:
         return None
-    # We need tree_id, not name. Fetch via get_tree_id per row.
     options = [""] if allow_none else []
     name_to_id = {}
     for name in trees["tree_name"].tolist():
@@ -158,22 +265,29 @@ def _tree_picker(label: str, key: str,
             return "(none — species-level)"
         return name_to_id.get(tid, tid)
 
-    picked = st.selectbox(label, options, format_func=fmt, key=key)
-    return picked or None
+    return st.selectbox(label, options, format_func=fmt, key=key) or None
+
+
+def _saved(message: str) -> None:
+    """Common post-write step: clear caches, flash success, rerun."""
+    _invalidate_all_caches()
+    st.success(message)
+    st.rerun()
 
 
 def _render_admin_entry() -> None:
     st.caption("All entries are attributed; visitors can see who contributed "
-               "what in the Browse tab.")
+               "what in the Browse tab. Caches refresh automatically after "
+               "each save.")
     contrib_name = st.text_input(
         "Your contributor name (for attribution)",
         value="maya",
         key="lib_contrib_name",
-        help="Reused across submissions in this session. New names create a "
-             "new contributor row in the database.")
+        help="Reused across submissions in this session. New names create "
+             "a new contributor row in the database.")
     contributor_id = db.get_or_create_contributor(contrib_name)
 
-    # ---------- Add a multilingual name ----------
+    # ---------- Multilingual name ----------
     with st.expander("Add a name in another language or category",
                      expanded=False):
         with st.form("add_name_form"):
@@ -204,13 +318,11 @@ def _render_admin_entry() -> None:
                         category=cat, source="community",
                         is_preferred=is_pref,
                         contributor_id=contributor_id)
-                    st.success(
-                        f"Saved {name_text!r} ({lang}/{cat}).")
-                    st.rerun()
+                    _saved(f"Saved {name_text!r} ({lang}/{cat}).")
                 else:
                     st.warning("Need a species and a non-empty name.")
 
-    # ---------- Add a story ----------
+    # ---------- Story ----------
     with st.expander("Add a story", expanded=False):
         with st.form("add_story_form"):
             sp_id = _species_picker(
@@ -243,12 +355,11 @@ def _render_admin_entry() -> None:
                             language=lang.strip() or "en",
                             region=region.strip() or None,
                             contributor_id=contributor_id)
-                        st.success("Saved.")
-                        st.rerun()
+                        _saved("Saved.")
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")
 
-    # ---------- Add a dish + its ingredients ----------
+    # ---------- Dish + ingredients ----------
     with st.expander("Add a dish and link species as ingredients",
                      expanded=False):
         with st.form("add_dish_form"):
@@ -301,17 +412,16 @@ def _render_admin_entry() -> None:
                                     dish_id, sp, role=role,
                                     quantity_note=qty.strip() or None)
                                 linked += 1
-                        st.success(
+                        _saved(
                             f"Saved dish {d_name!r} with {linked} ingredient(s).")
-                        st.rerun()
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")
 
-    # ---------- Add a pantheon + deity ----------
+    # ---------- Pantheon + deity ----------
     with st.expander("Add a pantheon and a deity within it",
                      expanded=False):
         with st.form("add_pantheon_form"):
-            existing_p = db.list_pantheons()
+            existing_p = _cached_pantheons()
             pantheon_options = ["+ create new pantheon"] + (
                 existing_p["name"].tolist() if not existing_p.empty else [])
             picked_p_name = st.selectbox(
@@ -342,7 +452,6 @@ def _render_admin_entry() -> None:
                 d_domain = st.text_input(
                     "Domain",
                     help="water, hunt, fertility, sun, ...")
-
             if st.form_submit_button("Save pantheon + deity", type="primary"):
                 if not d_name.strip():
                     st.warning("Deity name is required.")
@@ -360,7 +469,6 @@ def _render_admin_entry() -> None:
                             pantheon_id = str(existing_p[
                                 existing_p["name"] == picked_p_name
                             ].iloc[0]["pantheon_id"])
-
                         aliases = ([a.strip() for a in d_aliases.split(",")
                                     if a.strip()]
                                    if d_aliases.strip() else None)
@@ -368,15 +476,12 @@ def _render_admin_entry() -> None:
                             pantheon_id, d_name.strip(),
                             aliases=aliases,
                             domain=d_domain.strip() or None)
-                        st.success(f"Saved deity {d_name!r}.")
-                        st.rerun()
+                        _saved(f"Saved deity {d_name!r}.")
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")
 
-    # ---------- Link a species to a deity ----------
+    # ---------- Link species to deity ----------
     with st.expander("Link a species to a deity", expanded=False):
-        deities = db.list_deities() if hasattr(db, "list_deities") else None
-        # Build deities list inline (function may not be in db.py)
         import pandas as _pd
         from sqlalchemy import text as _text
         deities = _pd.read_sql(_text("""
@@ -410,14 +515,13 @@ def _render_admin_entry() -> None:
                                 relationship=relationship,
                                 note=note.strip() or None,
                                 contributor_id=contributor_id)
-                            st.success("Linked.")
-                            st.rerun()
+                            _saved("Linked.")
                         except Exception as exc:
                             st.error(f"Save failed: {exc}")
                     else:
                         st.warning("Pick a species and a deity.")
 
-    # ---------- Add a cultural connection ----------
+    # ---------- Cultural connection ----------
     with st.expander("Add a cultural connection", expanded=False):
         with st.form("add_cultural_form"):
             sp_id = _species_picker("Species", key="addcc_sp")
@@ -446,7 +550,6 @@ def _render_admin_entry() -> None:
                             description=description.strip() or None,
                             source=source.strip() or None,
                             contributor_id=contributor_id)
-                        st.success("Saved.")
-                        st.rerun()
+                        _saved("Saved.")
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")

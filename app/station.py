@@ -113,6 +113,26 @@ def _cached_audio(sci, common):
     return out
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_list_trees_for_dashboard():
+    """Cache the trees-in-warehouse list for 60s so the picker doesn't
+    refetch on every interaction. Invalidated implicitly by TTL when admins
+    add/remove via the dashboard."""
+    return db.list_trees()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_read_tree(tree_name):
+    """Cache one tree's species DataFrame for 60s. Invalidated by TTL after
+    the kiosk adds a species; admin edits call .clear() to refresh now."""
+    return db.read_tree(tree_name)
+
+
+def _invalidate_dashboard_caches():
+    _cached_list_trees_for_dashboard.clear()
+    _cached_read_tree.clear()
+
+
 def _cached_player_html(common, sci, path_str, attribution):
     key = (common, sci, path_str, attribution)
     if key in _PLAYER_CACHE:
@@ -281,6 +301,7 @@ with station_tab:
             )
             label = pick["common_name"] or pick["scientific_name"]
             if is_new:
+                _invalidate_dashboard_caches()
                 st.success(f"{label} joined {tree_name}.")
             else:
                 st.info(f"{pick['scientific_name']} is already in {tree_name}.")
@@ -289,7 +310,7 @@ with station_tab:
 # Dashboard
 # ---------------------------------------------------------------------------
 with dash_tab:
-    trees = db.list_trees()
+    trees = _cached_list_trees_for_dashboard()
     if trees.empty:
         st.info("No species yet. Add some on the request station tab, or run "
                 "`make load` to import the sample data.")
@@ -304,7 +325,7 @@ with dash_tab:
             )
         pick_tree = st.selectbox("Pick a tree",
                                  trees["tree_name"].tolist())
-        df = db.read_tree(pick_tree)
+        df = _cached_read_tree(pick_tree)
         headers = {
             "common_name": "Common", "scientific_name": "Scientific",
             "genus": "Genus", "family": "Family", "order_": "Order",

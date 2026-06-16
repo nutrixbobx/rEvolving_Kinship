@@ -869,6 +869,60 @@ def list_species_for_picker() -> pd.DataFrame:
     """), get_engine())
 
 
+
+
+def list_species_overview() -> pd.DataFrame:
+    """Every canonical species with counts across the community layer.
+    Lets the Library tab show how rich each species' kinship layer is."""
+    return pd.read_sql(text("""
+        SELECT
+            s.canonical_scientific_name AS scientific_name,
+            (SELECT sn.name_text FROM species_name sn
+                WHERE sn.species_id = s.species_id
+                  AND sn.language_code = 'en'
+                  AND sn.name_category = 'common'
+                  AND sn.is_preferred = true LIMIT 1) AS common_name,
+            s.rank,
+            s.ncbi_taxid,
+            (CASE
+              WHEN s.ncbi_taxid = 9606 THEN 'Human'
+              WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                  ON c.clade_id = sc.clade_id
+                  WHERE sc.species_id = s.species_id
+                    AND c.ncbi_taxid = 50557) THEN 'Insect'
+              WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                  ON c.clade_id = sc.clade_id
+                  WHERE sc.species_id = s.species_id
+                    AND c.ncbi_taxid = 33208) THEN 'Animal'
+              WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                  ON c.clade_id = sc.clade_id
+                  WHERE sc.species_id = s.species_id
+                    AND c.ncbi_taxid = 33090) THEN 'Plant'
+              WHEN EXISTS (SELECT 1 FROM species_clade sc JOIN clade c
+                  ON c.clade_id = sc.clade_id
+                  WHERE sc.species_id = s.species_id
+                    AND c.ncbi_taxid = 4751) THEN 'Fungi'
+              ELSE 'Other'
+            END) AS "group",
+            (SELECT count(*) FROM species_name sn
+                WHERE sn.species_id = s.species_id) AS names_count,
+            (SELECT count(DISTINCT sn.language_code) FROM species_name sn
+                WHERE sn.species_id = s.species_id) AS languages_count,
+            (SELECT count(*) FROM story st
+                WHERE st.species_id = s.species_id) AS stories_count,
+            (SELECT count(*) FROM dish_species ds
+                WHERE ds.species_id = s.species_id) AS dishes_count,
+            (SELECT count(*) FROM species_deity sd
+                WHERE sd.species_id = s.species_id) AS deities_count,
+            (SELECT count(*) FROM cultural_connection cc
+                WHERE cc.species_id = s.species_id) AS connections_count,
+            (SELECT count(DISTINCT tree_id) FROM tree_species ts
+                WHERE ts.species_id = s.species_id) AS trees_count
+        FROM species s
+        ORDER BY s.canonical_scientific_name
+    """), get_engine())
+
+
 # ---------------------------------------------------------------------------
 # Community-layer writes (Library admin entry forms)
 # ---------------------------------------------------------------------------
