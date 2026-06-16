@@ -42,7 +42,16 @@ from src import render as render_mod  # noqa: E402
 from src import taxonomy_search as ts  # noqa: E402
 
 st.set_page_config(page_title="{r}Evolving Kinship", layout="wide")
-db.init_db()
+
+
+@st.cache_resource(show_spinner=False)
+def _verified_db_init():
+    """Run the v2 schema verification once per session, not every rerun."""
+    db.init_db()
+    return True
+
+
+_verified_db_init()
 
 
 def _stem(name: str) -> str:
@@ -61,6 +70,7 @@ def _label(hit: dict) -> str:
 from src import species_profile  # noqa: E402
 from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
+from src import library  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
 
@@ -142,7 +152,7 @@ st.markdown(
     'margin-top:-12px;margin-bottom:18px">'
     + tree_settings.PROJECT_SLOGAN + "</div>",
     unsafe_allow_html=True)
-station_tab, dash_tab, map_tab = st.tabs(["Request station", "Dashboard", "Range map"])
+station_tab, dash_tab, map_tab, library_tab = st.tabs(["Request station", "Dashboard", "Range map", "Library"])
 
 # ---------------------------------------------------------------------------
 # Request station (the kiosk)
@@ -493,7 +503,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                             f"PNG ({layout_name})", png_p.read_bytes(),
                             file_name=png_p.name, mime="image/png",
                             key=f"dl_png_{pick_tree}_{layout_name}")
-                # AI blurb under the tree, as plain text
+                # Short note under the tree, generated or LLM-written
                 try:
                     b = ai_blurb.blurb_for_tree(pick_tree)
                     usage_log.log_event(
@@ -876,6 +886,14 @@ with map_tab:
                         "Tip: editing the scientific name in the dashboard "
                         "(admin only) to the canonical GBIF name resolves "
                         "most of these.")
+
+
+# ---------------------------------------------------------------------------
+# Library tab — community knowledge layer (names, stories, dishes, pantheons,
+# cultural connections) with admin entry forms.
+# ---------------------------------------------------------------------------
+with library_tab:
+    library.render(is_admin=st.session_state.get("is_admin", False))
 
 
 # --- Site footer with CC license + support links ---
