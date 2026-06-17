@@ -131,6 +131,216 @@ def get_or_create_contributor(display_name: str | None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Auth / user management (after db/auth_migration.sql)
+# ---------------------------------------------------------------------------
+_USER_COLS = ("contributor_id, display_name, username, password_hash, "
+              "role, email, bio, avatar_url, last_login_at")
+
+
+def _row_to_user_dict(row) -> dict | None:
+    if not row:
+        return None
+    return {
+        "contributor_id": str(row[0]),
+        "display_name": row[1],
+        "username": row[2],
+        "password_hash": row[3],
+        "role": row[4],
+        "email": row[5],
+        "bio": row[6],
+        "avatar_url": row[7],
+        "last_login_at": row[8],
+    }
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """Look up a signed-in user by username (case-insensitive)."""
+    if not username:
+        return None
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT {_USER_COLS} FROM contributor "
+                 "WHERE lower(username) = lower(:u) LIMIT 1"),
+            {"u": username},
+        ).fetchone()
+    return _row_to_user_dict(row)
+
+
+def get_user_by_id(contributor_id: str) -> dict | None:
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT {_USER_COLS} FROM contributor "
+                 "WHERE contributor_id = :i LIMIT 1"),
+            {"i": contributor_id},
+        ).fetchone()
+    return _row_to_user_dict(row)
+
+
+def list_signed_in_users() -> pd.DataFrame:
+    """All contributor rows with a username + password_hash. Used by the auth
+    module to feed streamlit-authenticator on every script rerun."""
+    return pd.read_sql(text(
+        "SELECT contributor_id, display_name, username, password_hash, "
+        "role, email, bio, avatar_url, last_login_at "
+        "FROM contributor "
+        "WHERE username IS NOT NULL AND password_hash IS NOT NULL "
+        "ORDER BY lower(username)"
+    ), get_engine())
+
+
+def list_all_users_for_admin() -> pd.DataFrame:
+    """Admin view: every contributor row, signed-in or not. Used by the admin
+    role-management UI."""
+    return pd.read_sql(text(
+        "SELECT c.contributor_id, c.display_name, c.username, c.role, "
+        "c.email, c.bio, c.last_login_at, "
+        "(SELECT count(*) FROM tree t WHERE t.owner_id = c.contributor_id) "
+        "  AS trees_owned, "
+        "(SELECT count(*) FROM story s WHERE s.contributed_by = c.contributor_id) "
+        "  AS stories, "
+        "(SELECT count(*) FROM dish d WHERE d.contributed_by = c.contributor_id) "
+        "  AS dishes "
+        "FROM contributor c "
+        "ORDER BY (c.role = 'admin') DESC, (c.role = 'editor') DESC, "
+        "         lower(coalesce(c.username, c.display_name))"
+    ), get_engine())
+
+
+def create_signed_in_user(username: str, password_hash: str,
+                          display_name: str, email: str | None = None,
+                          role: str = "visitor") -> str:
+    """Create a new contributor with a username + password_hash. If a
+    contributor with this display_name already exists (e.g. they used the
+    app as a named guest first), upgrade that row instead of inserting a
+    duplicate. Returns contributor_id."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        # Upgrade a guest row of the same display name, if any.
+        existing = conn.execute(
+            text("SELECT contributor_id FROM contributor "
+                 "WHERE display_name = :n AND username IS NULL LIMIT 1"),
+            {"n": display_name},
+        ).fetchone()
+        if existing:
+            cid = str(existing[0])
+            conn.execute(
+                text("UPDATE contributor SET username = :u, "
+                     "password_hash = :p, email = :e, role = :r "
+                     "WHERE contributor_id = :i"),
+                {"u": username, "p": password_hash, "e": email,
+                 "r": role, "i": cid},
+            )
+            return cid
+        new = conn.execute(
+            text("INSERT INTO contributor "
+                 "  (display_name, username, password_hash, email, role) "
+                 "VALUES (:n, :u, :p, :e, :r) RETURNING contributor_id"),
+            {"n": display_name, "u": username, "p": password_hash,
+             "e": email, "r": role},
+        ).fetchone()
+        return str(new[0])
+
+
+def set_user_password(contributor_id: str, password_hash: str) -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE contributor SET password_hash = :p "
+                 "WHERE contributor_id = :i"),
+            {"p": password_hash, "i": contributor_id},
+        )
+
+
+def set_user_role(contributor_id: str, role: str) -> None:
+    """Promote or demote a user. Allowed roles: visitor, editor, admin."""
+    if role not in ("visitor", "editor", "admin"):
+        raise ValueError(f"Invalid role: {role}")
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE contributor SET role = :r "
+                 "WHERE contributor_id = :i"),
+            {"r": role, "i": contributor_id},
+        )
+
+
+def update_user_profile(contributor_id: str,
+                        display_name: str | None = None,
+                        bio: str | None = None,
+                        avatar_url: str | None = None,
+                        email: str | None = None) -> None:
+    """Patch the profile fields the user can edit themselves. Each arg is
+    only applied when not None, so callers can pass just the ones that
+    changed."""
+    sets, params = [], {"i": contributor_id}
+    if display_name is not None:
+        sets.append("display_name = :n")
+        params["n"] = display_name
+    if bio is not None:
+        sets.append("bio = :b")
+        params["b"] = bio
+    if avatar_url is not None:
+        sets.append("avatar_url = :a")
+        params["a"] = avatar_url
+    if email is not None:
+        sets.append("email = :e")
+        params["e"] = email
+    if not sets:
+        return
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE contributor SET {', '.join(sets)} "
+                 "WHERE contributor_id = :i"),
+            params,
+        )
+
+
+def update_last_login(contributor_id: str) -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE contributor SET last_login_at = now() "
+                 "WHERE contributor_id = :i"),
+            {"i": contributor_id},
+        )
+
+
+def get_tree_owner_info(tree_name: str) -> dict | None:
+    """Return {owner_id, owner_role, owner_display_name} for permission
+    checks. None if tree or owner is missing."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT t.owner_id, c.role, c.display_name
+            FROM tree t
+            LEFT JOIN contributor c ON c.contributor_id = t.owner_id
+            WHERE t.name = :n LIMIT 1
+        """), {"n": tree_name}).fetchone()
+    if not row:
+        return None
+    return {
+        "owner_id": str(row[0]) if row[0] is not None else None,
+        "owner_role": row[1],
+        "owner_display_name": row[2],
+    }
+
+
+def set_tree_owner(tree_name: str, owner_contributor_id: str) -> int:
+    """Transfer ownership of a tree. Used by admin's 'lock this tree to me'
+    UI."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE tree SET owner_id = :o WHERE name = :n"),
+            {"o": owner_contributor_id, "n": tree_name},
+        )
+        return int(result.rowcount or 0)
+
+
+# ---------------------------------------------------------------------------
 # Trees
 # ---------------------------------------------------------------------------
 def get_tree_id(tree_name: str) -> str | None:

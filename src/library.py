@@ -102,7 +102,7 @@ def _csv_download(df, name: str, key: str) -> None:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-def render(is_admin: bool) -> None:
+def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: str | None = None) -> None:
     st.subheader("The kinship library")
     st.markdown(
         "Everything the community has woven around these species: the names "

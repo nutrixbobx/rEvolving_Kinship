@@ -71,6 +71,7 @@ from src import species_profile  # noqa: E402
 from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
 from src import library  # noqa: E402
+from src import auth  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
 
@@ -142,29 +143,25 @@ def _cached_player_html(common, sci, path_str, attribution):
     _PLAYER_CACHE[key] = out
     return out
 
-# --- Sidebar: admin login ---
-with st.sidebar:
-    st.markdown("### Admin")
-    if "is_admin" not in st.session_state:
-        st.session_state.is_admin = False
-    expected_pw = os.environ.get("ADMIN_PASSWORD", "")
-    if not st.session_state.is_admin:
-        pw_in = st.text_input("Admin password", type="password",
-                              help=("Set ADMIN_PASSWORD in .env to enable. "
-                                    "Leave blank in .env to keep the app open."))
-        if st.button("Sign in", key="admin_signin"):
-            if expected_pw and pw_in == expected_pw:
-                st.session_state.is_admin = True
-                st.rerun()
-            elif not expected_pw:
-                st.warning("ADMIN_PASSWORD not set in .env.")
-            else:
-                st.error("Wrong password.")
-    else:
-        st.success("Admin mode is on")
-        if st.button("Sign out", key="admin_signout"):
-            st.session_state.is_admin = False
-            st.rerun()
+# --- Sidebar: auth gate (sign in, sign up, or guest name) -----------
+auth.render_sidebar_gate()
+
+# Every visitor names themselves before they can use any of the tabs. The
+# sidebar gate above offers three doors: sign in, create an account, or just
+# enter a guest name. Until the user picks one, the main panel is a small
+# welcome.
+if not auth.is_named():
+    st.title("{r}Evolving Kinship")
+    st.markdown(
+        '<div style="color:#7a8d86;font-style:italic;font-size:14px;'
+        'margin-top:-12px;margin-bottom:18px">'
+        + tree_settings.PROJECT_SLOGAN + "</div>",
+        unsafe_allow_html=True)
+    st.info(
+        "Welcome. To make sure every species in our tree is accountable to "
+        "a real person, give yourself a name (or sign in) in the sidebar "
+        "to get started.")
+    st.stop()
 
 st.title("{r}Evolving Kinship")
 st.markdown(
@@ -587,7 +584,10 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
         with rename_col:
             new_name = st.text_input("Rename this tree", value=pick_tree,
                                      key=f"rename_{pick_tree}")
-            if st.button("Save tree name"):
+            # Lock down rename to people who own this tree (or admins).
+            _owner_info = db.get_tree_owner_info(pick_tree) or {}
+            _can_edit_this_tree = auth.can_edit_tree(_owner_info)
+            if st.button("Save tree name", disabled=not _can_edit_this_tree):
                 try:
                     n = db.rename_tree(pick_tree, new_name)
                     st.success(f"Renamed {n} row(s). Rebuild so the output "
@@ -595,8 +595,25 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+            if not _can_edit_this_tree:
+                _owner_label = _owner_info.get("owner_display_name") or "an admin"
+                st.caption(f"This tree is curated by {_owner_label}. "
+                           "Sign in as the owner to rename.")
 
-        if st.session_state.get("is_admin"):
+            # Admin-only ownership transfer (e.g. lock Maya's seed trees).
+            if auth.is_admin() and auth.active_contributor_id():
+                cur_owner_id = (_owner_info or {}).get("owner_id")
+                me = auth.active_contributor_id()
+                if cur_owner_id != me:
+                    if st.button("Transfer ownership to me",
+                                 key=f"transfer_{pick_tree}",
+                                 help="Lock this tree as admin-owned so only "
+                                      "admins can rename, delete, or modify it."):
+                        db.set_tree_owner(pick_tree, me)
+                        st.success("Ownership transferred to you.")
+                        st.rerun()
+
+        if auth.is_admin():
             with st.expander("Tree personalization (admin)"):
                 cur = tree_settings.get_tree_settings(pick_tree)
                 owner_in = st.text_input(
@@ -622,8 +639,8 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                            f"“{tree_settings.title_for(pick_tree)}”")
 
         # ------- Edit a species (admin only) --------------------------------
-        if st.session_state.get("is_admin"):
-          with st.expander("Edit a species in this tree (admin)"):
+        if _can_edit_this_tree:
+          with st.expander("Edit a species in this tree"):
             label_by_sci = {
                 r["scientific_name"]: (
                     f"{r['common_name']} ({r['scientific_name']})"
@@ -687,8 +704,8 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
-        if st.session_state.get("is_admin"):
-          with st.expander("Remove species, or delete this tree (admin)"):
+        if _can_edit_this_tree:
+          with st.expander("Remove species, or delete this tree"):
             to_remove = st.multiselect(
                 "Species to remove from this tree",
                 list(label_by_sci.keys()) if label_by_sci else [],
@@ -745,7 +762,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             if nwk.exists() and meta:
                 with st.expander("Listen to each species", expanded=True):
                     from src import species_audio
-                    admin = st.session_state.get("is_admin", False)
+                    admin = auth.is_admin()
                     tip_rows = [(n, i) for n, i in meta.items()
                                 if i.get("is_leaf")]
                     if not tip_rows:
@@ -844,7 +861,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                             st.rerun()
         except Exception as _listen_exc:
             st.warning(f"Listen section failed: {_listen_exc}")
-            if st.session_state.get("is_admin"):
+            if auth.is_admin():
                 st.code(traceback.format_exc(), language="python")
 
 
@@ -914,7 +931,7 @@ with map_tab:
 # cultural connections) with admin entry forms.
 # ---------------------------------------------------------------------------
 with library_tab:
-    library.render(is_admin=st.session_state.get("is_admin", False))
+    library.render(is_admin=auth.is_admin(), can_edit_contribution=auth.can_edit_contribution, current_contributor_id=auth.active_contributor_id())
 
 
 # --- Site footer with CC license + support links ---
