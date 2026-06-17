@@ -622,6 +622,7 @@ def insert_request(
     submitted_by: str | None = None,
     lineage: dict | None = None,      # ignored in v2 for now (TODO: upsert clade)
     notes: str | None = None,
+    contributor_id: str | None = None,  # if supplied, used directly
 ) -> bool:
     """Add a species to a tree. Same signature as v1 so the kiosk's
     add-to-tree path keeps working without a rewrite. Returns True if a new
@@ -636,8 +637,21 @@ def insert_request(
             "species search returns one; the manual-name path is no "
             "longer supported.")
 
-    contributor_id = get_or_create_contributor(submitted_by)
+    if not contributor_id:
+        contributor_id = get_or_create_contributor(submitted_by)
+    # owner_display_name still uses the name path; that's fine because
+    # ownership is informational.
     tree_id = get_or_create_tree(tree_name, owner_display_name=submitted_by)
+    # If we have an explicit contributor_id from auth, also set tree.owner_id
+    # to it (only for brand-new trees that have no owner yet, so we don't
+    # accidentally retake ownership of someone else's tree).
+    if contributor_id:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE tree SET owner_id = :c "
+                "WHERE tree_id = :t AND owner_id IS NULL"
+            ), {"c": contributor_id, "t": tree_id})
     species_id = get_or_create_species(int(ncbi_taxid), scientific_name.strip())
     # Populate clade + species_clade. Idempotent: re-adding the same species
     # to a different tree just no-ops on the conflicts.
@@ -1295,3 +1309,332 @@ if __name__ == "__main__":
     else:
         print(f"unknown command: {cmd}  "
               "(try: init, trees, backfill-clades)")
+
+# ---------------------------------------------------------------------------
+# Phase 2 — per-row contribution helpers (delete + ownership lookup)
+#
+# Every "delete" helper returns the contributor_id that originally added the
+# row (before deleting) so the calling UI can confirm permission via
+# auth.can_edit_contribution. None means the row never existed.
+# ---------------------------------------------------------------------------
+def _delete_and_return_owner(table: str, id_col: str, id_value: str) -> str | None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(f"SELECT contributed_by FROM {table} WHERE {id_col} = :i"),
+            {"i": id_value},
+        ).fetchone()
+        if not row:
+            return None
+        owner = str(row[0]) if row[0] is not None else None
+        conn.execute(
+            text(f"DELETE FROM {table} WHERE {id_col} = :i"),
+            {"i": id_value},
+        )
+        return owner
+
+
+def delete_story(story_id: str) -> str | None:
+    return _delete_and_return_owner("story", "story_id", story_id)
+
+
+def delete_dish(dish_id: str) -> str | None:
+    return _delete_and_return_owner("dish", "dish_id", dish_id)
+
+
+def delete_pantheon(pantheon_id: str) -> int:
+    """Pantheons cascade-delete their deities (and the species links via
+    deity). No contributed_by column on pantheon itself, so this returns the
+    row count and the UI gates by admin-only (deletes affect many people)."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("DELETE FROM pantheon WHERE pantheon_id = :i"),
+            {"i": pantheon_id},
+        )
+        return int(result.rowcount or 0)
+
+
+def delete_deity(deity_id: str) -> int:
+    """Deities cascade-delete their species links. Admin / editor only."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("DELETE FROM deity WHERE deity_id = :i"),
+            {"i": deity_id},
+        )
+        return int(result.rowcount or 0)
+
+
+def delete_species_deity_link(species_id: str, deity_id: str,
+                              relationship: str) -> str | None:
+    """species_deity has a composite key. Returns the contributor_id of the
+    row before deleting, or None if no such link."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT contributed_by FROM species_deity "
+                 "WHERE species_id = :s AND deity_id = :d "
+                 "  AND relationship = :r"),
+            {"s": species_id, "d": deity_id, "r": relationship},
+        ).fetchone()
+        if not row:
+            return None
+        owner = str(row[0]) if row[0] is not None else None
+        conn.execute(
+            text("DELETE FROM species_deity "
+                 "WHERE species_id = :s AND deity_id = :d "
+                 "  AND relationship = :r"),
+            {"s": species_id, "d": deity_id, "r": relationship},
+        )
+        return owner
+
+
+def delete_cultural_connection(connection_id: str) -> str | None:
+    return _delete_and_return_owner(
+        "cultural_connection", "connection_id", connection_id)
+
+
+def delete_species_name(name_id: str) -> str | None:
+    return _delete_and_return_owner("species_name", "name_id", name_id)
+
+
+# ---------------------------------------------------------------------------
+# Edit helpers for community datapoints. Each takes the row's primary key
+# plus a dict of fields to set; returns the contributor_id of the row before
+# editing (so the UI can gate).
+# ---------------------------------------------------------------------------
+def update_story(story_id: str, fields: dict) -> str | None:
+    allowed = {"title", "body_text", "language_code", "region_code"}
+    sets, params = [], {"i": story_id}
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return None
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT contributed_by FROM story WHERE story_id = :i"),
+            {"i": story_id},
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            text(f"UPDATE story SET {', '.join(sets)} WHERE story_id = :i"),
+            params,
+        )
+        return str(row[0]) if row[0] is not None else None
+
+
+def update_cultural_connection(connection_id: str, fields: dict) -> str | None:
+    allowed = {"culture", "significance_type", "description", "source"}
+    sets, params = [], {"i": connection_id}
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return None
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT contributed_by FROM cultural_connection "
+                 "WHERE connection_id = :i"),
+            {"i": connection_id},
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            text(f"UPDATE cultural_connection SET {', '.join(sets)} "
+                 "WHERE connection_id = :i"),
+            params,
+        )
+        return str(row[0]) if row[0] is not None else None
+
+
+def update_dish(dish_id: str, fields: dict) -> str | None:
+    allowed = {"name", "cuisine", "origin_region", "description"}
+    sets, params = [], {"i": dish_id}
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return None
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT contributed_by FROM dish WHERE dish_id = :i"),
+            {"i": dish_id},
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            text(f"UPDATE dish SET {', '.join(sets)} WHERE dish_id = :i"),
+            params,
+        )
+        return str(row[0]) if row[0] is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Per-user activity (Profile tab)
+# ---------------------------------------------------------------------------
+def list_user_trees(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT t.name AS tree_name,
+               (SELECT count(*) FROM tree_species ts
+                  WHERE ts.tree_id = t.tree_id) AS species_count,
+               t.created_at
+        FROM tree t
+        WHERE t.owner_id = :i
+        ORDER BY t.created_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def list_user_stories(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT s.story_id, s.title,
+               sp.canonical_scientific_name AS species,
+               t.name AS tree, s.contributed_at
+        FROM story s
+        LEFT JOIN species sp ON sp.species_id = s.species_id
+        LEFT JOIN tree t    ON t.tree_id    = s.tree_id
+        WHERE s.contributed_by = :i
+        ORDER BY s.contributed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def list_user_dishes(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT d.dish_id, d.name, d.cuisine, d.contributed_at
+        FROM dish d
+        WHERE d.contributed_by = :i
+        ORDER BY d.contributed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def list_user_names(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT sn.name_id, sn.name_text,
+               sn.language_code AS language, sn.name_category AS category,
+               s.canonical_scientific_name AS species,
+               sn.contributed_at
+        FROM species_name sn
+        JOIN species s ON s.species_id = sn.species_id
+        WHERE sn.contributed_by = :i
+        ORDER BY sn.contributed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def list_user_cultural(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT cc.connection_id, cc.culture, cc.significance_type,
+               s.canonical_scientific_name AS species,
+               cc.contributed_at
+        FROM cultural_connection cc
+        JOIN species s ON s.species_id = cc.species_id
+        WHERE cc.contributed_by = :i
+        ORDER BY cc.contributed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def user_activity_counts(contributor_id: str) -> dict:
+    """Single round-trip summary for the profile header tiles."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT
+              (SELECT count(*) FROM tree WHERE owner_id = :i),
+              (SELECT count(*) FROM story WHERE contributed_by = :i),
+              (SELECT count(*) FROM dish WHERE contributed_by = :i),
+              (SELECT count(*) FROM species_name WHERE contributed_by = :i),
+              (SELECT count(*) FROM cultural_connection WHERE contributed_by = :i),
+              (SELECT count(*) FROM species_deity WHERE contributed_by = :i)
+        """), {"i": contributor_id}).fetchone()
+    if not row:
+        return {"trees": 0, "stories": 0, "dishes": 0, "names": 0,
+                "cultural": 0, "deities": 0}
+    return {
+        "trees": int(row[0] or 0),
+        "stories": int(row[1] or 0),
+        "dishes": int(row[2] or 0),
+        "names": int(row[3] or 0),
+        "cultural": int(row[4] or 0),
+        "deities": int(row[5] or 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# "Recent contributions by others" — for editors & admins reviewing
+# what's been added across the community recently.
+# ---------------------------------------------------------------------------
+def recent_contributions(limit: int = 50) -> pd.DataFrame:
+    """Unified feed of recent additions across stories, dishes, names,
+    cultural connections. UNION ALL with a 'kind' discriminator and the
+    contributor name pre-joined so the UI is one dataframe."""
+    return pd.read_sql(text("""
+        SELECT 'story' AS kind, s.story_id::text AS row_id,
+               coalesce(s.title, sp.canonical_scientific_name, '(untitled story)') AS title,
+               co.display_name AS contributor, co.contributor_id AS contributor_id,
+               s.contributed_at
+        FROM story s
+        LEFT JOIN species sp ON sp.species_id = s.species_id
+        LEFT JOIN contributor co ON co.contributor_id = s.contributed_by
+        UNION ALL
+        SELECT 'dish', d.dish_id::text, d.name,
+               co.display_name, co.contributor_id, d.contributed_at
+        FROM dish d
+        LEFT JOIN contributor co ON co.contributor_id = d.contributed_by
+        UNION ALL
+        SELECT 'name', sn.name_id::text,
+               sn.name_text || ' (' || sn.language_code || ')',
+               co.display_name, co.contributor_id, sn.contributed_at
+        FROM species_name sn
+        LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
+        UNION ALL
+        SELECT 'cultural_connection', cc.connection_id::text,
+               cc.culture || ' / ' || coalesce(cc.significance_type,'tie'),
+               co.display_name, co.contributor_id, cc.contributed_at
+        FROM cultural_connection cc
+        LEFT JOIN contributor co ON co.contributor_id = cc.contributed_by
+        ORDER BY contributed_at DESC NULLS LAST
+        LIMIT :lim
+    """), get_engine(), params={"lim": limit})
+
+
+def get_or_create_guest_contributor(display_name: str) -> tuple[str | None, bool]:
+    """Like get_or_create_contributor, but only matches rows WITHOUT a
+    username (i.e. other guests). Returns (contributor_id, is_registered).
+    is_registered=True means the name belongs to a signed-in user and the
+    caller must refuse: a guest can't impersonate a registered name."""
+    if not display_name:
+        return (None, False)
+    engine = get_engine()
+    with engine.begin() as conn:
+        # If a registered (username NOT NULL) row owns this display_name,
+        # refuse. The caller will ask the guest to pick another name.
+        reg = conn.execute(
+            text("SELECT 1 FROM contributor "
+                 "WHERE display_name = :n AND username IS NOT NULL LIMIT 1"),
+            {"n": display_name},
+        ).fetchone()
+        if reg:
+            return (None, True)
+        # Match an existing guest row with this name (so a returning guest
+        # gets their old attribution), or create a fresh one.
+        row = conn.execute(
+            text("SELECT contributor_id FROM contributor "
+                 "WHERE display_name = :n AND username IS NULL LIMIT 1"),
+            {"n": display_name},
+        ).fetchone()
+        if row:
+            return (str(row[0]), False)
+        new = conn.execute(
+            text("INSERT INTO contributor (display_name, role) "
+                 "VALUES (:n, 'visitor') RETURNING contributor_id"),
+            {"n": display_name},
+        ).fetchone()
+        return (str(new[0]), False)
+

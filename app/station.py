@@ -41,7 +41,19 @@ from src import db  # noqa: E402
 from src import render as render_mod  # noqa: E402
 from src import taxonomy_search as ts  # noqa: E402
 
-st.set_page_config(page_title="{r}Evolving Kinship", layout="wide")
+st.set_page_config(
+    page_title="{r}Evolving Kinship",
+    page_icon="🌿",  # herb leaf — matches the river/earth theme
+    layout="wide",
+    initial_sidebar_state="auto",
+    menu_items={
+        "Get help": "https://shared-rivers.org",
+        "Report a bug": "mailto:maya@shared-rivers.org",
+        "About": ("{r}Evolving Kinship is a participatory "
+                  "ecological art piece by Shared Rivers. "
+                  "shared-rivers.org"),
+    },
+)
 
 
 @st.cache_resource(show_spinner=False)
@@ -52,6 +64,9 @@ def _verified_db_init():
 
 
 _verified_db_init()
+
+# Apply the unified theme on every load.
+theme.inject_css()
 
 
 def _stem(name: str) -> str:
@@ -72,6 +87,8 @@ from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
 from src import library  # noqa: E402
 from src import auth  # noqa: E402
+from src import theme  # noqa: E402
+from src import profile  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
 
@@ -143,33 +160,20 @@ def _cached_player_html(common, sci, path_str, attribution):
     _PLAYER_CACHE[key] = out
     return out
 
-# --- Sidebar: auth gate (sign in, sign up, or guest name) -----------
+# --- Auth gate ------------------------------------------------------
+# Sidebar holds the identity card once named. The landing screen below
+# carries the sign-in / sign-up / guest forms so phone visitors do not
+# have to discover the collapsed sidebar.
 auth.render_sidebar_gate()
 
-# Every visitor names themselves before they can use any of the tabs. The
-# sidebar gate above offers three doors: sign in, create an account, or just
-# enter a guest name. Until the user picks one, the main panel is a small
-# welcome.
 if not auth.is_named():
-    st.title("{r}Evolving Kinship")
-    st.markdown(
-        '<div style="color:#7a8d86;font-style:italic;font-size:14px;'
-        'margin-top:-12px;margin-bottom:18px">'
-        + tree_settings.PROJECT_SLOGAN + "</div>",
-        unsafe_allow_html=True)
-    st.info(
-        "Welcome. To make sure every species in our tree is accountable to "
-        "a real person, give yourself a name (or sign in) in the sidebar "
-        "to get started.")
+    theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
+    auth.render_main_gate()
+    theme.render_footer(tree_settings.PROJECT_SLOGAN)
     st.stop()
 
-st.title("{r}Evolving Kinship")
-st.markdown(
-    '<div style="color:#7a8d86;font-style:italic;font-size:14px;'
-    'margin-top:-12px;margin-bottom:18px">'
-    + tree_settings.PROJECT_SLOGAN + "</div>",
-    unsafe_allow_html=True)
-station_tab, dash_tab, map_tab, library_tab = st.tabs(["Request station", "Dashboard", "Range map", "Library"])
+theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
+station_tab, dash_tab, map_tab, library_tab, profile_tab = st.tabs(["Request station", "Dashboard", "Range map", "Library", "Profile"])
 
 # ---------------------------------------------------------------------------
 # Request station (the kiosk)
@@ -177,16 +181,20 @@ station_tab, dash_tab, map_tab, library_tab = st.tabs(["Request station", "Dashb
 with station_tab:
     with st.expander("How this works (read me first)", expanded=False):
         st.markdown(
-            "**Step 1.** Name one or more species you feel kin to (right here, below). Search by common name (coyote) or "
-            "scientific name (Canis latrans), pick the match, hit **Add to the tree**.\n\n"
-            "**Step 2.** Switch to the **Dashboard** tab at the top, pick your tree, and click **Build / rebuild** to draw "
-            "it, sound it, fetch photos, and write a short note.\n\n"
-            "**Step 3.** Hover the tree, listen to each species, build a meditation track, download the press files. "
-            "Everything is open and downloadable, including the raw Newick tree."
+            "**1.** Name one or more species you feel kin to. Search by common name "
+            "(coyote) or scientific name (Canis latrans), pick the match, and hit "
+            "**Add to the tree**.\n\n"
+            "**2.** Open the **Dashboard** tab, pick your tree, and click "
+            "**Build / rebuild**. The tree draws itself, the chord rings, the photos "
+            "fetch, and a short note appears under it.\n\n"
+            "**3.** Hover the tree to read the tips, listen to each species, build a "
+            "meditation track, or download the press files. The raw Newick is in "
+            "there too, in case you want to take this tree elsewhere."
         )
-    st.subheader("Name a species you feel kin to")
+    theme.section_heading("Name a species you feel kin to",
+                          kicker="Request station")
 
-    trees = db.list_trees()
+    trees = _cached_list_trees_for_dashboard()
     existing = trees["tree_name"].tolist() if not trees.empty else []
     choice = st.selectbox(
         "Which tree are you adding to?", existing + ["+ start a new tree"]
@@ -295,6 +303,8 @@ with station_tab:
                 domain=(lineage or {}).get("domain"),
                 lineage=lineage,
                 notes=notes.strip() or None,
+                submitted_by=auth.current_user().get("name") or None,
+                contributor_id=auth.active_contributor_id(),
             )
             label = pick["common_name"] or pick["scientific_name"]
             if is_new:
@@ -610,6 +620,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                  help="Lock this tree as admin-owned so only "
                                       "admins can rename, delete, or modify it."):
                         db.set_tree_owner(pick_tree, me)
+                        _invalidate_dashboard_caches()
                         st.success("Ownership transferred to you.")
                         st.rerun()
 
@@ -866,18 +877,18 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
 
 
 # ---------------------------------------------------------------------------
-# Range map tab — interactive species range map via GBIF
+# Range map tab. Interactive species range map via GBIF.
 # ---------------------------------------------------------------------------
 with map_tab:
-    st.subheader("Where these kin live")
+    theme.section_heading("Where these kin live", kicker="Range map")
     st.markdown(
-        "Each species' occurrence density from "
-        "[GBIF](https://www.gbif.org/), drawn on one map so you can see how "
-        "the kin in your tree overlap and where they don't. Drag to pan, "
-        "scroll to zoom. Toggle species on or off in the top-right panel."
+        "Occurrence density for each species in your tree, drawn from "
+        "[GBIF](https://www.gbif.org/) onto one map. You can see where the "
+        "ranges overlap and where they don't. Drag to pan, scroll to zoom, "
+        "and toggle species on or off in the top-right panel."
     )
 
-    map_trees = db.list_trees()
+    map_trees = _cached_list_trees_for_dashboard()
     if map_trees.empty:
         st.info("Add species in the Request station tab first, then build a "
                 "tree. Once a tree exists, its range map shows up here.")
@@ -927,30 +938,20 @@ with map_tab:
 
 
 # ---------------------------------------------------------------------------
-# Library tab — community knowledge layer (names, stories, dishes, pantheons,
+# Library tab. Community knowledge: names, stories, dishes, pantheons,
 # cultural connections) with admin entry forms.
 # ---------------------------------------------------------------------------
 with library_tab:
-    library.render(is_admin=auth.is_admin(), can_edit_contribution=auth.can_edit_contribution, current_contributor_id=auth.active_contributor_id())
+    library.render(
+        is_admin=auth.is_admin(),
+        can_edit_contribution=auth.can_edit_contribution,
+        current_contributor_id=auth.active_contributor_id(),
+    )
 
 
-# --- Site footer with CC license + support links ---
-st.markdown(
-    '<div style="margin-top:48px;padding:16px 0;border-top:1px solid #d4ddd6;'
-    'color:#7a8d86;font-size:12px;text-align:center;line-height:1.7">'
-    '<b>{r}Evolving Kinship</b> · ' + tree_settings.PROJECT_SLOGAN + '<br>'
-    '<a href="https://creativecommons.org/licenses/by-sa/4.0/" '
-    'style="color:#7a8d86;text-decoration:none">'
-    'CC BY-SA 4.0</a> · Maya Nutria · '
-    '<a href="https://shared-rivers.org" '
-    'style="color:#7a8d86;text-decoration:none">Shared Rivers 2026</a>'
-    '<br>'
-    '<span style="color:#9ab3ab">Support our work: </span>'
-    '<a href="https://buymeacoffee.com/shared.rivers" target="_blank" '
-    'style="color:#a85a1f;text-decoration:none">buy me a coffee</a>'
-    ' · '
-    '<a href="https://fundraising.fracturedatlas.org/shared-rivers-confluences" target="_blank" '
-    'style="color:#a85a1f;text-decoration:none">'
-    'tax-deductible donations</a>'
-    '</div>',
-    unsafe_allow_html=True)
+with profile_tab:
+    profile.render()
+
+
+# Site footer (license, byline, support links).
+theme.render_footer(tree_settings.PROJECT_SLOGAN)

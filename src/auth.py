@@ -106,16 +106,26 @@ def _get_authenticator() -> stauth.Authenticate:
     same cookie state is reused across reruns within a session."""
     if "_authenticator" in st.session_state:
         return st.session_state["_authenticator"]
-    cookie_key = (os.environ.get("COOKIE_KEY")
-                  or os.environ.get("ADMIN_PASSWORD", "")
-                  + "-kinship-cookie")
+    # JWT signing key for the auth cookie. Prefer the explicit COOKIE_KEY env
+    # var. Fall back to a key derived from ADMIN_PASSWORD so existing
+    # deployments keep working. As a last resort, use a clearly-labeled
+    # default and warn — production should override.
+    cookie_key = os.environ.get("COOKIE_KEY")
     if not cookie_key:
-        cookie_key = "kinship-default-key-please-set-COOKIE_KEY"
+        admin_pw = os.environ.get("ADMIN_PASSWORD", "").strip()
+        if admin_pw:
+            cookie_key = admin_pw + "-kinship-cookie"
+        else:
+            cookie_key = "kinship-please-set-COOKIE_KEY-in-secrets-1f9a"
     auth = stauth.Authenticate(
         _build_credentials_dict(),
         cookie_name="kinship_auth",
         cookie_key=cookie_key,
         cookie_expiry_days=30,
+        # We store our own bcrypt hashes; tell the library not to re-hash
+        # them. Without this, 0.3.x will try to bcrypt the bcrypt string on
+        # every rerun, breaking login.
+        auto_hash=False,
     )
     st.session_state["_authenticator"] = auth
     return auth
@@ -169,14 +179,20 @@ def clear_session_user() -> None:
     st.session_state["is_admin"] = False
 
 
-def set_guest_user(name: str) -> None:
-    """Named-guest path: no password, just a display name. Creates a
-    contributor row so their additions are attributable, but assigns
-    role='visitor' and no username."""
+def set_guest_user(name: str) -> tuple[bool, str]:
+    """Named-guest path: no password, just a display name. Returns
+    (success, message). Refuses if `name` belongs to a registered user, so
+    a guest can't impersonate Maya/an editor."""
     if not name or not name.strip():
-        return
+        return (False, "Give yourself a name first.")
     name = name.strip()
-    contributor_id = db.get_or_create_contributor(name)
+    contributor_id, is_registered = db.get_or_create_guest_contributor(name)
+    if is_registered:
+        return (False,
+                f"\"{name}\" is a registered account. Sign in with your "
+                "password, or use a different name as a guest.")
+    if not contributor_id:
+        return (False, "Could not create a guest profile. Try again.")
     st.session_state["user"] = {
         "username": None,
         "name": name,
@@ -186,6 +202,7 @@ def set_guest_user(name: str) -> None:
         "avatar_url": None,
     }
     st.session_state["is_admin"] = False
+    return (True, "")
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +268,133 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# UI: the sidebar gate
+# UI: landing-page gate (main panel — mobile friendly)
+# ---------------------------------------------------------------------------
+def render_main_gate() -> None:
+    """A wider, friendlier version of the sign-in / sign-up / guest forms
+    that sits in the main panel. Used by the landing screen when the
+    visitor has not yet named themselves, so phone users do not have to
+    discover the collapsed sidebar."""
+    seed_admin_password_if_needed()
+    auth_obj = _get_authenticator()
+
+    st.markdown(
+        '<div style="max-width:540px;margin:18px auto;">',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="welcome-card">'
+        '<h3>Step into the river</h3>'
+        '<div class="muted">'
+        "Every species in our tree is held by a real person. Pick how you "
+        "want to enter: sign in, make a quick account, or just leave us "
+        "your first name."
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    mode = st.radio(
+        "How would you like to enter?",
+        ["I have an account", "Make an account", "Just a name"],
+        key="auth_main_mode",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    if mode == "I have an account":
+        try:
+            auth_obj.login(location="main", key="main_login_widget")
+        except Exception:
+            pass
+        status = st.session_state.get("authentication_status")
+        if status:
+            username = st.session_state.get("username")
+            if username:
+                _set_session_user_from_db(username)
+                st.rerun()
+        elif status is False:
+            st.error("Username or password is incorrect.")
+
+    elif mode == "Make an account":
+        with st.form("main_signup_form"):
+            new_user = st.text_input("Username", help="No spaces.")
+            new_name = st.text_input("Display name")
+            new_email = st.text_input("Email (optional)")
+            new_pw = st.text_input("Password", type="password")
+            new_pw2 = st.text_input("Confirm password", type="password")
+            if st.form_submit_button("Create account", type="primary",
+                                     use_container_width=True):
+                _handle_signup(new_user, new_name, new_email,
+                               new_pw, new_pw2)
+
+    else:  # Just a name
+        with st.form("main_guest_form"):
+            st.caption(
+                "We use your name so contributions stay attributable. "
+                "You can sign up later to keep a profile and revisit "
+                "your trees.")
+            guest_name = st.text_input(
+                "Your name",
+                placeholder="Maya, Yui, Ade, ...",
+            )
+            if st.form_submit_button("Enter as guest", type="primary",
+                                     use_container_width=True):
+                if guest_name.strip():
+                    ok, msg = set_guest_user(guest_name)
+                    if ok:
+                        st.rerun()
+                    else:
+                        st.warning(msg)
+                else:
+                    st.warning("Give yourself a name first.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_sidebar_identity() -> None:
+    """Compact identity card for the sidebar once the user is named.
+    Shows display name, role badge, optional bio, sign-out button."""
+    u = current_user()
+    role_class = {
+        "admin":   "role-admin",
+        "editor":  "role-editor",
+        "visitor": "role-visitor",
+    }.get(u.get("role") or "visitor", "role-visitor")
+    role_label = (u.get("role") or "guest").upper()
+    bio_html = (f'<div class="identity-bio">{u["bio"]}</div>'
+                if u.get("bio") else "")
+    with st.sidebar:
+        st.markdown(
+            f'<div class="identity-card">'
+            f'<div class="identity-name">{u.get("name")}'
+            f'  <span class="role-badge {role_class}">{role_label}</span>'
+            f'</div>'
+            f'{bio_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        auth_obj = _get_authenticator()
+        if is_signed_in():
+            try:
+                auth_obj.logout("Sign out", "sidebar", key="auth_logout")
+            except Exception:
+                if st.button("Sign out", key="auth_logout_fallback",
+                             use_container_width=True):
+                    clear_session_user()
+                    st.rerun()
+            if (st.session_state.get("authentication_status") is None
+                    and is_signed_in()):
+                clear_session_user()
+                st.rerun()
+        else:
+            if st.button("Leave guest mode", key="leave_guest",
+                         use_container_width=True):
+                clear_session_user()
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# UI: the sidebar gate (kept for desktop fallback — collapses into the
+# identity card when the user is named)
 # ---------------------------------------------------------------------------
 def render_sidebar_gate() -> None:
     """Render the auth widget in the sidebar. Replaces the old admin password
@@ -265,39 +408,14 @@ def render_sidebar_gate() -> None:
 
     with st.sidebar:
         if is_named():
-            # Already logged in or named guest. Show identity + logout.
-            u = current_user()
-            badge = {"admin": "🛡 admin",
-                     "editor": "✏ editor",
-                     "visitor": "🌿 visitor"}.get(u.get("role"), "")
-            st.markdown(
-                f"**{u.get('name')}**  "
-                f"<span style='color:#7a8d86;font-size:11px'>{badge}</span>",
-                unsafe_allow_html=True)
-            if u.get("bio"):
-                st.caption(u["bio"])
-
-            if is_signed_in():
-                # Use the library's logout so the cookie is cleared
-                try:
-                    auth_obj.logout("Sign out", "sidebar",
-                                    key="auth_logout")
-                except Exception:
-                    if st.button("Sign out", key="auth_logout_fallback"):
-                        clear_session_user()
-                        st.rerun()
-            else:
-                if st.button("Leave guest mode", key="leave_guest"):
-                    clear_session_user()
-                    st.rerun()
-
-            # Logout above clears st.session_state["authentication_status"].
-            # We need to also clear our `user` and rerun.
-            if (st.session_state.get("authentication_status") is None
-                    and is_signed_in()):
-                clear_session_user()
-                st.rerun()
-            return
+            # Hand off to the dedicated identity card so we don't duplicate
+            # the markup. This is the only path the station uses now.
+            pass
+        else:
+            pass
+    if is_named():
+        render_sidebar_identity()
+        return
 
         # Not yet logged in or named. Three doors.
         st.markdown("### Welcome")
@@ -342,8 +460,11 @@ def render_sidebar_gate() -> None:
                          "later to keep a profile.")
                 if st.form_submit_button("Enter as guest", type="primary"):
                     if guest_name.strip():
-                        set_guest_user(guest_name)
-                        st.rerun()
+                        ok, msg = set_guest_user(guest_name)
+                        if ok:
+                            st.rerun()
+                        else:
+                            st.warning(msg)
                     else:
                         st.warning("Give yourself a name first.")
 

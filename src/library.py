@@ -103,27 +103,32 @@ def _csv_download(df, name: str, key: str) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: str | None = None) -> None:
-    st.subheader("The kinship library")
+    from src import theme, auth as _auth
+    theme.section_heading("The kinship library", kicker="Community knowledge")
     st.markdown(
-        "Everything the community has woven around these species: the names "
-        "they're called across languages, the stories they appear in, the "
-        "dishes they're cooked into, the pantheons they show up in, the "
-        "cultural connections we want to keep. Reads are cached for about a "
-        "minute and a half; new entries appear immediately."
+        "Every name a species answers to, every story it appears in, every "
+        "dish it ends up in, every deity it stands beside. The library is "
+        "where the cultural layer lives. New entries show up the moment "
+        "you save them; reads are cached for about ninety seconds."
     )
 
-    browse, add = st.tabs(["Browse", "Add (admin only)"])
+    is_named = _auth.is_named()
+    is_editor_or_admin = _auth.is_editor_or_admin()
+
+    browse, add = st.tabs(["Browse", "Add"])
 
     with browse:
+        if current_contributor_id:
+            _render_my_contributions(current_contributor_id,
+                                     can_edit_contribution,
+                                     is_editor_or_admin)
         _render_browse()
     with add:
-        if is_admin:
-            _render_admin_entry()
+        if is_named:
+            _render_admin_entry(is_editor_or_admin=is_editor_or_admin)
         else:
-            st.info(
-                "Sign in as admin in the sidebar to add stories, dishes, "
-                "pantheons, deities, multilingual names, and cultural "
-                "connections.")
+            st.info("Give yourself a name (or sign in) from the sidebar "
+                    "to start adding to the library.")
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +200,7 @@ def _render_browse() -> None:
             f"Pantheons and deities  ·  {len(df_pa)} pantheons, "
             f"{len(df_sd)} species links", expanded=False):
         if df_pa.empty:
-            st.caption("No pantheons yet. Greek, Mayan, Yoruba, Hindu, "
-                       "Cherokee, Armenian — any tradition is welcome.")
+            st.caption("No pantheons yet. Any tradition is welcome: Greek, Mayan, Yoruba, Hindu, Cherokee, Armenian, anything held by anyone in your community.")
         else:
             st.dataframe(df_pa, use_container_width=True, hide_index=True)
             _csv_download(df_pa, "pantheons", "pantheons_csv")
@@ -211,9 +215,7 @@ def _render_browse() -> None:
             f"Cultural connections  ·  {len(df_cc)} connections",
             expanded=False):
         if df_cc.empty:
-            st.caption("Nothing here yet. Cultural connections capture the "
-                       "looser ties: a species as totem, as medicinal, as "
-                       "ceremonial, as foundational to a foodway.")
+            st.caption("Nothing here yet. Cultural connections hold the looser ties: a species as totem, as medicine, as ceremony, or as the heart of a foodway.")
         else:
             st.dataframe(df_cc, use_container_width=True, hide_index=True)
             _csv_download(df_cc, "cultural_connections", "cultural_csv")
@@ -236,7 +238,7 @@ def _species_picker(label: str, key: str,
 
     def fmt(sid):
         if not sid:
-            return "(none — tree-level)"
+            return "(none, tree-level)"
         row = df[df["species_id"] == sid].iloc[0]
         if row["common_name"]:
             return (f"{row['common_name']}  "
@@ -262,7 +264,7 @@ def _tree_picker(label: str, key: str,
 
     def fmt(tid):
         if not tid:
-            return "(none — species-level)"
+            return "(none, species-level)"
         return name_to_id.get(tid, tid)
 
     return st.selectbox(label, options, format_func=fmt, key=key) or None
@@ -275,17 +277,19 @@ def _saved(message: str) -> None:
     st.rerun()
 
 
-def _render_admin_entry() -> None:
-    st.caption("All entries are attributed; visitors can see who contributed "
-               "what in the Browse tab. Caches refresh automatically after "
-               "each save.")
-    contrib_name = st.text_input(
-        "Your contributor name (for attribution)",
-        value="maya",
-        key="lib_contrib_name",
-        help="Reused across submissions in this session. New names create "
-             "a new contributor row in the database.")
-    contributor_id = db.get_or_create_contributor(contrib_name)
+def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
+    from src import auth as _auth
+    me = _auth.current_user()
+    contributor_id = me.get("contributor_id")
+    if not contributor_id:
+        st.info("Sign in or give a guest name in the sidebar to attribute "
+                "your contributions.")
+        return
+    st.caption(
+        f"Adding as **{me.get('name')}** "
+        f"({(me.get('role') or 'guest').upper()}). "
+        "Everything you save is attributed to you and visible the moment "
+        "you save it.")
 
     # ---------- Multilingual name ----------
     with st.expander("Add a name in another language or category",
@@ -372,7 +376,7 @@ def _render_admin_entry() -> None:
                 origin = st.text_input("Origin region (city / country)")
             description = st.text_area(
                 "Description (optional)", height=80)
-            st.markdown("**Ingredients** — pick a species per row, add roles "
+            st.markdown("**Ingredients**. Pick a species per row, add roles "
                         "and quantities, leave unused rows blank.")
             n_rows = 6
             ing_inputs = []
@@ -418,7 +422,8 @@ def _render_admin_entry() -> None:
                         st.error(f"Save failed: {exc}")
 
     # ---------- Pantheon + deity ----------
-    with st.expander("Add a pantheon and a deity within it",
+    if is_editor_or_admin:
+      with st.expander("Add a pantheon and a deity within it",
                      expanded=False):
         with st.form("add_pantheon_form"):
             existing_p = _cached_pantheons()
@@ -522,6 +527,10 @@ def _render_admin_entry() -> None:
                         st.warning("Pick a species and a deity.")
 
     # ---------- Cultural connection ----------
+    if not is_editor_or_admin:
+        st.caption("Adding a new pantheon or deity is editor/admin only "
+                   "since they're structural. To suggest a new pantheon, "
+                   "leave it in a story and an editor will lift it up.")
     with st.expander("Add a cultural connection", expanded=False):
         with st.form("add_cultural_form"):
             sp_id = _species_picker("Species", key="addcc_sp")
@@ -553,3 +562,152 @@ def _render_admin_entry() -> None:
                         _saved("Saved.")
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Per-user "Your contributions" section (Library → Browse top)
+# ---------------------------------------------------------------------------
+def _render_my_contributions(contributor_id: str,
+                              can_edit_contribution,
+                              is_editor_or_admin: bool) -> None:
+    """A compact expander that lists the current user's contributions across
+    stories, dishes, names, and cultural connections, with a delete button
+    on every row. Editors and admins additionally get a 'Recent community
+    additions' panel for moderation."""
+    from src import profile as _profile_mod  # for cache invalidation
+
+    my_stories = db.list_user_stories(contributor_id)
+    my_dishes = db.list_user_dishes(contributor_id)
+    my_names = db.list_user_names(contributor_id)
+    my_cc = db.list_user_cultural(contributor_id)
+
+    total = len(my_stories) + len(my_dishes) + len(my_names) + len(my_cc)
+    title = (f"Your contributions  ·  {total} items"
+             if total else "Your contributions")
+
+    with st.expander(title, expanded=False):
+        if total == 0:
+            st.caption("Nothing yet. Add a story, a dish, a multilingual "
+                       "name, or a cultural connection from the Add tab.")
+            return
+
+        if not my_stories.empty:
+            st.markdown("**Stories**")
+            for _, r in my_stories.iterrows():
+                _delete_row(
+                    label=r.get("title") or "(untitled)",
+                    sub=(f"for {r['species']}"
+                         if r.get("species") else None),
+                    when=r.get("contributed_at"),
+                    key=f"lib_mc_story_{r['story_id']}",
+                    on_delete=lambda sid=r["story_id"]:
+                        db.delete_story(sid))
+
+        if not my_dishes.empty:
+            st.markdown("**Dishes**")
+            for _, r in my_dishes.iterrows():
+                _delete_row(
+                    label=r.get("name") or "(unnamed)",
+                    sub=r.get("cuisine"),
+                    when=r.get("contributed_at"),
+                    key=f"lib_mc_dish_{r['dish_id']}",
+                    on_delete=lambda did=r["dish_id"]:
+                        db.delete_dish(did))
+
+        if not my_names.empty:
+            st.markdown("**Multilingual names**")
+            for _, r in my_names.iterrows():
+                _delete_row(
+                    label=f"{r['name_text']} ({r.get('language')})",
+                    sub=(f"for {r['species']}"
+                         if r.get("species") else None),
+                    when=r.get("contributed_at"),
+                    key=f"lib_mc_name_{r['name_id']}",
+                    on_delete=lambda nid=r["name_id"]:
+                        db.delete_species_name(nid))
+
+        if not my_cc.empty:
+            st.markdown("**Cultural connections**")
+            for _, r in my_cc.iterrows():
+                _delete_row(
+                    label=f"{r.get('culture','')} / "
+                          f"{r.get('significance_type','tie')}",
+                    sub=(f"for {r['species']}"
+                         if r.get("species") else None),
+                    when=r.get("contributed_at"),
+                    key=f"lib_mc_cc_{r['connection_id']}",
+                    on_delete=lambda cid=r["connection_id"]:
+                        db.delete_cultural_connection(cid))
+
+    if is_editor_or_admin:
+        with st.expander("Community review (recent additions, any author)",
+                          expanded=False):
+            df = db.recent_contributions(limit=50)
+            if df.empty:
+                st.caption("Nothing recent.")
+                return
+            for _, r in df.iterrows():
+                kind = r.get("kind", "?")
+                row_id = r.get("row_id")
+                _delete_row(
+                    label=(r.get("title") or "(untitled)") + f"  · {kind}",
+                    sub=f"by {r.get('contributor') or 'anonymous'}",
+                    when=r.get("contributed_at"),
+                    key=f"lib_review_{kind}_{row_id}",
+                    on_delete=lambda k=kind, i=row_id:
+                        _delete_by_kind(k, i))
+
+
+def _delete_by_kind(kind: str, row_id: str):
+    if kind == "story":
+        return db.delete_story(row_id)
+    if kind == "dish":
+        return db.delete_dish(row_id)
+    if kind == "name":
+        return db.delete_species_name(row_id)
+    if kind == "cultural_connection":
+        return db.delete_cultural_connection(row_id)
+    return None
+
+
+def _fmt_when_short(when) -> str:
+    if when is None:
+        return ""
+    if isinstance(when, str):
+        return when[:10]
+    try:
+        return when.strftime("%Y-%m-%d")
+    except Exception:
+        return str(when)[:10]
+
+
+def _delete_row(label: str, sub: str | None, when,
+                 key: str, on_delete) -> None:
+    cols = st.columns([6, 2])
+    with cols[0]:
+        when_str = _fmt_when_short(when)
+        sub_html = (f' <span style="color:#7a8d86;font-size:11px">· {sub}</span>'
+                    if sub else "")
+        when_html = (f' <span style="color:#9ab3ab;font-size:11px">'
+                     f'· {when_str}</span>'
+                     if when_str else "")
+        st.markdown(
+            f'<div style="padding:6px 0;border-bottom:1px solid #1c2e2b;'
+            f'color:#e8f3ef">{label}{sub_html}{when_html}</div>',
+            unsafe_allow_html=True,
+        )
+    with cols[1]:
+        if st.button("Delete", key=key, use_container_width=True):
+            try:
+                on_delete()
+                _invalidate_all_caches()
+                # Profile caches too, if profile module has been imported.
+                try:
+                    from src import profile as _p
+                    _p._invalidate_profile_caches()
+                except Exception:
+                    pass
+                st.success("Deleted.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
