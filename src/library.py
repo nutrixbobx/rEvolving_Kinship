@@ -709,7 +709,9 @@ def _delete_row(label: str, sub: str | None, when,
     """Render one row with Delete (always) and Edit (when edit_kind/edit_id
     are supplied AND we know how to edit that kind). The edit form expands
     inline beneath the row when toggled."""
-    has_edit = edit_kind in ("story", "dish", "cultural_connection") and bool(edit_id)
+    has_edit = edit_kind in ("story", "dish", "cultural_connection",
+                            "name", "pantheon", "deity",
+                            "species_deity") and bool(edit_id)
     cols = (st.columns([5, 1, 1]) if has_edit else st.columns([6, 2]))
     with cols[0]:
         when_str = _fmt_when_short(when)
@@ -889,6 +891,171 @@ def _render_edit_form_inline(kind: str, row_id: str,
             st.rerun()
         return
 
+    if kind == "name":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT name_text, language_code, name_category, "
+                "       region_code, is_preferred "
+                "FROM species_name WHERE name_id = :i"),
+                {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_name_form"):
+            n = st.text_input("Name", value=row[0] or "")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                lang = st.text_input("Language code",
+                                     value=row[1] or "en",
+                                     help="ISO 639-1 (en, hy, es, sw, ...)")
+            with c2:
+                cats = ["common","folk","ceremonial","scientific","synonym"]
+                cat = st.selectbox(
+                    "Category", cats,
+                    index=cats.index(row[2] or "common"))
+            with c3:
+                region = st.text_input("Region (optional)",
+                                       value=row[3] or "")
+            pref = st.checkbox("Preferred name for this "
+                                "(species, language, category)",
+                                value=bool(row[4]))
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_name_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_species_name(row_id, {
+                "name_text": (n or "").strip() or row[0],
+                "language_code": (lang or "").strip() or "en",
+                "name_category": cat,
+                "region_code": (region or "").strip() or None,
+                "is_preferred": bool(pref),
+            })
+            _invalidate_all_caches()
+            try:
+                from src import profile as _p
+                _p._invalidate_profile_caches()
+            except Exception:
+                pass
+            st.session_state.pop(f"_edit_open_name_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+    if kind == "pantheon":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT name, region, tradition_type "
+                "FROM pantheon WHERE pantheon_id = :i"),
+                {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_pantheon_form"):
+            name = st.text_input("Name", value=row[0] or "")
+            c1, c2 = st.columns(2)
+            with c1:
+                region = st.text_input("Region", value=row[1] or "")
+            with c2:
+                trads = ["religious","mythological","folk","animist"]
+                tradition = st.selectbox(
+                    "Tradition", trads,
+                    index=trads.index(row[2] or "mythological"))
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_pantheon_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_pantheon(row_id, {
+                "name": (name or "").strip() or row[0],
+                "region": (region or "").strip() or None,
+                "tradition_type": tradition,
+            })
+            _invalidate_all_caches()
+            st.session_state.pop(f"_edit_open_pantheon_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+    if kind == "deity":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT name, domain, aliases "
+                "FROM deity WHERE deity_id = :i"),
+                {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        aliases_str = ", ".join(row[2]) if row[2] else ""
+        with st.form(f"{key_prefix}_deity_form"):
+            name = st.text_input("Name", value=row[0] or "")
+            domain = st.text_input("Domain", value=row[1] or "",
+                                    help="water, hunt, fertility, death...")
+            aliases = st.text_input(
+                "Alternate names (comma-separated)", value=aliases_str)
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_deity_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_deity(row_id, {
+                "name": (name or "").strip() or row[0],
+                "domain": (domain or "").strip() or None,
+                "aliases": aliases,
+            })
+            _invalidate_all_caches()
+            st.session_state.pop(f"_edit_open_deity_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+    if kind == "species_deity":
+        parts = (row_id or "").split("||")
+        if len(parts) != 3:
+            st.warning("Edit key shape unexpected — refresh.")
+            return
+        sp_id, de_id, rel = parts
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT note FROM species_deity "
+                "WHERE species_id = :s AND deity_id = :d "
+                "  AND relationship = :r"),
+                {"s": sp_id, "d": de_id, "r": rel}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_sd_form"):
+            st.caption(f"Editing the note. To change the relationship "
+                        f"type ({rel}), delete this link and add it back "
+                        "with the new type.")
+            note = st.text_area("Note", value=row[0] or "", height=80)
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_species_deity_{row_id}",
+                                  None)
+            st.rerun()
+        if save:
+            db.update_species_deity_note(sp_id, de_id, rel,
+                                          (note or "").strip() or None)
+            _invalidate_all_caches()
+            st.session_state.pop(f"_edit_open_species_deity_{row_id}",
+                                  None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
 
 def _contributor_link(name: str | None,
                        contributor_id: str | None,
@@ -931,7 +1098,11 @@ def _render_manage() -> None:
         if df.empty:
             st.caption("No stories yet.")
         else:
+            _bulk_delete_bar("mng_stories",
+                              delete_one=lambda i: db.delete_story(i),
+                              label="stories")
             for _, r in df.iterrows():
+                _bulk_checkbox("mng_stories", str(r["story_id"]))
                 sub = (f"for {r['species']}" if r.get("species")
                        else (f"in {r['tree']}" if r.get("tree") else None))
                 _delete_row(
@@ -948,7 +1119,11 @@ def _render_manage() -> None:
         if df.empty:
             st.caption("No dishes yet.")
         else:
+            _bulk_delete_bar("mng_dishes",
+                              delete_one=lambda i: db.delete_dish(i),
+                              label="dishes")
             for _, r in df.iterrows():
+                _bulk_checkbox("mng_dishes", str(r["dish_id"]))
                 sub_bits = []
                 if r.get("cuisine"): sub_bits.append(r["cuisine"])
                 if r.get("ingredient_count"):
@@ -987,7 +1162,12 @@ def _render_manage() -> None:
         if df.empty:
             st.caption("No cultural connections yet.")
         else:
+            _bulk_delete_bar("mng_cultural",
+                              delete_one=lambda i:
+                                  db.delete_cultural_connection(i),
+                              label="cultural connections")
             for _, r in df.iterrows():
+                _bulk_checkbox("mng_cultural", str(r["connection_id"]))
                 _delete_row(
                     label=f"{r.get('culture','')} / "
                           f"{r.get('significance_type','tie')}",
@@ -1010,7 +1190,11 @@ def _render_manage() -> None:
         else:
             st.markdown("**Pantheons** (deleting a pantheon removes all its "
                          "deities)")
+            _bulk_delete_bar("mng_pantheons",
+                              delete_one=lambda i: db.delete_pantheon(i),
+                              label="pantheons")
             for _, r in df_p.iterrows():
+                _bulk_checkbox("mng_pantheons", str(r["pantheon_id"]))
                 _delete_row(
                     label=r.get("name") or "(unnamed)",
                     sub=(f"{r.get('region','')} "
@@ -1019,26 +1203,68 @@ def _render_manage() -> None:
                     when=None,
                     key=f"mng_pan_{r['pantheon_id']}",
                     on_delete=lambda pid=r["pantheon_id"]:
-                        db.delete_pantheon(pid))
+                        db.delete_pantheon(pid),
+                    edit_kind="pantheon",
+                    edit_id=str(r["pantheon_id"]))
+
+            # Deities themselves
+            from sqlalchemy import text as _sa_text2
+            with db.get_engine().connect() as _c:
+                _deity_rows = _c.execute(_sa_text2("""
+                    SELECT d.deity_id::text, d.name, d.domain,
+                           p.name AS pantheon
+                    FROM deity d
+                    JOIN pantheon p ON p.pantheon_id = d.pantheon_id
+                    ORDER BY p.name, d.name
+                """)).fetchall()
+            if _deity_rows:
+                st.markdown("**Deities** (deleting cascades to species links)")
+                for _drow in _deity_rows:
+                    _did, _dname, _ddom, _dpan = _drow
+                    _delete_row(
+                        label=_dname,
+                        sub=f"{_dpan}" + (f" · {_ddom}" if _ddom else ""),
+                        when=None,
+                        key=f"mng_deity_{_did}",
+                        on_delete=lambda di=_did: db.delete_deity(di),
+                        edit_kind="deity", edit_id=_did)
 
         # Species-deity links (the joining table)
-        df_sd = _cached_species_deities()
-        if not df_sd.empty:
+        # Pull species_deity with id columns so we can edit + delete by id.
+        from sqlalchemy import text as _sa_text
+        with db.get_engine().connect() as _c:
+            _sd_rows = _c.execute(_sa_text("""
+                SELECT sd.species_id::text, sd.deity_id::text,
+                       sd.relationship,
+                       s.canonical_scientific_name AS species,
+                       (SELECT sn.name_text FROM species_name sn
+                          WHERE sn.species_id = s.species_id
+                            AND sn.language_code = 'en'
+                            AND sn.name_category = 'common'
+                            AND sn.is_preferred = true LIMIT 1) AS common_name,
+                       d.name AS deity,
+                       p.name AS pantheon
+                FROM species_deity sd
+                JOIN species s ON s.species_id = sd.species_id
+                JOIN deity d ON d.deity_id = sd.deity_id
+                JOIN pantheon p ON p.pantheon_id = d.pantheon_id
+                ORDER BY s.canonical_scientific_name, p.name, d.name
+            """)).fetchall()
+        if _sd_rows:
             st.markdown("**Species ↔ deity links** (deleting unlinks; keeps "
                          "both species and deity)")
-            for _, r in df_sd.iterrows():
+            for _row in _sd_rows:
+                _sp, _de, _rel, _sci, _comm, _dname, _pname = _row
+                _composite = f"{_sp}||{_de}||{_rel}"
                 _delete_row(
-                    label=f"{r.get('common_name') or r['species']} ↔ "
-                          f"{r['deity']}",
-                    sub=(f"{r.get('pantheon','')} · "
-                          f"{r.get('relationship','')}"),
+                    label=f"{_comm or _sci} ↔ {_dname}",
+                    sub=f"{_pname} · {_rel}",
                     when=None,
-                    key=(f"mng_sd_{r['species'][:8]}_"
-                         f"{r['deity'][:8]}_"
-                         f"{(r.get('relationship') or 'na')[:12]}"),
-                    on_delete=lambda sn=r["species"], dn=r["deity"],
-                                    rel=r.get("relationship") or "":
-                        _delete_species_deity_by_names(sn, dn, rel))
+                    key=f"mng_sd_{_sp[:8]}_{_de[:8]}_{_rel[:12]}",
+                    on_delete=lambda s=_sp, d=_de, r=_rel:
+                        db.delete_species_deity_link(s, d, r),
+                    edit_kind="species_deity",
+                    edit_id=_composite)
 
     with tabs[5]:
         df_tr = _cached_trees()
@@ -1048,7 +1274,11 @@ def _render_manage() -> None:
             st.caption("Deleting a tree removes its species links but leaves "
                         "the species themselves. Renaming + ownership transfer "
                         "live in the Dashboard tab.")
+            _bulk_delete_bar("mng_trees",
+                              delete_one=lambda n: db.delete_tree(n),
+                              label="trees")
             for _, r in df_tr.iterrows():
+                _bulk_checkbox("mng_trees", str(r["tree_name"]))
                 _delete_row(
                     label=r.get("tree_name") or "(unnamed tree)",
                     sub=f"{int(r.get('species_count', 0))} species",
@@ -1082,9 +1312,13 @@ def _render_manage_names_table() -> None:
         return
     with st.expander(f"Delete individual names ({len(rows)} shown)",
                       expanded=False):
+        _bulk_delete_bar("mng_names",
+                          delete_one=lambda i: db.delete_species_name(i),
+                          label="names")
         for row in rows:
             (name_id, name_text, lang, cat, pref, species, contributor,
              contributor_id) = row
+            _bulk_checkbox("mng_names", str(name_id))
             label = f"{name_text} ({lang}/{cat})"
             if pref:
                 label += " ★"
@@ -1094,7 +1328,8 @@ def _render_manage_names_table() -> None:
                 when=None,
                 key=f"mng_name_{name_id}",
                 on_delete=lambda nid=name_id:
-                    db.delete_species_name(nid))
+                    db.delete_species_name(nid),
+                edit_kind="name", edit_id=str(name_id))
 
 
 def _delete_species_deity_by_names(species_name: str, deity_name: str,
@@ -1119,4 +1354,85 @@ def _delete_species_deity_by_names(species_name: str, deity_name: str,
         return None
     return db.delete_species_deity_link(str(row[0]), str(row[1]),
                                           relationship)
+
+
+# ---------------------------------------------------------------------------
+# Batch-delete helpers (used by Manage sub-tabs + Profile activity)
+# ---------------------------------------------------------------------------
+def _bulk_mode_on(section_key: str) -> bool:
+    """True when this section is in bulk-select mode."""
+    return bool(st.session_state.get(f"_bulk_mode_{section_key}", False))
+
+
+def _bulk_selected_ids(section_key: str) -> list[str]:
+    """Return the row_ids currently checked in this section."""
+    prefix = f"_bulk_sel_{section_key}_"
+    return [k[len(prefix):]
+            for k, v in st.session_state.items()
+            if k.startswith(prefix) and v]
+
+
+def _bulk_clear(section_key: str) -> None:
+    prefix = f"_bulk_sel_{section_key}_"
+    for k in list(st.session_state.keys()):
+        if k.startswith(prefix):
+            st.session_state.pop(k, None)
+
+
+def _bulk_delete_bar(section_key: str,
+                      delete_one: "callable[[str], object]",
+                      label: str = "row(s)") -> None:
+    """Render the 'Bulk mode' toggle and the 'Delete N selected' button at
+    the top of a section. `delete_one(id)` is called once per selected id."""
+    cols = st.columns([2, 5])
+    with cols[0]:
+        cur = _bulk_mode_on(section_key)
+        new = st.checkbox("Bulk mode", value=cur,
+                          key=f"_bulk_mode_chk_{section_key}",
+                          help="Show checkboxes next to each row so you "
+                               "can delete many at once.")
+        if new != cur:
+            st.session_state[f"_bulk_mode_{section_key}"] = new
+            if not new:
+                _bulk_clear(section_key)
+            st.rerun()
+    with cols[1]:
+        if _bulk_mode_on(section_key):
+            selected = _bulk_selected_ids(section_key)
+            n = len(selected)
+            disabled = (n == 0)
+            if st.button(f"Delete {n} selected {label}",
+                         key=f"_bulk_delete_btn_{section_key}",
+                         disabled=disabled,
+                         type="primary",
+                         use_container_width=True):
+                failed = 0
+                for rid in selected:
+                    try:
+                        delete_one(rid)
+                    except Exception:
+                        failed += 1
+                _bulk_clear(section_key)
+                _invalidate_all_caches()
+                try:
+                    from src import profile as _p
+                    _p._invalidate_profile_caches()
+                except Exception:
+                    pass
+                msg = f"Deleted {n - failed} {label}."
+                if failed:
+                    msg += f" {failed} failed."
+                st.success(msg)
+                st.rerun()
+
+
+def _bulk_checkbox(section_key: str, row_id: str) -> None:
+    """Render a single-row checkbox when bulk mode is on."""
+    if not _bulk_mode_on(section_key):
+        return
+    st.checkbox(
+        " ",
+        key=f"_bulk_sel_{section_key}_{row_id}",
+        label_visibility="collapsed",
+    )
 

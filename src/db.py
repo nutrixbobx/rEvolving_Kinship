@@ -1749,3 +1749,108 @@ def list_pending_resets() -> pd.DataFrame:
         ORDER BY pr.requested_at DESC
     """), get_engine())
 
+# ---------------------------------------------------------------------------
+# Edit helpers for the remaining community kinds (Phase 2-bis)
+# ---------------------------------------------------------------------------
+def update_species_name(name_id: str, fields: dict) -> bool:
+    """Patch a multilingual-name row. If is_preferred is being set to True,
+    demotes any other preferred name for the same (species, language,
+    category) to keep the invariant. Returns True if a row was updated."""
+    allowed = {"name_text", "language_code", "name_category",
+               "region_code", "is_preferred"}
+    sets, params = [], {"i": name_id}
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return False
+    engine = get_engine()
+    with engine.begin() as conn:
+        cur = conn.execute(text(
+            "SELECT species_id, language_code, name_category "
+            "FROM species_name WHERE name_id = :i"
+        ), {"i": name_id}).fetchone()
+        if not cur:
+            return False
+        # If turning is_preferred on, demote siblings first.
+        if fields.get("is_preferred") is True:
+            new_lang = fields.get("language_code", cur[1])
+            new_cat  = fields.get("name_category", cur[2])
+            conn.execute(text(
+                "UPDATE species_name SET is_preferred = false "
+                "WHERE species_id = :s AND language_code = :l "
+                "  AND name_category = :c AND name_id <> :i"
+            ), {"s": cur[0], "l": new_lang, "c": new_cat, "i": name_id})
+        conn.execute(
+            text(f"UPDATE species_name SET {', '.join(sets)} "
+                 "WHERE name_id = :i"),
+            params,
+        )
+        return True
+
+
+def update_pantheon(pantheon_id: str, fields: dict) -> bool:
+    allowed = {"name", "region", "tradition_type"}
+    sets, params = [], {"i": pantheon_id}
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return False
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(f"UPDATE pantheon SET {', '.join(sets)} "
+                 "WHERE pantheon_id = :i"),
+            params,
+        )
+        return int(result.rowcount or 0) > 0
+
+
+def update_deity(deity_id: str, fields: dict) -> bool:
+    """Patch a deity row. `aliases` is a comma-separated string in the UI;
+    we split it on commas + trim + drop blanks before saving as a Postgres
+    TEXT[]."""
+    allowed = {"name", "domain", "aliases"}
+    sets, params = [], {"i": deity_id}
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if k == "aliases":
+            if isinstance(v, str):
+                parts = [s.strip() for s in v.split(",") if s.strip()]
+            else:
+                parts = list(v) if v else []
+            params[k] = parts or None
+            sets.append("aliases = :aliases")
+        else:
+            sets.append(f"{k} = :{k}")
+            params[k] = v
+    if not sets:
+        return False
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(f"UPDATE deity SET {', '.join(sets)} "
+                 "WHERE deity_id = :i"),
+            params,
+        )
+        return int(result.rowcount or 0) > 0
+
+
+def update_species_deity_note(species_id: str, deity_id: str,
+                                relationship: str, note: str | None) -> bool:
+    """Just the note. Relationship is part of the composite key — to change
+    that, delete + re-add."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "UPDATE species_deity SET note = :n "
+            "WHERE species_id = :s AND deity_id = :d "
+            "  AND relationship = :r"
+        ), {"n": (note or None), "s": species_id, "d": deity_id,
+            "r": relationship})
+        return int(result.rowcount or 0) > 0
+

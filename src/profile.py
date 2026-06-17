@@ -391,7 +391,11 @@ def _render_activity(cid: str) -> None:
         if df.empty:
             st.caption("No stories yet. Stories live in the Library tab.")
         else:
+            _prof_bulk_delete_bar("act_stories",
+                                   lambda i: db.delete_story(i),
+                                   "stories")
             for _, row in df.iterrows():
+                _prof_bulk_checkbox("act_stories", str(row["story_id"]))
                 _row_with_delete(
                     title=row.get("title") or "(untitled)",
                     sub=(f"about {row['species']}"
@@ -408,7 +412,11 @@ def _render_activity(cid: str) -> None:
         if df.empty:
             st.caption("No dishes yet.")
         else:
+            _prof_bulk_delete_bar("act_dishes",
+                                   lambda i: db.delete_dish(i),
+                                   "dishes")
             for _, row in df.iterrows():
+                _prof_bulk_checkbox("act_dishes", str(row["dish_id"]))
                 _row_with_delete(
                     title=row.get("name") or "(unnamed)",
                     sub=row.get("cuisine"),
@@ -424,7 +432,11 @@ def _render_activity(cid: str) -> None:
         if df.empty:
             st.caption("No multilingual names contributed yet.")
         else:
+            _prof_bulk_delete_bar("act_names",
+                                   lambda i: db.delete_species_name(i),
+                                   "names")
             for _, row in df.iterrows():
+                _prof_bulk_checkbox("act_names", str(row["name_id"]))
                 _row_with_delete(
                     title=f"{row['name_text']}  ({row.get('language')})",
                     sub=(f"for {row['species']}"
@@ -441,7 +453,11 @@ def _render_activity(cid: str) -> None:
         if df.empty:
             st.caption("No cultural connections yet.")
         else:
+            _prof_bulk_delete_bar("act_cultural",
+                                   lambda i: db.delete_cultural_connection(i),
+                                   "cultural ties")
             for _, row in df.iterrows():
+                _prof_bulk_checkbox("act_cultural", str(row["connection_id"]))
                 _row_with_delete(
                     title=f"{row.get('culture','')}: "
                           f"{row.get('significance_type','tie')}",
@@ -577,12 +593,26 @@ def _render_admin_review_feed() -> None:
         return
     st.caption("Most recent 50 additions across stories, dishes, names, and "
                "cultural connections. Delete any.")
+    # Bulk delete bar: works on the visible composite ids (kind:id).
+    def _delete_composite(composite_id: str) -> None:
+        try:
+            kind, rid = composite_id.split(":", 1)
+        except ValueError:
+            return
+        if kind == "story":               db.delete_story(rid)
+        elif kind == "dish":              db.delete_dish(rid)
+        elif kind == "name":              db.delete_species_name(rid)
+        elif kind == "cultural_connection":
+            db.delete_cultural_connection(rid)
+    _prof_bulk_delete_bar("admin_review", _delete_composite,
+                           "additions")
     for _, row in df.iterrows():
         kind = row.get("kind", "?")
         row_id = row.get("row_id")
         title = row.get("title") or "(untitled)"
         by = row.get("contributor") or "anonymous"
         when_str = _fmt_when(row.get("contributed_at"))
+        _prof_bulk_checkbox("admin_review", f"{kind}:{row_id}")
         cols = st.columns([6, 2])
         with cols[0]:
             st.markdown(
@@ -766,4 +796,75 @@ def _render_admin_pending_resets() -> None:
     st.dataframe(df, use_container_width=True, hide_index=True)
     st.caption("Each reset surfaces a one-time temp password on the user's "
                 "own screen. This panel just records that they asked.")
+
+
+# ---------------------------------------------------------------------------
+# Batch-delete helpers (Profile activity + admin Review feed)
+# ---------------------------------------------------------------------------
+def _prof_bulk_mode_on(section_key: str) -> bool:
+    return bool(st.session_state.get(f"_prof_bulk_mode_{section_key}", False))
+
+
+def _prof_bulk_selected(section_key: str) -> list[str]:
+    prefix = f"_prof_bulk_sel_{section_key}_"
+    return [k[len(prefix):]
+            for k, v in st.session_state.items()
+            if k.startswith(prefix) and v]
+
+
+def _prof_bulk_clear(section_key: str) -> None:
+    prefix = f"_prof_bulk_sel_{section_key}_"
+    for k in list(st.session_state.keys()):
+        if k.startswith(prefix):
+            st.session_state.pop(k, None)
+
+
+def _prof_bulk_delete_bar(section_key: str, delete_one, label: str) -> None:
+    cols = st.columns([2, 5])
+    with cols[0]:
+        cur = _prof_bulk_mode_on(section_key)
+        new = st.checkbox("Bulk mode", value=cur,
+                          key=f"_prof_bulk_mode_chk_{section_key}",
+                          help="Show checkboxes next to each row.")
+        if new != cur:
+            st.session_state[f"_prof_bulk_mode_{section_key}"] = new
+            if not new:
+                _prof_bulk_clear(section_key)
+            st.rerun()
+    with cols[1]:
+        if _prof_bulk_mode_on(section_key):
+            sel = _prof_bulk_selected(section_key)
+            n = len(sel)
+            if st.button(f"Delete {n} selected {label}",
+                         key=f"_prof_bulk_del_btn_{section_key}",
+                         disabled=(n == 0),
+                         type="primary",
+                         use_container_width=True):
+                failed = 0
+                for rid in sel:
+                    try:
+                        delete_one(rid)
+                    except Exception:
+                        failed += 1
+                _prof_bulk_clear(section_key)
+                _invalidate_profile_caches()
+                try:
+                    from src import library
+                    library._invalidate_all_caches()
+                except Exception:
+                    pass
+                msg = f"Deleted {n - failed} {label}."
+                if failed:
+                    msg += f" {failed} failed."
+                st.success(msg)
+                st.rerun()
+
+
+def _prof_bulk_checkbox(section_key: str, row_id: str) -> None:
+    if not _prof_bulk_mode_on(section_key):
+        return
+    st.checkbox(
+        " ", key=f"_prof_bulk_sel_{section_key}_{row_id}",
+        label_visibility="collapsed",
+    )
 
