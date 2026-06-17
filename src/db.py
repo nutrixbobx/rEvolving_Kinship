@@ -1863,54 +1863,69 @@ def list_tree_species_with_names(tree_name: str) -> list[dict]:
     """For each species in this tree, return:
         species_id, scientific_name, current_name_id, current_name_text,
         choices: [(name_id|None, label), ...]
-    The 'None' choice means 'use the global preferred name', shown as the
-    default option in the dropdown."""
+    Single round-trip — pulls every species + every available name for
+    those species in one query, then groups in Python. Avoids the N+1
+    that the per-tree picker used to run on every dashboard rerun."""
     engine = get_engine()
-    out: list[dict] = []
     with engine.connect() as conn:
-        species_rows = conn.execute(text("""
+        rows = conn.execute(text("""
             SELECT s.species_id::text, s.canonical_scientific_name,
-                   ts.display_name_id::text
+                   ts.display_name_id::text,
+                   sn.name_id::text, sn.name_text, sn.language_code,
+                   sn.name_category, sn.is_preferred
             FROM tree_species ts
             JOIN tree t    ON t.tree_id    = ts.tree_id
             JOIN species s ON s.species_id = ts.species_id
+            LEFT JOIN species_name sn ON sn.species_id = s.species_id
             WHERE t.name = :tn
-            ORDER BY s.canonical_scientific_name
+            ORDER BY s.canonical_scientific_name,
+                     sn.is_preferred DESC NULLS LAST,
+                     sn.language_code, sn.name_text
         """), {"tn": tree_name}).fetchall()
-        for sp_id, sci, dn_id in species_rows:
-            # All available names for this species (any language/category).
-            name_rows = conn.execute(text("""
-                SELECT name_id::text, name_text, language_code,
-                       name_category, is_preferred
-                FROM species_name
-                WHERE species_id = :s
-                ORDER BY is_preferred DESC, language_code, name_text
-            """), {"s": sp_id}).fetchall()
-            # Build choices: None means 'global preferred fallback'.
-            global_pref = next(
-                (r[1] for r in name_rows
-                    if r[2] == "en" and r[3] == "common" and r[4]),
-                None,
+    # Group rows by species_id, preserving the order they came in.
+    from collections import OrderedDict
+    species_by_id: OrderedDict[str, dict] = OrderedDict()
+    for r in rows:
+        sp_id, sci, dn_id, nid, ntext, lang, cat, is_pref = r
+        bucket = species_by_id.setdefault(sp_id, {
+            "species_id": sp_id,
+            "scientific_name": sci,
+            "current_name_id": dn_id,
+            "name_rows": [],
+        })
+        if nid is not None:
+            bucket["name_rows"].append(
+                (nid, ntext, lang, cat, bool(is_pref))
             )
-            global_label = (f"(default — {global_pref})"
-                             if global_pref else
-                             "(default — scientific name)")
-            choices = [(None, global_label)]
-            for nid, ntext, lang, cat, is_pref in name_rows:
-                star = " ★" if is_pref else ""
-                choices.append(
-                    (nid, f"{ntext}  · {lang}/{cat}{star}"))
-            current_text = None
-            if dn_id:
-                current_text = next(
-                    (r[1] for r in name_rows if r[0] == dn_id), None)
-            out.append({
-                "species_id": sp_id,
-                "scientific_name": sci,
-                "current_name_id": dn_id,
-                "current_name_text": current_text or global_pref,
-                "choices": choices,
-            })
+
+    out: list[dict] = []
+    for bucket in species_by_id.values():
+        name_rows = bucket["name_rows"]
+            # Build choices: None means 'global preferred fallback'.
+        global_pref = next(
+            (r[1] for r in name_rows
+                if r[2] == "en" and r[3] == "common" and r[4]),
+            None,
+        )
+        global_label = (f"(default — {global_pref})"
+                         if global_pref else
+                         "(default — scientific name)")
+        choices = [(None, global_label)]
+        for nid, ntext, lang, cat, is_pref in name_rows:
+            star = " ★" if is_pref else ""
+            choices.append((nid, f"{ntext}  · {lang}/{cat}{star}"))
+        dn_id = bucket["current_name_id"]
+        current_text = None
+        if dn_id:
+            current_text = next(
+                (r[1] for r in name_rows if r[0] == dn_id), None)
+        out.append({
+            "species_id": bucket["species_id"],
+            "scientific_name": bucket["scientific_name"],
+            "current_name_id": dn_id,
+            "current_name_text": current_text or global_pref,
+            "choices": choices,
+        })
     return out
 
 

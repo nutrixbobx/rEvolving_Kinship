@@ -56,7 +56,11 @@ def verify_password(password: str, stored_hash: str) -> bool:
 # ---------------------------------------------------------------------------
 def seed_admin_password_if_needed() -> None:
     """If maya exists in contributor but has no password_hash, set it from
-    the ADMIN_PASSWORD env var. Idempotent: skips if already set."""
+    the ADMIN_PASSWORD env var. Runs at most once per Streamlit session
+    so we don't pay a DB read on every script rerun."""
+    if st.session_state.get("_admin_pw_seeded"):
+        return
+    st.session_state["_admin_pw_seeded"] = True
     admin_pw = os.environ.get("ADMIN_PASSWORD")
     if not admin_pw:
         return
@@ -67,7 +71,7 @@ def seed_admin_password_if_needed() -> None:
     if not user:
         return
     if user.get("password_hash"):
-        return  # already seeded
+        return
     hashed = hash_password(admin_pw)
     db.set_user_password(user["contributor_id"], hashed)
 
@@ -75,9 +79,11 @@ def seed_admin_password_if_needed() -> None:
 # ---------------------------------------------------------------------------
 # streamlit-authenticator wiring
 # ---------------------------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
 def _build_credentials_dict() -> dict:
     """Pull all signed-in users from the contributor table into the format
-    streamlit-authenticator expects on every script rerun."""
+    streamlit-authenticator expects. Cached 60s so we don't hit the DB
+    every script rerun."""
     try:
         users = db.list_signed_in_users()
     except Exception:

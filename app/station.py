@@ -146,9 +146,18 @@ def _cached_read_tree(tree_name):
     return db.read_tree(tree_name)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_tree_species_picker(tree_name):
+    """Cache the per-tree name picker. The query is a 1-shot scan of
+    tree_species + species_name; caching it 60s removes a noticeable hit
+    on every Dashboard interaction."""
+    return db.list_tree_species_with_names(tree_name)
+
+
 def _invalidate_dashboard_caches():
     _cached_list_trees_for_dashboard.clear()
     _cached_read_tree.clear()
+    _cached_tree_species_picker.clear()
 
 
 def _cached_player_html(common, sci, path_str, attribution):
@@ -724,7 +733,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     "Only this tree changes — other trees keep their own "
                     "picks. Rebuild after saving so the rendered labels "
                     "match.")
-                _picker_rows = db.list_tree_species_with_names(pick_tree)
+                _picker_rows = _cached_tree_species_picker(pick_tree)
                 if not _picker_rows:
                     st.caption("No species in this tree yet.")
                 else:

@@ -119,6 +119,11 @@ def _cached_user_cultural(cid: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def _cached_user_by_id(cid: str) -> dict | None:
+    return db.get_user_by_id(cid)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def _cached_all_users() -> pd.DataFrame:
     return db.list_all_users_for_admin()
 
@@ -131,7 +136,8 @@ def _cached_recent_contribs(limit: int) -> pd.DataFrame:
 def _invalidate_profile_caches() -> None:
     for fn in (_cached_counts, _cached_user_trees, _cached_user_stories,
                _cached_user_dishes, _cached_user_names, _cached_user_cultural,
-               _cached_all_users, _cached_recent_contribs):
+               _cached_all_users, _cached_recent_contribs,
+               _cached_user_by_id):
         try:
             fn.clear()
         except Exception:
@@ -164,7 +170,7 @@ def render() -> None:
     # Refresh user details from DB so the profile reflects the latest
     # display_name / bio / avatar even after edits in another session.
     try:
-        fresh = db.get_user_by_id(cid)
+        fresh = _cached_user_by_id(cid)
     except Exception as exc:
         st.warning(
             "Couldn't refresh your profile from the database "

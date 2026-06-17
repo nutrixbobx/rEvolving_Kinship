@@ -77,14 +77,44 @@ def _cached_species_picker():
     return db.list_species_for_picker()
 
 
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_my_stories(cid):
+    return db.list_user_stories(cid)
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_my_dishes(cid):
+    return db.list_user_dishes(cid)
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_my_names(cid):
+    return db.list_user_names(cid)
+
+
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _cached_my_cultural(cid):
+    return db.list_user_cultural(cid)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_recent_contribs_lib(limit):
+    return db.recent_contributions(limit=limit)
+
+
 def _invalidate_all_caches() -> None:
-    """Clear every cached read. Called after an admin write so the Browse
-    tab reflects the change on the very next render."""
+    """Clear every cached read in this module so the next page render
+    reflects fresh data after a write."""
     for fn in (_cached_species_overview, _cached_trees, _cached_names,
                _cached_stories, _cached_dishes, _cached_dish_ingredients,
                _cached_pantheons, _cached_species_deities,
-               _cached_cultural, _cached_species_picker):
-        fn.clear()
+               _cached_cultural, _cached_species_picker,
+               _cached_my_stories, _cached_my_dishes, _cached_my_names,
+               _cached_my_cultural, _cached_recent_contribs_lib):
+        try:
+            fn.clear()
+        except Exception:
+            pass
 
 
 def _csv_download(df, name: str, key: str) -> None:
@@ -583,10 +613,10 @@ def _render_my_contributions(contributor_id: str,
     additions' panel for moderation."""
     from src import profile as _profile_mod  # for cache invalidation
 
-    my_stories = db.list_user_stories(contributor_id)
-    my_dishes = db.list_user_dishes(contributor_id)
-    my_names = db.list_user_names(contributor_id)
-    my_cc = db.list_user_cultural(contributor_id)
+    my_stories = _cached_my_stories(contributor_id)
+    my_dishes = _cached_my_dishes(contributor_id)
+    my_names = _cached_my_names(contributor_id)
+    my_cc = _cached_my_cultural(contributor_id)
 
     total = len(my_stories) + len(my_dishes) + len(my_names) + len(my_cc)
     title = (f"Your contributions  ·  {total} items"
@@ -653,7 +683,7 @@ def _render_my_contributions(contributor_id: str,
     if is_editor_or_admin:
         with st.expander("Community review (recent additions, any author)",
                           expanded=False):
-            df = db.recent_contributions(limit=50)
+            df = _cached_recent_contribs_lib(50)
             if df.empty:
                 st.caption("Nothing recent.")
                 return
