@@ -481,3 +481,25 @@ def role_glyph(role: str | None, size_px: int = 16) -> str:
         f'style="display:inline-block;color:{color};font-size:{size_px}px;'
         f'vertical-align:middle;margin-left:6px;line-height:1">{glyph}</span>'
     )
+
+def avatar_html(url_or_data: str | None, size_px: int = 44) -> str:
+    """Tiny circular avatar. Used by the sidebar identity card so the
+    sidebar shows your face, not just your name. Falls back to a soft
+    placeholder when no avatar is set."""
+    if url_or_data:
+        return (
+            f'<span style="display:inline-block;width:{size_px}px;'
+            f'height:{size_px}px;border-radius:50%;overflow:hidden;'
+            f'border:1px solid var(--kn-rule);background:var(--kn-bg);'
+            f'vertical-align:middle">'
+            f'<img src="{url_or_data}" '
+            f'style="width:100%;height:100%;object-fit:cover" alt=""></span>'
+        )
+    return (
+        f'<span style="display:inline-flex;width:{size_px}px;'
+        f'height:{size_px}px;border-radius:50%;background:var(--kn-bg);'
+        f'border:1px solid var(--kn-rule);align-items:center;'
+        f'justify-content:center;color:var(--kn-muted);'
+        f'font-size:{int(size_px/2)}px;vertical-align:middle">·</span>'
+    )
+

@@ -360,13 +360,18 @@ def render_sidebar_identity() -> None:
     u = current_user()
     bio_html = (f'<div class="identity-bio">{u["bio"]}</div>'
                 if u.get("bio") else "")
+    avatar = _theme.avatar_html(u.get("avatar_url"), size_px=44)
     with st.sidebar:
         st.markdown(
-            f'<div class="identity-card">'
-            f'<div class="identity-name">{u.get("name")}'
+            f'<div class="identity-card" '
+            f'style="display:flex;align-items:center;gap:12px">'
+            f'  {avatar}'
+            f'  <div style="flex:1;min-width:0">'
+            f'    <div class="identity-name">{u.get("name")}'
             f'{_theme.role_glyph(u.get("role"), size_px=15)}'
-            f'</div>'
-            f'{bio_html}'
+            f'    </div>'
+            f'    {bio_html}'
+            f'  </div>'
             f'</div>',
             unsafe_allow_html=True,
         )

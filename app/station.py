@@ -715,6 +715,46 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
+        # ------- Per-tree common-name picker --------------------------------
+        if _can_edit_this_tree:
+            with st.expander("Choose how each species is named in this tree"):
+                st.caption(
+                    "Pick a different name for any species in this tree "
+                    "(another language, a folk name, a ceremonial name). "
+                    "Only this tree changes — other trees keep their own "
+                    "picks. Rebuild after saving so the rendered labels "
+                    "match.")
+                _picker_rows = db.list_tree_species_with_names(pick_tree)
+                if not _picker_rows:
+                    st.caption("No species in this tree yet.")
+                else:
+                    for _pr in _picker_rows:
+                        _sp_id = _pr["species_id"]
+                        _sci   = _pr["scientific_name"]
+                        _choices = _pr["choices"]
+                        _ids = [c[0] for c in _choices]
+                        _labels = {c[0]: c[1] for c in _choices}
+                        _current_idx = (_ids.index(_pr["current_name_id"])
+                                          if _pr["current_name_id"] in _ids
+                                          else 0)
+                        _picked = st.selectbox(
+                            _sci, _ids,
+                            index=_current_idx,
+                            format_func=lambda i, _l=_labels: _l.get(i, "(default)"),
+                            key=f"name_pick_{pick_tree}_{_sp_id}",
+                        )
+                        if _picked != _pr["current_name_id"]:
+                            if st.button(
+                                f"Save name for {_sci}",
+                                key=f"name_save_{pick_tree}_{_sp_id}",
+                            ):
+                                db.set_tree_species_display_name(
+                                    pick_tree, _sp_id, _picked)
+                                _invalidate_dashboard_caches()
+                                st.success(f"Saved. Rebuild the tree so the "
+                                            f"label updates in the render.")
+                                st.rerun()
+
         if _can_edit_this_tree:
           with st.expander("Remove species, or delete this tree"):
             to_remove = st.multiselect(
