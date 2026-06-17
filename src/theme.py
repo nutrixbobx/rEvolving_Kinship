@@ -70,7 +70,7 @@ def render_footer(slogan: str = "") -> None:
   <div class="footer-row support-row">
     <span class="muted">Support our work</span>
     <a class="support" href="https://buymeacoffee.com/shared.rivers" target="_blank">buy me a coffee </a>
-    <span class="dot">or </span>
+    <span class="dot">or contribute a</span>
     <a class="support" href="https://fundraising.fracturedatlas.org/shared-rivers-confluences" target="_blank">tax-deductible donation</a>
   </div>
 </div>

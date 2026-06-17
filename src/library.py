@@ -115,7 +115,11 @@ def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: s
     is_named = _auth.is_named()
     is_editor_or_admin = _auth.is_editor_or_admin()
 
-    browse, add = st.tabs(["Browse", "Add"])
+    if is_editor_or_admin:
+        browse, add, manage = st.tabs(["Browse", "Add", "Manage"])
+    else:
+        browse, add = st.tabs(["Browse", "Add"])
+        manage = None
 
     with browse:
         if current_contributor_id:
@@ -129,6 +133,9 @@ def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: s
         else:
             st.info("Give yourself a name (or sign in) from the sidebar "
                     "to start adding to the library.")
+    if manage is not None:
+        with manage:
+            _render_manage()
 
 
 # ---------------------------------------------------------------------------
@@ -900,4 +907,216 @@ def _contributor_link(name: str | None,
             f'<span style="color:#9ab3ab;font-size:11px">by {label}</span>',
             unsafe_allow_html=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Manage tab (editor/admin only). One sub-tab per kind, each listing every
+# row with Edit (where supported) and Delete buttons.
+# ---------------------------------------------------------------------------
+def _render_manage() -> None:
+    from src import theme as _theme
+    _theme.section_heading("Manage the library",
+                            kicker="Editor / admin")
+    st.caption("Every row across the community layer, with Edit (where it "
+                "makes sense) and Delete. Changes invalidate caches "
+                "automatically, so Browse reflects them right away.")
+
+    tabs = st.tabs([
+        "Stories", "Dishes", "Names", "Cultural", "Pantheons & deities",
+        "Trees",
+    ])
+
+    with tabs[0]:
+        df = _cached_stories()
+        if df.empty:
+            st.caption("No stories yet.")
+        else:
+            for _, r in df.iterrows():
+                sub = (f"for {r['species']}" if r.get("species")
+                       else (f"in {r['tree']}" if r.get("tree") else None))
+                _delete_row(
+                    label=r.get("title") or "(untitled)",
+                    sub=sub,
+                    when=r.get("contributed_at"),
+                    key=f"mng_story_{r['story_id']}",
+                    on_delete=lambda sid=r["story_id"]:
+                        db.delete_story(sid),
+                    edit_kind="story", edit_id=r["story_id"])
+
+    with tabs[1]:
+        df = _cached_dishes()
+        if df.empty:
+            st.caption("No dishes yet.")
+        else:
+            for _, r in df.iterrows():
+                sub_bits = []
+                if r.get("cuisine"): sub_bits.append(r["cuisine"])
+                if r.get("ingredient_count"):
+                    sub_bits.append(f"{int(r['ingredient_count'])} ingredient(s)")
+                _delete_row(
+                    label=r.get("name") or "(unnamed)",
+                    sub=" · ".join(sub_bits) if sub_bits else None,
+                    when=r.get("contributed_at"),
+                    key=f"mng_dish_{r['dish_id']}",
+                    on_delete=lambda did=r["dish_id"]:
+                        db.delete_dish(did),
+                    edit_kind="dish", edit_id=r["dish_id"])
+
+    with tabs[2]:
+        df = _cached_names()
+        if df.empty:
+            st.caption("No multilingual names yet.")
+        else:
+            # Names are tiny — no inline edit. Just delete + add fresh.
+            for _, r in df.iterrows():
+                label = (f"{r['name_text']} "
+                         f"({r.get('language')}/{r.get('category')})")
+                if r.get("is_preferred"):
+                    label += " ★"
+                # `_cached_names()` doesn't currently return name_id (it's
+                # the species view). We need the row id, so call the
+                # per-row picker by name_id via db.list_user_names equivalent.
+                # Simpler: pull names with ids in a manage-only view.
+                pass
+            # Fall back to a dataframe + bulk delete for now.
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            _render_manage_names_table()
+
+    with tabs[3]:
+        df = _cached_cultural()
+        if df.empty:
+            st.caption("No cultural connections yet.")
+        else:
+            for _, r in df.iterrows():
+                _delete_row(
+                    label=f"{r.get('culture','')} / "
+                          f"{r.get('significance_type','tie')}",
+                    sub=(f"for {r['species']}"
+                         if r.get("species") else None),
+                    when=None,
+                    key=f"mng_cc_{r['connection_id']}",
+                    on_delete=lambda cid=r["connection_id"]:
+                        db.delete_cultural_connection(cid),
+                    edit_kind="cultural_connection",
+                    edit_id=r["connection_id"])
+
+    with tabs[4]:
+        # Pantheons + deities. Editor/admin only (already gated by being
+        # inside Manage). Delete pantheon cascades to deities, deity cascades
+        # to species_deity links.
+        df_p = _cached_pantheons()
+        if df_p.empty:
+            st.caption("No pantheons yet.")
+        else:
+            st.markdown("**Pantheons** (deleting a pantheon removes all its "
+                         "deities)")
+            for _, r in df_p.iterrows():
+                _delete_row(
+                    label=r.get("name") or "(unnamed)",
+                    sub=(f"{r.get('region','')} "
+                          f"({int(r.get('deities_count',0))} deities, "
+                          f"{int(r.get('species_count',0))} species)"),
+                    when=None,
+                    key=f"mng_pan_{r['pantheon_id']}",
+                    on_delete=lambda pid=r["pantheon_id"]:
+                        db.delete_pantheon(pid))
+
+        # Species-deity links (the joining table)
+        df_sd = _cached_species_deities()
+        if not df_sd.empty:
+            st.markdown("**Species ↔ deity links** (deleting unlinks; keeps "
+                         "both species and deity)")
+            for _, r in df_sd.iterrows():
+                _delete_row(
+                    label=f"{r.get('common_name') or r['species']} ↔ "
+                          f"{r['deity']}",
+                    sub=(f"{r.get('pantheon','')} · "
+                          f"{r.get('relationship','')}"),
+                    when=None,
+                    key=(f"mng_sd_{r['species'][:8]}_"
+                         f"{r['deity'][:8]}_"
+                         f"{(r.get('relationship') or 'na')[:12]}"),
+                    on_delete=lambda sn=r["species"], dn=r["deity"],
+                                    rel=r.get("relationship") or "":
+                        _delete_species_deity_by_names(sn, dn, rel))
+
+    with tabs[5]:
+        df_tr = _cached_trees()
+        if df_tr.empty:
+            st.caption("No trees yet.")
+        else:
+            st.caption("Deleting a tree removes its species links but leaves "
+                        "the species themselves. Renaming + ownership transfer "
+                        "live in the Dashboard tab.")
+            for _, r in df_tr.iterrows():
+                _delete_row(
+                    label=r.get("tree_name") or "(unnamed tree)",
+                    sub=f"{int(r.get('species_count', 0))} species",
+                    when=r.get("created_at"),
+                    key=f"mng_tree_{r['tree_name'][:32]}",
+                    on_delete=lambda tn=r["tree_name"]:
+                        db.delete_tree(tn))
+
+
+def _render_manage_names_table() -> None:
+    """Names section uses a per-row id picker because list_all_names()
+    rolls up rows for browsing. Pull species_name with name_id and offer
+    delete one at a time."""
+    from sqlalchemy import text as _sa_text
+    engine = db.get_engine()
+    with engine.connect() as c:
+        rows = c.execute(_sa_text("""
+            SELECT sn.name_id, sn.name_text, sn.language_code,
+                   sn.name_category, sn.is_preferred,
+                   s.canonical_scientific_name AS species,
+                   co.display_name AS contributor,
+                   co.contributor_id AS contributor_id
+            FROM species_name sn
+            JOIN species s ON s.species_id = sn.species_id
+            LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
+            ORDER BY s.canonical_scientific_name, sn.language_code,
+                     sn.is_preferred DESC, sn.name_text
+            LIMIT 300
+        """)).fetchall()
+    if not rows:
+        return
+    with st.expander(f"Delete individual names ({len(rows)} shown)",
+                      expanded=False):
+        for row in rows:
+            (name_id, name_text, lang, cat, pref, species, contributor,
+             contributor_id) = row
+            label = f"{name_text} ({lang}/{cat})"
+            if pref:
+                label += " ★"
+            _delete_row(
+                label=label,
+                sub=f"for {species}" if species else None,
+                when=None,
+                key=f"mng_name_{name_id}",
+                on_delete=lambda nid=name_id:
+                    db.delete_species_name(nid))
+
+
+def _delete_species_deity_by_names(species_name: str, deity_name: str,
+                                     relationship: str) -> None:
+    """Resolve names → ids and unlink. Used by the Manage Pantheons sub-tab
+    which gets joined rows from list_species_deities (no surrogate ids)."""
+    from sqlalchemy import text as _sa_text
+    engine = db.get_engine()
+    with engine.connect() as c:
+        row = c.execute(_sa_text("""
+            SELECT sd.species_id, sd.deity_id
+            FROM species_deity sd
+            JOIN species s ON s.species_id = sd.species_id
+            JOIN deity   d ON d.deity_id   = sd.deity_id
+            WHERE s.canonical_scientific_name = :sn
+              AND d.name = :dn
+              AND sd.relationship = :rel
+            LIMIT 1
+        """), {"sn": species_name, "dn": deity_name,
+               "rel": relationship}).fetchone()
+    if not row:
+        return None
+    return db.delete_species_deity_link(str(row[0]), str(row[1]),
+                                          relationship)
 
