@@ -134,8 +134,7 @@ def get_or_create_contributor(display_name: str | None) -> str | None:
 # Auth / user management (after db/auth_migration.sql)
 # ---------------------------------------------------------------------------
 _USER_COLS = ("contributor_id, display_name, username, password_hash, "
-              "role, email, bio, avatar_url, last_login_at, "
-              "coalesce(must_change_password, false)")
+              "role, email, bio, avatar_url, last_login_at")
 
 
 def _row_to_user_dict(row) -> dict | None:
@@ -151,7 +150,6 @@ def _row_to_user_dict(row) -> dict | None:
         "bio": row[6],
         "avatar_url": row[7],
         "last_login_at": row[8],
-        "must_change_password": bool(row[9]) if len(row) > 9 else False,
     }
 
 
@@ -1932,4 +1930,24 @@ def set_tree_species_display_name(tree_name: str,
               AND tree_species.species_id = :s
         """), {"n": name_id, "tn": tree_name, "s": species_id})
         return int(result.rowcount or 0)
+
+
+def get_user_must_change_password(contributor_id: str) -> bool:
+    """Defensive read of the must_change_password flag. Returns False when
+    the column doesn't exist yet (forgot_password_migration not applied).
+    Used by auth.must_change_password() so the rest of the user-row read
+    path stays migration-agnostic."""
+    if not contributor_id:
+        return False
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT coalesce(must_change_password, false) "
+                "FROM contributor WHERE contributor_id = :i LIMIT 1"
+            ), {"i": contributor_id}).fetchone()
+        return bool(row and row[0])
+    except Exception:
+        # Column missing or any other read error: don't block the user.
+        return False
 

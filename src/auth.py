@@ -550,16 +550,13 @@ def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
 
 def must_change_password() -> bool:
     """True when the current user got a temp password and hasn't replaced
-    it with one of their own."""
+    it with one of their own. Tolerates the case where the
+    forgot_password_migration hasn't been applied (returns False)."""
     u = current_user()
-    if not u.get("username"):
+    cid = u.get("contributor_id")
+    if not cid:
         return False
-    # Re-read from DB so we don't get stuck on a stale session_state value.
-    try:
-        fresh = db.get_user_by_username(u["username"])
-        return bool(fresh and fresh.get("must_change_password"))
-    except Exception:
-        return False
+    return db.get_user_must_change_password(cid)
 
 
 def change_my_password(new_password: str) -> tuple[bool, str]:

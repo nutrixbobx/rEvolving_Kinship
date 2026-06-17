@@ -163,7 +163,15 @@ def render() -> None:
 
     # Refresh user details from DB so the profile reflects the latest
     # display_name / bio / avatar even after edits in another session.
-    fresh = db.get_user_by_id(cid)
+    try:
+        fresh = db.get_user_by_id(cid)
+    except Exception as exc:
+        st.warning(
+            "Couldn't refresh your profile from the database "
+            f"({exc}). Showing the cached version. If you just deployed "
+            "and it's a missing-column error, run the latest migration "
+            "in db/ via the Supabase SQL editor.")
+        fresh = None
     if fresh:
         u = {**u, **{
             "name": fresh.get("display_name") or u.get("name"),
