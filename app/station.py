@@ -40,6 +40,7 @@ import config  # noqa: E402
 from src import db  # noqa: E402
 from src import render as render_mod  # noqa: E402
 from src import taxonomy_search as ts  # noqa: E402
+from src import theme  # noqa: E402
 
 st.set_page_config(
     page_title="{r}Evolving Kinship",
@@ -87,7 +88,6 @@ from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
 from src import library  # noqa: E402
 from src import auth  # noqa: E402
-from src import theme  # noqa: E402
 from src import profile  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
