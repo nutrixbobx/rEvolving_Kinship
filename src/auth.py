@@ -273,6 +273,35 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
     return False
 
 
+
+
+def _try_cookie_restore() -> bool:
+    """If a valid auth cookie is present, populate session_state['user'].
+    Runs at most once per Streamlit session so the JWT decode + DB lookup
+    only happen on the first page load."""
+    if st.session_state.get("_cookie_restore_attempted"):
+        return is_named()
+    st.session_state["_cookie_restore_attempted"] = True
+    if is_named():
+        return True
+    auth_obj = _get_authenticator()
+    # streamlit-authenticator 0.3.x exposes the cookie controller as
+    # `cookie_controller`. Calling its get_cookie() reads + validates the
+    # JWT. If a valid token is present, the library populates
+    # st.session_state['authentication_status'] and ['username'].
+    try:
+        cookie_token = auth_obj.cookie_controller.get_cookie()
+    except Exception:
+        cookie_token = None
+    if not cookie_token:
+        return False
+    username = st.session_state.get("username")
+    if not username:
+        return False
+    _set_session_user_from_db(username)
+    return is_named()
+
+
 # ---------------------------------------------------------------------------
 # UI: landing-page gate (main panel — mobile friendly)
 # ---------------------------------------------------------------------------
@@ -280,8 +309,10 @@ def render_main_gate() -> None:
     """A wider, friendlier version of the sign-in / sign-up / guest forms
     that sits in the main panel. Used by the landing screen when the
     visitor has not yet named themselves, so phone users do not have to
-    discover the collapsed sidebar."""
+    discover the collapsed sidebar. Tries the cookie first so returning
+    users don't see the gate at all."""
     seed_admin_password_if_needed()
+    _try_cookie_restore()
     auth_obj = _get_authenticator()
 
     st.markdown(
@@ -408,10 +439,13 @@ def render_sidebar_identity() -> None:
 def render_sidebar_gate() -> None:
     """Render the auth widget in the sidebar. Replaces the old admin password
     gate. Once the user is signed in or named, the sidebar shows their info
-    plus a sign-out button."""
+    plus a sign-out button. Tries to restore a previous session's cookie
+    first so returning users don't see the sign-in form again."""
 
     # Make sure the maya admin row has a password hash on first run.
     seed_admin_password_if_needed()
+    # Restore session from the auth cookie if one is still valid (30 days).
+    _try_cookie_restore()
 
     auth_obj = _get_authenticator()
 

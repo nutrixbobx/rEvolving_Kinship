@@ -390,7 +390,8 @@ def _render_edit_form(u: dict, cid: str) -> None:
 
 def _render_activity(cid: str) -> None:
     st.markdown("### Your activity")
-    tabs = st.tabs(["Trees", "Stories", "Dishes", "Names", "Cultural"])
+    tabs = st.tabs(["Trees", "Stories", "Dishes", "Names", "Cultural",
+                    "Following", "Favorites"])
 
     with tabs[0]:
         df = _cached_user_trees(cid)
@@ -483,6 +484,12 @@ def _render_activity(cid: str) -> None:
                     on_delete=lambda cnid=row["connection_id"]:
                         db.delete_cultural_connection(cnid),
                 )
+
+    with tabs[5]:
+        _render_following_tab(cid)
+
+    with tabs[6]:
+        _render_favorites_tab(cid)
 
 
 def _row_with_delete(title: str, sub: str | None, when,
@@ -719,6 +726,21 @@ def _render_public_profile(contributor_id: str) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
+    # Follow/Unfollow button (no-op when viewing your own profile)
+    _follow_cols = st.columns([2, 4])
+    with _follow_cols[0]:
+        _render_follow_button(pub["contributor_id"])
+    with _follow_cols[1]:
+        _fcounts = _cached_follow_counts(pub["contributor_id"])
+        st.markdown(
+            f'<div style="color:#9ab3ab;font-size:12px;'
+            f'padding-top:6px;line-height:1.7">'
+            f'<b>{_fcounts.get("followers", 0)}</b> followers · '
+            f'<b>{_fcounts.get("following", 0)}</b> following · '
+            f'<b>{_fcounts.get("favorites", 0)}</b> favorites'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     # Count tiles (same shape as own profile)
     counts = {
@@ -881,4 +903,118 @@ def _prof_bulk_checkbox(section_key: str, row_id: str) -> None:
         " ", key=f"_prof_bulk_sel_{section_key}_{row_id}",
         label_visibility="collapsed",
     )
+
+
+# ---------------------------------------------------------------------------
+# Follow / favorite helpers used by the public profile view
+# ---------------------------------------------------------------------------
+def _render_follow_button(target_contributor_id: str) -> None:
+    """Follow / Unfollow toggle. Visible on someone else's public profile.
+    No-op when you're looking at your own profile or you haven't named
+    yourself."""
+    me_cid = auth.active_contributor_id()
+    if not me_cid or me_cid == target_contributor_id:
+        return
+    following = db.is_following(me_cid, target_contributor_id)
+    label = "Unfollow" if following else "Follow"
+    if st.button(label, key=f"follow_btn_{target_contributor_id}",
+                  type=("secondary" if following else "primary"),
+                  use_container_width=True):
+        if following:
+            db.unfollow_user(me_cid, target_contributor_id)
+        else:
+            db.follow_user(me_cid, target_contributor_id)
+        try:
+            _cached_following.clear()
+            _cached_followers.clear()
+            _cached_follow_counts.clear()
+        except Exception:
+            pass
+        st.rerun()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_following(cid: str):
+    return db.list_following(cid)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_followers(cid: str):
+    return db.list_followers(cid)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_favorites(cid: str):
+    return db.list_favorite_trees(cid)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_follow_counts(cid: str):
+    return db.follow_counts(cid)
+
+
+def _render_following_tab(cid: str) -> None:
+    df = _cached_following(cid)
+    if df.empty:
+        st.caption("You're not following anyone yet. Click a contributor "
+                   "byline in Library to land on their profile, then hit "
+                   "Follow.")
+        return
+    for _, r in df.iterrows():
+        cols = st.columns([1, 5, 2])
+        with cols[0]:
+            st.markdown(
+                _avatar_html(r.get("avatar_url"), size_px=40),
+                unsafe_allow_html=True)
+        with cols[1]:
+            name = r.get("display_name") or "(unnamed)"
+            user_handle = (f" <span style='color:#7a8d86;font-size:11px'>"
+                           f"@{r['username']}</span>"
+                           if r.get("username") else "")
+            sub = (f"{int(r.get('trees',0))} trees · "
+                   f"{int(r.get('stories',0))} stories")
+            st.markdown(
+                f'<div style="padding:6px 0">'
+                f'<div style="color:#e8f3ef">{name}{user_handle}</div>'
+                f'<div style="color:#9ab3ab;font-size:11px">{sub}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+        with cols[2]:
+            if st.button("Open profile",
+                          key=f"view_following_{r['contributor_id']}",
+                          use_container_width=True):
+                st.session_state["viewing_profile_of"] = r["contributor_id"]
+                st.rerun()
+
+
+def _render_favorites_tab(cid: str) -> None:
+    df = _cached_favorites(cid)
+    if df.empty:
+        st.caption("No favorite trees yet. Open the Dashboard, pick a "
+                   "tree, and hit the ☆ to favorite it.")
+        return
+    for _, r in df.iterrows():
+        cols = st.columns([5, 2])
+        with cols[0]:
+            owner = (f" <span style='color:#7a8d86;font-size:11px'>by "
+                     f"{r['owner']}</span>" if r.get("owner") else "")
+            st.markdown(
+                f'<div style="padding:6px 0;border-bottom:1px solid #1c2e2b">'
+                f'<div style="color:#e8f3ef">{r["tree_name"]}{owner}</div>'
+                f'<div style="color:#9ab3ab;font-size:11px">'
+                f'{int(r.get("species_count",0))} species · '
+                f'favorited {_fmt_when(r.get("favorited_at"))}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+        with cols[1]:
+            if st.button("Remove",
+                          key=f"unfav_{r['tree_id']}",
+                          use_container_width=True):
+                db.unfavorite_tree(cid, r["tree_id"])
+                try:
+                    _cached_favorites.clear()
+                    _cached_follow_counts.clear()
+                except Exception:
+                    pass
+                st.rerun()
 

@@ -1966,3 +1966,139 @@ def get_user_must_change_password(contributor_id: str) -> bool:
         # Column missing or any other read error: don't block the user.
         return False
 
+
+# ---------------------------------------------------------------------------
+# Follow / favorite (after db/follow_favorite_migration.sql)
+# ---------------------------------------------------------------------------
+def follow_user(follower_id: str, following_id: str) -> bool:
+    """follower_id starts following following_id. Idempotent + self-follow
+    blocked. Returns True when a new follow row was created."""
+    if not follower_id or not following_id or follower_id == following_id:
+        return False
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "INSERT INTO user_follow (follower_id, following_id) "
+            "VALUES (:f, :g) ON CONFLICT DO NOTHING"
+        ), {"f": follower_id, "g": following_id})
+        return int(result.rowcount or 0) > 0
+
+
+def unfollow_user(follower_id: str, following_id: str) -> int:
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "DELETE FROM user_follow "
+            "WHERE follower_id = :f AND following_id = :g"
+        ), {"f": follower_id, "g": following_id})
+        return int(result.rowcount or 0)
+
+
+def is_following(follower_id: str, following_id: str) -> bool:
+    if not follower_id or not following_id:
+        return False
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT 1 FROM user_follow "
+            "WHERE follower_id = :f AND following_id = :g LIMIT 1"
+        ), {"f": follower_id, "g": following_id}).fetchone()
+    return bool(row)
+
+
+def list_following(contributor_id: str) -> pd.DataFrame:
+    """People the contributor follows, with their counts so the Profile
+    'Following' tab is a quick directory."""
+    return pd.read_sql(text("""
+        SELECT c.contributor_id::text AS contributor_id,
+               c.display_name, c.username, c.avatar_url, c.bio, c.role,
+               (SELECT count(*) FROM tree t WHERE t.owner_id = c.contributor_id)
+                  AS trees,
+               (SELECT count(*) FROM story s
+                  WHERE s.contributed_by = c.contributor_id) AS stories,
+               uf.followed_at
+        FROM user_follow uf
+        JOIN contributor c ON c.contributor_id = uf.following_id
+        WHERE uf.follower_id = :i
+        ORDER BY uf.followed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def list_followers(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT c.contributor_id::text AS contributor_id,
+               c.display_name, c.username, c.avatar_url, c.role,
+               uf.followed_at
+        FROM user_follow uf
+        JOIN contributor c ON c.contributor_id = uf.follower_id
+        WHERE uf.following_id = :i
+        ORDER BY uf.followed_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def favorite_tree(contributor_id: str, tree_id: str) -> bool:
+    if not contributor_id or not tree_id:
+        return False
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "INSERT INTO tree_favorite (contributor_id, tree_id) "
+            "VALUES (:c, :t) ON CONFLICT DO NOTHING"
+        ), {"c": contributor_id, "t": tree_id})
+        return int(result.rowcount or 0) > 0
+
+
+def unfavorite_tree(contributor_id: str, tree_id: str) -> int:
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "DELETE FROM tree_favorite "
+            "WHERE contributor_id = :c AND tree_id = :t"
+        ), {"c": contributor_id, "t": tree_id})
+        return int(result.rowcount or 0)
+
+
+def is_tree_favorited(contributor_id: str, tree_id: str) -> bool:
+    if not contributor_id or not tree_id:
+        return False
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT 1 FROM tree_favorite "
+            "WHERE contributor_id = :c AND tree_id = :t LIMIT 1"
+        ), {"c": contributor_id, "t": tree_id}).fetchone()
+    return bool(row)
+
+
+def list_favorite_trees(contributor_id: str) -> pd.DataFrame:
+    return pd.read_sql(text("""
+        SELECT t.tree_id::text, t.name AS tree_name,
+               (SELECT count(*) FROM tree_species ts
+                  WHERE ts.tree_id = t.tree_id) AS species_count,
+               co.display_name AS owner,
+               tf.favorited_at
+        FROM tree_favorite tf
+        JOIN tree t ON t.tree_id = tf.tree_id
+        LEFT JOIN contributor co ON co.contributor_id = t.owner_id
+        WHERE tf.contributor_id = :i
+        ORDER BY tf.favorited_at DESC
+    """), get_engine(), params={"i": contributor_id})
+
+
+def follow_counts(contributor_id: str) -> dict:
+    if not contributor_id:
+        return {"followers": 0, "following": 0, "favorites": 0}
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT
+              (SELECT count(*) FROM user_follow WHERE following_id = :i),
+              (SELECT count(*) FROM user_follow WHERE follower_id = :i),
+              (SELECT count(*) FROM tree_favorite WHERE contributor_id = :i)
+        """), {"i": contributor_id}).fetchone()
+    return {
+        "followers": int(row[0] or 0),
+        "following": int(row[1] or 0),
+        "favorites": int(row[2] or 0),
+    }
+

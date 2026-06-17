@@ -154,6 +154,35 @@ def _cached_tree_species_picker(tree_name):
     return db.list_tree_species_with_names(tree_name)
 
 
+def _fav_toggle_for_tree(tree_name: str) -> None:
+    """Render a ⭐/☆ favorite toggle for the currently-picked tree. Visible
+    to any named user. No-op when not named."""
+    cid = auth.active_contributor_id()
+    if not cid:
+        return
+    tree_id = db.get_tree_id(tree_name)
+    if not tree_id:
+        return
+    is_fav = db.is_tree_favorited(cid, tree_id)
+    label = "★ Favorited" if is_fav else "☆ Favorite this tree"
+    if st.button(label, key=f"fav_{tree_name}",
+                  use_container_width=True,
+                  type=("secondary" if is_fav else "primary")):
+        if is_fav:
+            db.unfavorite_tree(cid, tree_id)
+        else:
+            db.favorite_tree(cid, tree_id)
+        # Profile favorites cache lives in profile.py — clear it so the
+        # 'Favorites' tab reflects the change.
+        try:
+            from src import profile as _p
+            _p._cached_favorites.clear()
+            _p._cached_follow_counts.clear()
+        except Exception:
+            pass
+        st.rerun()
+
+
 def _invalidate_dashboard_caches():
     _cached_list_trees_for_dashboard.clear()
     _cached_read_tree.clear()
@@ -341,6 +370,7 @@ with dash_tab:
             )
         pick_tree = st.selectbox("Pick a tree",
                                  trees["tree_name"].tolist())
+        _fav_toggle_for_tree(pick_tree)
         df = _cached_read_tree(pick_tree)
         headers = {
             "common_name": "Common", "scientific_name": "Scientific",
@@ -446,23 +476,23 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 if ql:
                     row = df[df["scientific_name"] == ql].iloc[0]
                     try:
-                        profile = _cached_profile(ql, row.get("common_name"))
+                        _sp_profile = _cached_profile(ql, row.get("common_name"))
                     except Exception:
-                        profile = None
-                    if profile and profile.get("image_path"):
-                        st.image(profile["image_path"], use_container_width=True)
-                        if profile.get("image_attribution"):
-                            st.caption(profile["image_attribution"][:80])
-                    if profile:
+                        _sp_profile = None
+                    if _sp_profile and _sp_profile.get("image_path"):
+                        st.image(_sp_profile["image_path"], use_container_width=True)
+                        if _sp_profile.get("image_attribution"):
+                            st.caption(_sp_profile["image_attribution"][:80])
+                    if _sp_profile:
                         st.markdown(f"**{row.get('common_name') or ql}**  "
                                     f"*{ql}*")
-                        st.write((profile.get("summary") or "")[:500])
+                        st.write((_sp_profile.get("summary") or "")[:500])
                         link_bits = []
                         for lab, key in (("Wikipedia", "wikipedia_url"),
                                          ("iNaturalist", "inaturalist_url"),
                                          ("GBIF", "gbif_url")):
-                            if profile.get(key):
-                                link_bits.append(f"[{lab}]({profile[key]})")
+                            if _sp_profile.get(key):
+                                link_bits.append(f"[{lab}]({_sp_profile[key]})")
                         if link_bits:
                             st.markdown(" · ".join(link_bits))
 
@@ -832,11 +862,11 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                or tip_name.replace("_", " "))
                         common = info.get("common_name")
                         try:
-                            profile = _cached_profile(sci, common)
+                            _sp_profile = _cached_profile(sci, common)
                         except Exception as exc:
-                            profile = None
+                            _sp_profile = None
                             if admin:
-                                st.warning(f"profile {sci}: {exc}")
+                                st.warning(f"_sp_profile {sci}: {exc}")
                         try:
                             rec = _cached_audio(sci, common)
                         except Exception as exc:
@@ -847,12 +877,12 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                         st.divider()
                         c_img, c_text = st.columns([1, 3])
                         with c_img:
-                            if profile and profile.get("image_path"):
-                                st.image(profile["image_path"],
+                            if _sp_profile and _sp_profile.get("image_path"):
+                                st.image(_sp_profile["image_path"],
                                          use_container_width=True)
-                                if profile.get("image_attribution"):
+                                if _sp_profile.get("image_attribution"):
                                     st.caption(
-                                        profile["image_attribution"][:90])
+                                        _sp_profile["image_attribution"][:90])
                             else:
                                 st.caption("(no photo)")
                         with c_text:
@@ -860,7 +890,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                             if common:
                                 head += f"  *({sci})*"
                             st.markdown(head)
-                            summ = (profile or {}).get("summary") or ""
+                            summ = (_sp_profile or {}).get("summary") or ""
                             if summ:
                                 trim = summ[:700]
                                 if len(summ) > 700:
@@ -870,11 +900,11 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                             for lab, k in (("Wikipedia", "wikipedia_url"),
                                            ("iNaturalist", "inaturalist_url"),
                                            ("GBIF", "gbif_url")):
-                                if (profile or {}).get(k):
-                                    links.append(f"[{lab}]({profile[k]})")
+                                if (_sp_profile or {}).get(k):
+                                    links.append(f"[{lab}]({_sp_profile[k]})")
                             if links:
                                 st.markdown(" · ".join(links))
-                            anc = (profile or {}).get("ancestors") or []
+                            anc = (_sp_profile or {}).get("ancestors") or []
                             if anc:
                                 chips = " › ".join(
                                     a["name"] for a in anc[-7:])
