@@ -134,7 +134,8 @@ def get_or_create_contributor(display_name: str | None) -> str | None:
 # Auth / user management (after db/auth_migration.sql)
 # ---------------------------------------------------------------------------
 _USER_COLS = ("contributor_id, display_name, username, password_hash, "
-              "role, email, bio, avatar_url, last_login_at")
+              "role, email, bio, avatar_url, last_login_at, "
+              "coalesce(must_change_password, false)")
 
 
 def _row_to_user_dict(row) -> dict | None:
@@ -150,6 +151,7 @@ def _row_to_user_dict(row) -> dict | None:
         "bio": row[6],
         "avatar_url": row[7],
         "last_login_at": row[8],
+        "must_change_password": bool(row[9]) if len(row) > 9 else False,
     }
 
 
@@ -853,17 +855,15 @@ def read_tree(tree_name: str) -> pd.DataFrame:
 
 
 def list_trees() -> pd.DataFrame:
-    """One row per tree with a species count. v1-compatible shape."""
+    """One row per tree with a species count. v2 always resolves taxids so we
+    no longer surface a separate resolved_count column."""
     return pd.read_sql(
         text("""
             SELECT
                 t.name                                       AS tree_name,
                 (SELECT count(*) FROM tree_species ts
                     WHERE ts.tree_id = t.tree_id)            AS species_count,
-                (SELECT count(*) FROM tree_species ts JOIN species s
-                    ON s.species_id = ts.species_id
-                    WHERE ts.tree_id = t.tree_id
-                      AND s.ncbi_taxid IS NOT NULL)          AS resolved_count
+                t.created_at
             FROM tree t
             ORDER BY t.name
         """),
@@ -1637,4 +1637,115 @@ def get_or_create_guest_contributor(display_name: str) -> tuple[str | None, bool
             {"n": display_name},
         ).fetchone()
         return (str(new[0]), False)
+
+
+def get_public_profile(contributor_id: str) -> dict | None:
+    """Public-facing profile for any contributor (no password_hash, no email).
+    Counts of trees / stories / dishes / names / cultural ties roll up the
+    same way the owner's own profile sees them, so visitors can see what a
+    contributor has added."""
+    if not contributor_id:
+        return None
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT contributor_id, display_name, username, role, bio,
+                   avatar_url, created_at, last_login_at,
+                   (SELECT count(*) FROM tree WHERE owner_id = c.contributor_id),
+                   (SELECT count(*) FROM story WHERE contributed_by = c.contributor_id),
+                   (SELECT count(*) FROM dish WHERE contributed_by = c.contributor_id),
+                   (SELECT count(*) FROM species_name
+                      WHERE contributed_by = c.contributor_id),
+                   (SELECT count(*) FROM cultural_connection
+                      WHERE contributed_by = c.contributor_id),
+                   (SELECT count(*) FROM species_deity
+                      WHERE contributed_by = c.contributor_id)
+            FROM contributor c
+            WHERE c.contributor_id = :i
+            LIMIT 1
+        """), {"i": contributor_id}).fetchone()
+    if not row:
+        return None
+    return {
+        "contributor_id": str(row[0]),
+        "display_name":   row[1],
+        "username":       row[2],
+        "role":           row[3],
+        "bio":            row[4],
+        "avatar_url":     row[5],
+        "created_at":     row[6],
+        "last_login_at":  row[7],
+        "trees":          int(row[8] or 0),
+        "stories":        int(row[9] or 0),
+        "dishes":         int(row[10] or 0),
+        "names":          int(row[11] or 0),
+        "cultural":       int(row[12] or 0),
+        "deities":        int(row[13] or 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Forgot-password flow (after db/forgot_password_migration.sql)
+# ---------------------------------------------------------------------------
+def request_password_reset(username: str, email: str) -> dict | None:
+    """If (username, email) matches a contributor row, log the request and
+    return that user row so the auth layer can generate + set a new password.
+    Returns None when no match (do NOT differentiate to the caller — we
+    don't want to leak email enumeration through different UI messages)."""
+    if not username or not email:
+        return None
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(text(
+            f"SELECT {_USER_COLS} FROM contributor "
+            "WHERE lower(username) = lower(:u) AND lower(email) = lower(:e) "
+            "LIMIT 1"
+        ), {"u": username.strip(), "e": email.strip()}).fetchone()
+        if not row:
+            return None
+        user = _row_to_user_dict(row)
+        conn.execute(text(
+            "INSERT INTO pending_reset (contributor_id) VALUES (:i)"
+        ), {"i": user["contributor_id"]})
+        return user
+
+
+def complete_password_reset(contributor_id: str,
+                             new_password_hash: str) -> None:
+    """Set a new hash and mark must_change_password so the user is prompted
+    to pick their own after the temp one works once."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE contributor SET password_hash = :p, "
+            "must_change_password = true, last_reset_at = now() "
+            "WHERE contributor_id = :i"
+        ), {"p": new_password_hash, "i": contributor_id})
+        # Mark any open pending_reset rows for this user as completed.
+        conn.execute(text(
+            "UPDATE pending_reset SET completed_at = now() "
+            "WHERE contributor_id = :i AND completed_at IS NULL"
+        ), {"i": contributor_id})
+
+
+def clear_must_change_password(contributor_id: str) -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE contributor SET must_change_password = false "
+            "WHERE contributor_id = :i"
+        ), {"i": contributor_id})
+
+
+def list_pending_resets() -> pd.DataFrame:
+    """Admin view: pending password-reset requests in the last 30 days,
+    completed or not."""
+    return pd.read_sql(text("""
+        SELECT pr.reset_id, pr.requested_at, pr.completed_at,
+               c.display_name, c.username, c.email
+        FROM pending_reset pr
+        JOIN contributor c ON c.contributor_id = pr.contributor_id
+        WHERE pr.requested_at > now() - INTERVAL \'30 days\'
+        ORDER BY pr.requested_at DESC
+    """), get_engine())
 

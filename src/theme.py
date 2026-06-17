@@ -69,8 +69,8 @@ def render_footer(slogan: str = "") -> None:
   </div>
   <div class="footer-row support-row">
     <span class="muted">Support our work</span>
-    <a class="support" href="https://buymeacoffee.com/shared.rivers" target="_blank">buy me a coffee</a>
-    <span class="dot"></span>
+    <a class="support" href="https://buymeacoffee.com/shared.rivers" target="_blank">buy me a coffee </a>
+    <span class="dot">or </span>
     <a class="support" href="https://fundraising.fracturedatlas.org/shared-rivers-confluences" target="_blank">tax-deductible donation</a>
   </div>
 </div>
@@ -451,3 +451,22 @@ input:focus, textarea:focus, select:focus {{
 .welcome-card .muted {{ color: var(--kn-muted); font-size: 13px; line-height: 1.55; }}
 </style>
 """
+
+# ---------------------------------------------------------------------------
+# Role glyph — Maya prefers a shield for admin instead of the ADMIN text.
+# Returns ready-to-render HTML so callers can drop it inline.
+# ---------------------------------------------------------------------------
+_ROLE_GLYPHS = {
+    "admin":   ("\U0001F6E1",  "var(--kn-accent)"),  # shield
+    "editor":  ("\u270D",      "var(--kn-primary)"),  # writing hand
+    "visitor": ("\U0001F33F",  "var(--kn-muted)"),    # herb leaf
+}
+
+
+def role_glyph(role: str | None, size_px: int = 16) -> str:
+    glyph, color = _ROLE_GLYPHS.get(role or "visitor", _ROLE_GLYPHS["visitor"])
+    return (
+        f'<span title="{(role or "guest").capitalize()}" '
+        f'style="display:inline-block;color:{color};font-size:{size_px}px;'
+        f'vertical-align:middle;margin-left:6px;line-height:1">{glyph}</span>'
+    )

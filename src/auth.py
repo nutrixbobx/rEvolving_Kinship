@@ -314,6 +314,8 @@ def render_main_gate() -> None:
                 st.rerun()
         elif status is False:
             st.error("Username or password is incorrect.")
+        with st.expander("Forgot your password?", expanded=False):
+            _render_forgot_password_form(form_key="forgot_main")
 
     elif mode == "Make an account":
         with st.form("main_signup_form"):
@@ -352,21 +354,17 @@ def render_main_gate() -> None:
 
 def render_sidebar_identity() -> None:
     """Compact identity card for the sidebar once the user is named.
-    Shows display name, role badge, optional bio, sign-out button."""
+    Shows display name with a role glyph (shield for admin, writing hand for
+    editor, leaf for visitor), optional bio, sign-out button."""
+    from src import theme as _theme
     u = current_user()
-    role_class = {
-        "admin":   "role-admin",
-        "editor":  "role-editor",
-        "visitor": "role-visitor",
-    }.get(u.get("role") or "visitor", "role-visitor")
-    role_label = (u.get("role") or "guest").upper()
     bio_html = (f'<div class="identity-bio">{u["bio"]}</div>'
                 if u.get("bio") else "")
     with st.sidebar:
         st.markdown(
             f'<div class="identity-card">'
             f'<div class="identity-name">{u.get("name")}'
-            f'  <span class="role-badge {role_class}">{role_label}</span>'
+            f'{_theme.role_glyph(u.get("role"), size_px=15)}'
             f'</div>'
             f'{bio_html}'
             f'</div>',
@@ -440,6 +438,8 @@ def render_sidebar_gate() -> None:
                     st.rerun()
             elif status is False:
                 st.error("Username or password is incorrect.")
+            with st.expander("Forgot your password?", expanded=False):
+                _render_forgot_password_form(form_key="forgot_sidebar")
 
         elif mode == "Create an account":
             with st.form("signup_form"):
@@ -510,3 +510,62 @@ def _handle_signup(username: str, display_name: str, email: str,
 # ---------------------------------------------------------------------------
 def active_contributor_id() -> str | None:
     return current_user().get("contributor_id")
+
+# ---------------------------------------------------------------------------
+# Forgot-password support
+# ---------------------------------------------------------------------------
+import secrets as _secrets
+import string as _string
+
+
+def _generate_temp_password() -> str:
+    """Pleasant-to-type temp password: three short words + 3 digits."""
+    words = ["river", "leaf", "moss", "stone", "willow", "heron",
+             "fern", "otter", "tide", "kelp", "ember", "loam", "reed"]
+    return "-".join([
+        _secrets.choice(words),
+        _secrets.choice(words),
+        "".join(_secrets.choice(_string.digits) for _ in range(3)),
+    ])
+
+
+def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
+    """Run a password reset. Returns (success, message_or_temp_password).
+    On success, the message IS the temp password — caller should display it
+    to the user. We don't differentiate the failure cases (wrong username,
+    wrong email, no email on file) so we don't leak whether a username
+    exists in the system."""
+    user = db.request_password_reset(username, email)
+    if not user:
+        return (False, "No account matches that username and email.")
+    temp_pw = _generate_temp_password()
+    db.complete_password_reset(user["contributor_id"], hash_password(temp_pw))
+    return (True, temp_pw)
+
+
+def must_change_password() -> bool:
+    """True when the current user got a temp password and hasn't replaced
+    it with one of their own."""
+    u = current_user()
+    if not u.get("username"):
+        return False
+    # Re-read from DB so we don't get stuck on a stale session_state value.
+    try:
+        fresh = db.get_user_by_username(u["username"])
+        return bool(fresh and fresh.get("must_change_password"))
+    except Exception:
+        return False
+
+
+def change_my_password(new_password: str) -> tuple[bool, str]:
+    """Self-service: signed-in user replaces their own password."""
+    u = current_user()
+    cid = u.get("contributor_id")
+    if not cid or not u.get("username"):
+        return (False, "You are not signed in with an account.")
+    if not new_password or len(new_password) < 6:
+        return (False, "Password must be at least 6 characters.")
+    db.set_user_password(cid, hash_password(new_password))
+    db.clear_must_change_password(cid)
+    return (True, "Password updated.")
+

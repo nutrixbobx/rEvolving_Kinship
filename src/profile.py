@@ -142,6 +142,13 @@ def _invalidate_profile_caches() -> None:
 # Public entry — call from app/station.py inside the Profile tab
 # ---------------------------------------------------------------------------
 def render() -> None:
+    # If a contributor name was clicked in Library, render a public view
+    # of that user instead of the current user's editable profile.
+    viewing_id = st.session_state.get("viewing_profile_of")
+    if viewing_id:
+        _render_public_profile(viewing_id)
+        return
+
     if not auth.is_named():
         st.info("Sign in or give a guest name in the sidebar to see your "
                 "profile.")
@@ -174,6 +181,18 @@ def render() -> None:
                           kicker="Profile")
 
     _render_header(u)
+
+    # If we just did a forgot-password reset, force the user to set a new
+    # password before anything else on the page is touched.
+    if auth.must_change_password():
+        st.divider()
+        st.warning("You're on a temporary password. Set a new one to keep "
+                   "your account safe.")
+        _render_change_password_card(force=True)
+        return
+
+    st.divider()
+    _render_change_password_card(force=False)
     st.divider()
     _render_edit_form(u, cid)
     st.divider()
@@ -183,6 +202,8 @@ def render() -> None:
         st.divider()
         _render_admin_team()
         st.divider()
+        _render_admin_pending_resets()
+        st.divider()
         _render_admin_review_feed()
 
 
@@ -191,12 +212,7 @@ def render() -> None:
 # ---------------------------------------------------------------------------
 def _render_header(u: dict) -> None:
     counts = _cached_counts(u["contributor_id"])
-    role_badge_class = {
-        "admin":   "role-admin",
-        "editor":  "role-editor",
-        "visitor": "role-visitor",
-    }.get(u.get("role") or "visitor", "role-visitor")
-    role_label = (u.get("role") or "guest").upper()
+    role_glyph_html = theme.role_glyph(u.get("role"), size_px=18)
     bio_html = (
         f'<div style="color:#9ab3ab;margin-top:6px;font-size:13px">'
         f'{u["bio"]}</div>'
@@ -223,7 +239,7 @@ def _render_header(u: dict) -> None:
         f'  <div>{_avatar_html(u.get("avatar_url"), size_px=96)}</div>'
         f'  <div style="flex:1;min-width:240px">'
         f'    <div style="font-size:20px;font-weight:500">{u.get("name") or ""}'
-        f'      <span class="role-badge {role_badge_class}" style="margin-left:8px">{role_label}</span>'
+        f'      {role_glyph_html}'
         f'    </div>'
         f'    {username_hint}'
         f'    {bio_html}'
@@ -599,3 +615,155 @@ def _render_admin_review_feed() -> None:
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Public profile view (when someone clicks a contributor's name in Library)
+# ---------------------------------------------------------------------------
+def _render_public_profile(contributor_id: str) -> None:
+    pub = db.get_public_profile(contributor_id)
+    if not pub:
+        st.warning("This contributor isn't in the system anymore.")
+        if st.button("Back", key="back_from_missing"):
+            st.session_state.pop("viewing_profile_of", None)
+            st.rerun()
+        return
+
+    # Header row: back button + breadcrumb
+    cols = st.columns([2, 6])
+    with cols[0]:
+        if st.button("← Back to my profile",
+                     key="back_from_public",
+                     use_container_width=True):
+            st.session_state.pop("viewing_profile_of", None)
+            st.rerun()
+    with cols[1]:
+        st.markdown(
+            '<div class="kicker">Public profile</div>',
+            unsafe_allow_html=True,
+        )
+
+    glyph_html = theme.role_glyph(pub.get("role"), size_px=18)
+    if pub.get("bio"):
+        bio_html = (f'<div style="color:#9ab3ab;margin-top:6px;'
+                    f'font-size:13px">{pub["bio"]}</div>')
+    else:
+        bio_html = ('<div style="color:#5e6f6a;margin-top:6px;'
+                    'font-size:12px;font-style:italic">'
+                    'This contributor hasn\'t written a bio yet.</div>')
+
+    sub_bits = []
+    if pub.get("username"):
+        sub_bits.append(f"@{pub['username']}")
+    elif pub.get("role") == "visitor" and not pub.get("username"):
+        sub_bits.append("guest")
+    sub_str = " · ".join(sub_bits)
+    sub_html = (
+        f'<div style="color:#7a8d86;font-size:11px;margin-top:4px">'
+        f'{sub_str}</div>' if sub_str else "")
+
+    st.markdown(
+        f'<div style="display:flex;gap:18px;align-items:flex-start;'
+        f'flex-wrap:wrap;margin:12px 0">'
+        f'  <div>{_avatar_html(pub.get("avatar_url"), size_px=96)}</div>'
+        f'  <div style="flex:1;min-width:240px">'
+        f'    <div style="font-size:20px;font-weight:500">'
+        f'      {pub.get("display_name") or "(unnamed)"}{glyph_html}'
+        f'    </div>'
+        f'    {sub_html}{bio_html}'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Count tiles (same shape as own profile)
+    counts = {
+        "Trees":     pub["trees"],
+        "Stories":   pub["stories"],
+        "Dishes":    pub["dishes"],
+        "Names":     pub["names"],
+        "Cultural":  pub["cultural"],
+        "Deities":   pub["deities"],
+    }
+    tile_html = (
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">'
+        + "".join(
+            f'<div style="flex:1;min-width:96px;background:#13211f;'
+            f'border:1px solid #1c2e2b;border-radius:10px;padding:10px 12px">'
+            f'<div style="color:#9ab3ab;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:0.08em">{label}</div>'
+            f'<div style="color:#e8f3ef;font-size:22px;font-weight:500;'
+            f'margin-top:2px">{count}</div>'
+            f'</div>'
+            for label, count in counts.items()
+        )
+        + '</div>'
+    )
+    st.markdown(tile_html, unsafe_allow_html=True)
+
+    # Public activity feed (no delete buttons here)
+    st.markdown("### Their activity")
+    tabs = st.tabs(["Trees", "Stories", "Dishes", "Names", "Cultural"])
+    cid = pub["contributor_id"]
+    with tabs[0]:
+        df = db.list_user_trees(cid)
+        if df.empty: st.caption("No trees yet.")
+        else: st.dataframe(df, use_container_width=True, hide_index=True)
+    with tabs[1]:
+        df = db.list_user_stories(cid)
+        if df.empty: st.caption("No stories yet.")
+        else: st.dataframe(df, use_container_width=True, hide_index=True)
+    with tabs[2]:
+        df = db.list_user_dishes(cid)
+        if df.empty: st.caption("No dishes yet.")
+        else: st.dataframe(df, use_container_width=True, hide_index=True)
+    with tabs[3]:
+        df = db.list_user_names(cid)
+        if df.empty: st.caption("No multilingual names yet.")
+        else: st.dataframe(df, use_container_width=True, hide_index=True)
+    with tabs[4]:
+        df = db.list_user_cultural(cid)
+        if df.empty: st.caption("No cultural connections yet.")
+        else: st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+def _render_change_password_card(force: bool = False) -> None:
+    """Self-service password change. Always available to signed-in users;
+    automatically expanded when force=True (after a temp-password reset)."""
+    if not auth.is_signed_in():
+        return
+    with st.expander("Change your password",
+                     expanded=force):
+        with st.form("change_pw_form"):
+            new_pw = st.text_input("New password", type="password",
+                                   help="Six characters minimum.")
+            new_pw2 = st.text_input("Confirm new password", type="password")
+            saved = st.form_submit_button("Update password", type="primary",
+                                           use_container_width=True)
+        if saved:
+            if not new_pw or new_pw != new_pw2:
+                st.error("Passwords don't match.")
+                return
+            ok, msg = auth.change_my_password(new_pw)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+
+def _render_admin_pending_resets() -> None:
+    theme.section_heading("Password resets (last 30 days)",
+                          kicker="Admin")
+    try:
+        df = db.list_pending_resets()
+    except Exception as exc:
+        st.caption(f"(pending-resets table not present yet: {exc})")
+        return
+    if df is None or df.empty:
+        st.caption("No reset requests in the last 30 days.")
+        return
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.caption("Each reset surfaces a one-time temp password on the user's "
+                "own screen. This panel just records that they asked.")
+

@@ -601,7 +601,8 @@ def _render_my_contributions(contributor_id: str,
                     when=r.get("contributed_at"),
                     key=f"lib_mc_story_{r['story_id']}",
                     on_delete=lambda sid=r["story_id"]:
-                        db.delete_story(sid))
+                        db.delete_story(sid),
+                    edit_kind="story", edit_id=r["story_id"])
 
         if not my_dishes.empty:
             st.markdown("**Dishes**")
@@ -612,7 +613,8 @@ def _render_my_contributions(contributor_id: str,
                     when=r.get("contributed_at"),
                     key=f"lib_mc_dish_{r['dish_id']}",
                     on_delete=lambda did=r["dish_id"]:
-                        db.delete_dish(did))
+                        db.delete_dish(did),
+                    edit_kind="dish", edit_id=r["dish_id"])
 
         if not my_names.empty:
             st.markdown("**Multilingual names**")
@@ -637,7 +639,9 @@ def _render_my_contributions(contributor_id: str,
                     when=r.get("contributed_at"),
                     key=f"lib_mc_cc_{r['connection_id']}",
                     on_delete=lambda cid=r["connection_id"]:
-                        db.delete_cultural_connection(cid))
+                        db.delete_cultural_connection(cid),
+                    edit_kind="cultural_connection",
+                    edit_id=r["connection_id"])
 
     if is_editor_or_admin:
         with st.expander("Community review (recent additions, any author)",
@@ -649,13 +653,23 @@ def _render_my_contributions(contributor_id: str,
             for _, r in df.iterrows():
                 kind = r.get("kind", "?")
                 row_id = r.get("row_id")
+                # Clickable byline above each row
+                _contributor_link(
+                    r.get("contributor"),
+                    r.get("contributor_id"),
+                    key=f"libcrev_byline_{kind}_{row_id}",
+                )
+                # Only the three rich kinds are inline-editable.
+                _editable_kinds = {"story", "dish", "cultural_connection"}
                 _delete_row(
                     label=(r.get("title") or "(untitled)") + f"  · {kind}",
-                    sub=f"by {r.get('contributor') or 'anonymous'}",
+                    sub=None,
                     when=r.get("contributed_at"),
                     key=f"lib_review_{kind}_{row_id}",
                     on_delete=lambda k=kind, i=row_id:
-                        _delete_by_kind(k, i))
+                        _delete_by_kind(k, i),
+                    edit_kind=(kind if kind in _editable_kinds else None),
+                    edit_id=(row_id if kind in _editable_kinds else None))
 
 
 def _delete_by_kind(kind: str, row_id: str):
@@ -682,8 +696,14 @@ def _fmt_when_short(when) -> str:
 
 
 def _delete_row(label: str, sub: str | None, when,
-                 key: str, on_delete) -> None:
-    cols = st.columns([6, 2])
+                 key: str, on_delete,
+                 edit_kind: str | None = None,
+                 edit_id: str | None = None) -> None:
+    """Render one row with Delete (always) and Edit (when edit_kind/edit_id
+    are supplied AND we know how to edit that kind). The edit form expands
+    inline beneath the row when toggled."""
+    has_edit = edit_kind in ("story", "dish", "cultural_connection") and bool(edit_id)
+    cols = (st.columns([5, 1, 1]) if has_edit else st.columns([6, 2]))
     with cols[0]:
         when_str = _fmt_when_short(when)
         sub_html = (f' <span style="color:#7a8d86;font-size:11px">· {sub}</span>'
@@ -696,18 +716,188 @@ def _delete_row(label: str, sub: str | None, when,
             f'color:#e8f3ef">{label}{sub_html}{when_html}</div>',
             unsafe_allow_html=True,
         )
-    with cols[1]:
-        if st.button("Delete", key=key, use_container_width=True):
-            try:
-                on_delete()
-                _invalidate_all_caches()
-                # Profile caches too, if profile module has been imported.
-                try:
-                    from src import profile as _p
-                    _p._invalidate_profile_caches()
-                except Exception:
-                    pass
-                st.success("Deleted.")
+    if has_edit:
+        with cols[1]:
+            edit_flag = f"_edit_open_{edit_kind}_{edit_id}"
+            if st.button("Edit", key=f"{key}_edit",
+                         use_container_width=True):
+                st.session_state[edit_flag] = not st.session_state.get(
+                    edit_flag, False)
                 st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
+        with cols[2]:
+            _delete_button(key, on_delete)
+    else:
+        with cols[1]:
+            _delete_button(key, on_delete)
+
+    # If the edit toggle is on, render the inline form below the row.
+    if has_edit and st.session_state.get(f"_edit_open_{edit_kind}_{edit_id}"):
+        _render_edit_form_inline(edit_kind, edit_id, key_prefix=key)
+
+
+def _delete_button(key: str, on_delete) -> None:
+    if st.button("Delete", key=key, use_container_width=True):
+        try:
+            on_delete()
+            _invalidate_all_caches()
+            try:
+                from src import profile as _p
+                _p._invalidate_profile_caches()
+            except Exception:
+                pass
+            st.success("Deleted.")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
+
+def _render_edit_form_inline(kind: str, row_id: str,
+                              key_prefix: str) -> None:
+    """Pull the current row, render a small form, and PATCH on save."""
+    engine = db.get_engine()
+    from sqlalchemy import text as _sa_text
+
+    if kind == "story":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT title, body_text, language_code, region_code "
+                "FROM story WHERE story_id = :i"), {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_story_form"):
+            t = st.text_input("Title", value=row[0] or "")
+            body = st.text_area("Story", value=row[1] or "", height=140)
+            lcols = st.columns(2)
+            with lcols[0]:
+                lang = st.text_input("Language code", value=row[2] or "en")
+            with lcols[1]:
+                region = st.text_input("Region (optional)", value=row[3] or "")
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_story_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_story(row_id, {
+                "title": (t or "").strip() or None,
+                "body_text": (body or "").strip() or None,
+                "language_code": (lang or "").strip() or "en",
+                "region_code": (region or "").strip() or None,
+            })
+            _invalidate_all_caches()
+            try:
+                from src import profile as _p
+                _p._invalidate_profile_caches()
+            except Exception:
+                pass
+            st.session_state.pop(f"_edit_open_story_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+    if kind == "dish":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT name, cuisine, origin_region, description "
+                "FROM dish WHERE dish_id = :i"), {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_dish_form"):
+            name = st.text_input("Name", value=row[0] or "")
+            c1, c2 = st.columns(2)
+            with c1:
+                cuisine = st.text_input("Cuisine", value=row[1] or "")
+            with c2:
+                origin = st.text_input("Origin region", value=row[2] or "")
+            desc = st.text_area("Description", value=row[3] or "", height=110)
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(f"_edit_open_dish_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_dish(row_id, {
+                "name": (name or "").strip() or row[0],
+                "cuisine": (cuisine or "").strip() or None,
+                "origin_region": (origin or "").strip() or None,
+                "description": (desc or "").strip() or None,
+            })
+            _invalidate_all_caches()
+            try:
+                from src import profile as _p
+                _p._invalidate_profile_caches()
+            except Exception:
+                pass
+            st.session_state.pop(f"_edit_open_dish_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+    if kind == "cultural_connection":
+        with engine.connect() as c:
+            row = c.execute(_sa_text(
+                "SELECT culture, significance_type, description, source "
+                "FROM cultural_connection WHERE connection_id = :i"),
+                {"i": row_id}).fetchone()
+        if not row:
+            st.warning("Row not found — refresh.")
+            return
+        with st.form(f"{key_prefix}_cc_form"):
+            culture = st.text_input("Culture", value=row[0] or "")
+            sig = st.text_input("Significance type",
+                                value=row[1] or "")
+            desc = st.text_area("Description", value=row[2] or "",
+                                height=110)
+            src = st.text_input("Source (optional)", value=row[3] or "")
+            save = st.form_submit_button("Save changes", type="primary",
+                                          use_container_width=True)
+            cancel = st.form_submit_button("Cancel",
+                                            use_container_width=True)
+        if cancel:
+            st.session_state.pop(
+                f"_edit_open_cultural_connection_{row_id}", None)
+            st.rerun()
+        if save:
+            db.update_cultural_connection(row_id, {
+                "culture": (culture or "").strip() or row[0],
+                "significance_type": (sig or "").strip() or None,
+                "description": (desc or "").strip() or None,
+                "source": (src or "").strip() or None,
+            })
+            _invalidate_all_caches()
+            try:
+                from src import profile as _p
+                _p._invalidate_profile_caches()
+            except Exception:
+                pass
+            st.session_state.pop(
+                f"_edit_open_cultural_connection_{row_id}", None)
+            st.success("Saved.")
+            st.rerun()
+        return
+
+
+def _contributor_link(name: str | None,
+                       contributor_id: str | None,
+                       key: str) -> None:
+    """Render a contributor name as a small button that, when clicked, sets
+    session_state['viewing_profile_of'] so the Profile tab shows them.
+    Falls back to plain text when there's no contributor_id."""
+    label = name or "anonymous"
+    if contributor_id:
+        if st.button(f"by {label}", key=key,
+                     help=f"View {label}'s profile"):
+            st.session_state["viewing_profile_of"] = str(contributor_id)
+            st.success(f"Opened {label}'s profile in the Profile tab.")
+    else:
+        st.markdown(
+            f'<span style="color:#9ab3ab;font-size:11px">by {label}</span>',
+            unsafe_allow_html=True,
+        )
+
