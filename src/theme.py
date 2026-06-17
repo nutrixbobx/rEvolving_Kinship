@@ -313,18 +313,21 @@ input:focus, textarea:focus, select:focus {{
   padding: 0 0 8px 0;
 }}
 .app-title {{
-  font-size: 30px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
   color: var(--kn-ink);
-  line-height: 1.1;
+  line-height: 1.05;
 }}
 .app-slogan {{
   color: var(--kn-muted);
   font-style: italic;
   font-size: 14px;
-  margin-top: 4px;
-  margin-bottom: 18px;
+  font-weight: 400;
+  margin-top: 6px;
+  margin-bottom: 20px;
+  max-width: 760px;
+  line-height: 1.45;
 }}
 
 /* Footer */
@@ -339,14 +342,19 @@ input:focus, textarea:focus, select:focus {{
 }}
 .footer-title {{
   color: var(--kn-ink);
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 16px;
 }}
 .footer-slogan {{
   color: var(--kn-muted);
   font-style: italic;
+  font-size: 12px;
   margin-top: 4px;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
 }}
 .footer-row {{
   margin-top: 10px;
@@ -398,7 +406,10 @@ input:focus, textarea:focus, select:focus {{
     padding-left: 0.7rem;
     padding-right: 0.7rem;
   }}
-  .app-title {{ font-size: 24px; }}
+  .app-title {{ font-size: 30px; font-weight: 700; line-height: 1.1; }}
+  .app-slogan {{ font-size: 13px; margin-bottom: 16px; }}
+  .footer-title {{ font-size: 15px; }}
+  .footer-slogan {{ font-size: 11px; }}
 
   /* Horizontal blocks (st.columns) wrap and full-width on mobile */
   [data-testid="stHorizontalBlock"] {{
