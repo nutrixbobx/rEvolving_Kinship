@@ -17,7 +17,7 @@ import config  # noqa: E402
 
 SETTINGS_PATH = config.OUTPUT_DIR / "tree_owners.json"
 PROJECT_MARK = "{r}Evolving Kinship"
-PROJECT_SLOGAN = ("your reliable custom phylogenetic tree generator and community science hub for {r}envisioning our self.")
+PROJECT_SLOGAN = ("Your reliable custom phylogenetic tree generator and community science hub for {r}envisioning our self.")
 DEFAULT_TEMPLATE = "{owner}'s kinship looks like:"
 
 
