@@ -569,3 +569,29 @@ def change_my_password(new_password: str) -> tuple[bool, str]:
     db.clear_must_change_password(cid)
     return (True, "Password updated.")
 
+def _render_forgot_password_form(form_key: str) -> None:
+    """Inline form used by both the main and sidebar sign-in tiles.
+
+    User supplies username + email. If they match, we generate a one-time
+    temp password and show it right here on the page (they're sitting at
+    the device that asked). They sign in with it, then the Profile tab
+    forces them to set a new one."""
+    with st.form(f"{form_key}_form"):
+        st.caption(
+            "Type your username and the email you signed up with. If they "
+            "match, you'll see a one-time temporary password to sign in "
+            "with. Change it from your Profile tab right after.")
+        fp_user = st.text_input("Username", key=f"{form_key}_user")
+        fp_email = st.text_input("Email", key=f"{form_key}_email")
+        submit = st.form_submit_button("Send reset", type="primary",
+                                        use_container_width=True)
+    if submit:
+        ok, msg = handle_forgot_password(fp_user.strip(), fp_email.strip())
+        if not ok:
+            st.warning(msg)
+        else:
+            st.success("Reset done. Your one-time temporary password is:")
+            st.code(msg, language=None)
+            st.caption("Sign in above with this password, then change it "
+                       "right away from your Profile tab.")
+
