@@ -26,9 +26,59 @@ def _default_path() -> Path:
     return Path.home() / ".etetoolkit" / "taxa.sqlite"
 
 
+def validate_sqlite(path: Path) -> bool:
+    """Open the SQLite file and run a tiny SELECT to confirm it isn't
+    corrupted. Returns False if SQLite raises 'database disk image is
+    malformed' or any other read error."""
+    if not path.exists() or path.stat().st_size < 100_000_000:
+        return False
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        # ete3's taxa.sqlite has a species table; any small query will do
+        cur = con.execute("SELECT 1 FROM species LIMIT 1")
+        cur.fetchone()
+        con.close()
+        return True
+    except sqlite3.DatabaseError as exc:
+        print(f"taxa.sqlite validation failed: {exc}", flush=True)
+        return False
+    except Exception as exc:
+        print(f"taxa.sqlite read error: {exc}", flush=True)
+        return False
+
+
 def is_ready() -> bool:
+    """True only when the taxa.sqlite file exists AND parses cleanly. A
+    corrupt file (size check passes but SQLite errors) deletes itself so
+    the next ensure_*() call re-downloads."""
     p = _default_path()
-    return p.exists() and p.stat().st_size > 100_000_000  # ~100 MB sanity floor
+    if not p.exists() or p.stat().st_size < 100_000_000:
+        return False
+    if validate_sqlite(p):
+        return True
+    # Corrupted: clean it up so the next ensure_taxonomy_from_url() fetches
+    # a fresh copy.
+    try:
+        print(f"Removing corrupt taxa.sqlite at {p}", flush=True)
+        p.unlink()
+    except Exception:
+        pass
+    return False
+
+
+def force_redownload() -> bool:
+    """Admin-triggered: delete any existing taxa.sqlite (corrupt or not)
+    and re-fetch from NCBI_TAXA_URL. Returns True on success."""
+    p = _default_path()
+    if p.exists():
+        try:
+            p.unlink()
+            print(f"Deleted {p} for forced re-download", flush=True)
+        except Exception as exc:
+            print(f"Could not delete {p}: {exc}", flush=True)
+            return False
+    return ensure_taxonomy_from_url()
 
 
 def ensure_taxonomy_from_url() -> bool:

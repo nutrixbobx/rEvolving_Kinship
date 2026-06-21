@@ -158,7 +158,8 @@ def current_user() -> dict:
 
 def _set_session_user_from_db(username: str) -> None:
     """Load a full user row from contributor and store it in session_state.
-    Updates last_login_at."""
+    Updates last_login_at AND starts a server-side session (writes the
+    remember-me cookie) so the next browser refresh stays signed in."""
     user_row = db.get_user_by_username(username)
     if not user_row:
         return
@@ -170,7 +171,6 @@ def _set_session_user_from_db(username: str) -> None:
         "bio": user_row.get("bio"),
         "avatar_url": user_row.get("avatar_url"),
     }
-    # Backward-compat shim for existing checks
     st.session_state["is_admin"] = (
         st.session_state["user"]["role"] == "admin"
     )
@@ -178,9 +178,21 @@ def _set_session_user_from_db(username: str) -> None:
         db.update_last_login(user_row["contributor_id"])
     except Exception:
         pass
+    # Persist the session in our own table + cookie so refresh = stay in.
+    try:
+        _start_remembered_session(user_row["contributor_id"])
+    except Exception:
+        pass
 
 
 def clear_session_user() -> None:
+    # Clear both the in-memory session AND the server-side row + cookie
+    # so the next page load doesn't auto-restore the user we just signed
+    # out.
+    try:
+        _end_remembered_session()
+    except Exception:
+        pass
     st.session_state.pop("user", None)
     st.session_state["is_admin"] = False
 
@@ -275,38 +287,123 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
 
 
 
-def _try_cookie_restore() -> bool:
-    """If a valid auth cookie is present, populate session_state['user'].
-    streamlit-authenticator 0.3.x exposes an 'unrendered' login location
-    that silently performs the cookie check (decode + validate + populate
-    session_state['authentication_status'] + ['username']) without
-    rendering any widget. We run it on EVERY page load so a returning
-    user with a valid cookie is restored to a signed-in state before any
-    UI gates check is_named().
+# --- Cookie-backed remember-me ----------------------------------------------
+# We replaced streamlit-authenticator's built-in cookie (which doesn't
+# persist reliably across refreshes on Streamlit Cloud, because the app
+# runs in an iframe and SameSite/Secure attributes aren't always set) with
+# a server-side session token. The browser cookie holds only an opaque
+# UUID; the auth_session table maps it to a contributor_id.
 
-    Returns True if the user is named (either by cookie restore or because
-    they were already in this session)."""
+_COOKIE_NAME = "kinship_session"
+
+
+def _get_cookie_manager():
+    """One CookieManager instance per script run, cached in session_state."""
+    if "_cookie_manager" in st.session_state:
+        return st.session_state["_cookie_manager"]
+    try:
+        import extra_streamlit_components as stx
+        cm = stx.CookieManager(key="kinship_cookie_mgr")
+    except Exception:
+        cm = None
+    st.session_state["_cookie_manager"] = cm
+    return cm
+
+
+def _read_session_cookie() -> str | None:
+    cm = _get_cookie_manager()
+    if cm is None:
+        return None
+    try:
+        # CookieManager.get() reads from the browser cookie jar via JS.
+        return cm.get(cookie=_COOKIE_NAME)
+    except Exception:
+        return None
+
+
+def _write_session_cookie(session_id: str) -> None:
+    cm = _get_cookie_manager()
+    if cm is None:
+        return
+    from datetime import datetime, timedelta
+    try:
+        cm.set(_COOKIE_NAME, session_id,
+               expires_at=datetime.now() + timedelta(days=30),
+               key="kinship_cookie_set")
+    except Exception as exc:
+        print(f"cookie write failed: {exc}")
+
+
+def _clear_session_cookie() -> None:
+    cm = _get_cookie_manager()
+    if cm is None:
+        return
+    try:
+        cm.delete(_COOKIE_NAME, key="kinship_cookie_clear")
+    except Exception:
+        pass
+
+
+def _try_cookie_restore() -> bool:
+    """Read the browser cookie. If it points at a valid auth_session row,
+    sign the user in silently. Runs on every page load so a returning
+    visitor is restored before any UI gate checks is_named().
+
+    Returns True if the user is named after the call."""
     if is_named():
         return True
-    auth_obj = _get_authenticator()
-    try:
-        # 'unrendered' tells the library to do the work but draw nothing.
-        auth_obj.login(location="unrendered", key="cookie_restore_login")
-    except TypeError:
-        # Older 0.3.x signatures don't accept 'unrendered'. Fall back to
-        # the sidebar location (it renders a small login widget but the
-        # cookie check fires either way).
-        try:
-            auth_obj.login(location="sidebar", key="cookie_restore_login")
-        except Exception:
-            return False
-    except Exception:
+    session_id = _read_session_cookie()
+    if not session_id:
         return False
-    if st.session_state.get("authentication_status"):
-        username = st.session_state.get("username")
-        if username:
-            _set_session_user_from_db(username)
-    return is_named()
+    cid = db.lookup_auth_session(session_id)
+    if not cid:
+        # Stale or unknown cookie. Clear it so the browser doesn't keep
+        # sending a token we don't recognize.
+        _clear_session_cookie()
+        return False
+    user = db.get_user_by_id(cid)
+    if not user or not user.get("username"):
+        _clear_session_cookie()
+        return False
+    # Found a valid signed-in session — populate session_state directly.
+    st.session_state["user"] = {
+        "username": user["username"],
+        "name": user.get("display_name") or user["username"],
+        "role": user.get("role") or "visitor",
+        "contributor_id": user["contributor_id"],
+        "bio": user.get("bio"),
+        "avatar_url": user.get("avatar_url"),
+    }
+    st.session_state["is_admin"] = (user.get("role") == "admin")
+    # Optional housekeeping
+    try:
+        db.touch_auth_session(session_id)
+    except Exception:
+        pass
+    return True
+
+
+def _start_remembered_session(contributor_id: str) -> None:
+    """Called right after a successful sign-in. Creates the server-side
+    session row + writes the cookie so the next page load restores
+    automatically."""
+    if not contributor_id:
+        return
+    session_id = db.create_auth_session(contributor_id)
+    if session_id:
+        _write_session_cookie(session_id)
+
+
+def _end_remembered_session() -> None:
+    """Called on explicit sign-out. Deletes the server-side row + clears
+    the cookie. The browser will stop offering the token going forward."""
+    session_id = _read_session_cookie()
+    if session_id:
+        try:
+            db.delete_auth_session(session_id)
+        except Exception:
+            pass
+    _clear_session_cookie()
 
 
 # ---------------------------------------------------------------------------

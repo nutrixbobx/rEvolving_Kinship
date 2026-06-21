@@ -2121,3 +2121,86 @@ def follow_counts(contributor_id: str) -> dict:
         "favorites": int(row[2] or 0),
     }
 
+
+# ---------------------------------------------------------------------------
+# Server-side session tokens (remember-me)
+# After db/auth_session_migration.sql is applied.
+# ---------------------------------------------------------------------------
+def create_auth_session(contributor_id: str,
+                         user_agent: str | None = None) -> str | None:
+    """Create a new server-side session and return its UUID. The caller
+    stores this UUID in a browser cookie. Returns None on DB error."""
+    if not contributor_id:
+        return None
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(text(
+                "INSERT INTO auth_session (contributor_id, user_agent) "
+                "VALUES (:c, :ua) RETURNING session_id"
+            ), {"c": contributor_id, "ua": (user_agent or "")[:255]}
+            ).fetchone()
+            return str(row[0]) if row else None
+    except Exception as exc:
+        print(f"create_auth_session failed: {exc}")
+        return None
+
+
+def lookup_auth_session(session_id: str) -> str | None:
+    """Resolve a session_id from a cookie into the contributor_id it
+    represents. Returns None when the session is missing, expired, or the
+    table doesn't exist yet (migration not applied)."""
+    if not session_id:
+        return None
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT contributor_id FROM auth_session "
+                "WHERE session_id = :s AND expires_at > now() LIMIT 1"
+            ), {"s": session_id}).fetchone()
+        return str(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def touch_auth_session(session_id: str) -> None:
+    """Update last_seen_at so we can prune truly idle sessions later."""
+    if not session_id:
+        return
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE auth_session SET last_seen_at = now() "
+                "WHERE session_id = :s"
+            ), {"s": session_id})
+    except Exception:
+        pass
+
+
+def delete_auth_session(session_id: str) -> None:
+    if not session_id:
+        return
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM auth_session WHERE session_id = :s"
+            ), {"s": session_id})
+    except Exception:
+        pass
+
+
+def cleanup_expired_sessions() -> int:
+    """Best-effort housekeeping. Returns number of rows deleted."""
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(text(
+                "DELETE FROM auth_session WHERE expires_at <= now()"
+            ))
+            return int(result.rowcount or 0)
+    except Exception:
+        return 0
+

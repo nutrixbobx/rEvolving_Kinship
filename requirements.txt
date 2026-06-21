@@ -35,6 +35,7 @@ streamlit>=1.30
 # Auth: persistent cookie login + password hashing for signed-in users
 streamlit-authenticator>=0.3.2,<0.4
 bcrypt>=4.0.0
+extra-streamlit-components>=0.1.71  # reliable cookies
 Pillow>=10.0  # avatar uploads (resized to 256px)
 
 # Python 3.13 removed the stdlib 'cgi' module that ete3 still imports on load.

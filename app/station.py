@@ -356,6 +356,33 @@ with station_tab:
 # Dashboard
 # ---------------------------------------------------------------------------
 with dash_tab:
+    # Admin: force re-download taxa.sqlite when corruption is suspected
+    # (the build-images error "database disk image is malformed" comes
+    # from a half-downloaded or stale taxa.sqlite on the Cloud container.)
+    if auth.is_admin():
+        with st.expander("Rebuild taxonomy file (admin)",
+                          expanded=False):
+            st.caption(
+                "If you see 'database disk image is malformed' when "
+                "building photos or running the pipeline, the cached "
+                "taxa.sqlite on this Streamlit Cloud container is "
+                "corrupt. Click below to delete + re-download the "
+                "fresh copy from your NCBI_TAXA_URL release "
+                "(~30 seconds).")
+            if st.button("Force re-download taxa.sqlite",
+                          key="force_taxa_redl",
+                          type="primary"):
+                from src import setup_ncbi
+                with st.spinner("Deleting + re-downloading "
+                                  "taxa.sqlite..."):
+                    ok = setup_ncbi.force_redownload()
+                if ok:
+                    st.success("Done. Rebuild your tree to try again.")
+                else:
+                    st.error("Re-download failed. Check that "
+                              "NCBI_TAXA_URL is set in Streamlit "
+                              "secrets and points at a valid file.")
+
     trees = _cached_list_trees_for_dashboard()
     if trees.empty:
         st.info("No species yet. Add some on the request station tab, or run "
@@ -757,7 +784,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
 
         # ------- Add a name (any signed-in user / guest) --------------------
         if auth.is_named() and label_by_sci:
-            with st.expander("Add a name in another language (Dashboard)"):
+            with st.expander("Add a name in another language"):
                 st.caption("Save a name in another language or category "
                             "for any species in this tree. Same effect as "
                             "Library → Add → Multilingual name, kept here "
