@@ -125,10 +125,6 @@ def wh_to_lightbulb_minutes(wh: float) -> float:
     return wh * 60.0 / LED_W
 
 
-def wh_to_car_seconds(wh: float) -> float:
-    return wh * 3600.0 / CAR_W_AT_CRUISE
-
-
 def relatable(wh: float) -> str:
     """Return a short, human readable comparison string."""
     if wh <= 0:

@@ -21,8 +21,6 @@ contributor row, so there's no plaintext anywhere on disk or in code.
 from __future__ import annotations
 
 import os
-from datetime import datetime
-from typing import Any
 
 import bcrypt
 import streamlit as st
@@ -298,48 +296,83 @@ _COOKIE_NAME = "kinship_session"
 
 
 def _get_cookie_manager():
-    """One CookieManager instance per script run, cached in session_state."""
+    """One CookieManager per Streamlit session. The library caches its own
+    component-key state internally, so creating multiple managers will
+    fight over keys and corrupt the cookie dict. We stash one in
+    session_state and reuse it for every read/write."""
     if "_cookie_manager" in st.session_state:
         return st.session_state["_cookie_manager"]
     try:
         import extra_streamlit_components as stx
-        cm = stx.CookieManager(key="kinship_cookie_mgr")
-    except Exception:
+        cm = stx.CookieManager(key="kinship_cookie_mgr_init")
+    except Exception as exc:
+        print(f"CookieManager init failed: {exc}")
         cm = None
     st.session_state["_cookie_manager"] = cm
     return cm
 
 
 def _read_session_cookie() -> str | None:
+    """Read our session cookie from the CookieManager. On the very first
+    script run after a fresh page load, the manager's internal dict is
+    still {} because the JS iframe hasn't synced yet — it returns None.
+    Streamlit auto-reruns when the component sends real data; on that
+    rerun we get the real value. No retry loop needed here, just don't
+    crash on the empty case."""
     cm = _get_cookie_manager()
     if cm is None:
         return None
     try:
-        # CookieManager.get() reads from the browser cookie jar via JS.
-        return cm.get(cookie=_COOKIE_NAME)
+        v = cm.get(cookie=_COOKIE_NAME)
+        return v if v else None
     except Exception:
         return None
 
 
 def _write_session_cookie(session_id: str) -> None:
+    """Write the session_id cookie. The two attributes that matter for
+    Streamlit Cloud + iframe contexts:
+      - same_site='none' lets the cookie ride along even when the component
+        iframe is a cross-site context (which it always is)
+      - secure=True is required by browsers whenever same_site='none'
+
+    Default of the library is same_site='strict' which silently discards
+    the cookie in iframe contexts — that was the bug all along."""
     cm = _get_cookie_manager()
     if cm is None:
         return
     from datetime import datetime, timedelta
     try:
-        cm.set(_COOKIE_NAME, session_id,
-               expires_at=datetime.now() + timedelta(days=30),
-               key="kinship_cookie_set")
+        cm.set(
+            _COOKIE_NAME, session_id,
+            expires_at=datetime.now() + timedelta(days=30),
+            key=f"kinship_cookie_set_{session_id[:8]}",
+            same_site="none",
+            secure=True,
+            path="/",
+        )
     except Exception as exc:
         print(f"cookie write failed: {exc}")
 
 
 def _clear_session_cookie() -> None:
+    """Delete the session cookie. We also overwrite with an expired one
+    using the same SameSite settings, because some browsers only honor
+    delete-by-overwrite (not the Set-Cookie header's delete attribute)
+    when the original cookie was SameSite=none."""
     cm = _get_cookie_manager()
     if cm is None:
         return
+    from datetime import datetime, timedelta
     try:
         cm.delete(_COOKIE_NAME, key="kinship_cookie_clear")
+    except Exception:
+        pass
+    try:
+        cm.set(_COOKIE_NAME, "",
+               expires_at=datetime.now() - timedelta(days=1),
+               key="kinship_cookie_overwrite",
+               same_site="none", secure=True, path="/")
     except Exception:
         pass
 
@@ -350,6 +383,14 @@ def _try_cookie_restore() -> bool:
     visitor is restored before any UI gate checks is_named().
 
     Returns True if the user is named after the call."""
+    # Probabilistic GC: ~1% of page loads sweep expired auth_session rows.
+    # Cheap and self-healing without needing a separate cron.
+    import secrets as _s
+    if _s.randbelow(100) == 0:
+        try:
+            db.cleanup_expired_sessions()
+        except Exception:
+            pass
     if is_named():
         return True
     session_id = _read_session_cookie()
@@ -703,14 +744,26 @@ def must_change_password() -> bool:
     return db.get_user_must_change_password(cid)
 
 
-def change_my_password(new_password: str) -> tuple[bool, str]:
-    """Self-service: signed-in user replaces their own password."""
+def change_my_password(new_password: str,
+                        current_password: str | None = None) -> tuple[bool, str]:
+    """Self-service: signed-in user replaces their own password. If
+    current_password is provided, verify it first (used by the regular
+    'change my password' card; the forgot-password reset path skips this
+    because the user just typed a temp password to sign in)."""
     u = current_user()
     cid = u.get("contributor_id")
     if not cid or not u.get("username"):
         return (False, "You are not signed in with an account.")
     if not new_password or len(new_password) < 6:
         return (False, "Password must be at least 6 characters.")
+    if current_password is not None:
+        # Pull the current hash and verify before replacing.
+        user_row = db.get_user_by_id(cid)
+        if not user_row or not user_row.get("password_hash"):
+            return (False, "Could not verify current password.")
+        if not verify_password(current_password,
+                                user_row["password_hash"]):
+            return (False, "Current password is wrong.")
     db.set_user_password(cid, hash_password(new_password))
     db.clear_must_change_password(cid)
     return (True, "Password updated.")

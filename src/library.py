@@ -60,7 +60,11 @@ def _cached_dish_ingredients():
 
 @st.cache_data(ttl=_TTL, show_spinner=False)
 def _cached_pantheons():
-    return db.list_pantheons()
+    try:
+        return db.list_pantheons()
+    except Exception:
+        import pandas as _pd
+        return _pd.DataFrame()
 
 
 @st.cache_data(ttl=_TTL, show_spinner=False)
@@ -70,7 +74,11 @@ def _cached_species_deities():
 
 @st.cache_data(ttl=_TTL, show_spinner=False)
 def _cached_cultural():
-    return db.list_cultural_connections()
+    try:
+        return db.list_cultural_connections()
+    except Exception:
+        import pandas as _pd
+        return _pd.DataFrame()
 
 
 @st.cache_data(ttl=_TTL, show_spinner=False)
@@ -623,7 +631,6 @@ def _render_my_contributions(contributor_id: str,
     stories, dishes, names, and cultural connections, with a delete button
     on every row. Editors and admins additionally get a 'Recent community
     additions' panel for moderation."""
-    from src import profile as _profile_mod  # for cache invalidation
 
     my_stories = _cached_my_stories(contributor_id)
     my_dishes = _cached_my_dishes(contributor_id)

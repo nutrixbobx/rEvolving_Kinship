@@ -41,6 +41,15 @@ from src import db  # noqa: E402
 from src import render as render_mod  # noqa: E402
 from src import taxonomy_search as ts  # noqa: E402
 from src import theme  # noqa: E402
+from src import species_profile  # noqa: E402
+from src import species_player  # noqa: E402
+from src import tree_settings  # noqa: E402
+from src import library  # noqa: E402
+from src import i18n  # noqa: E402
+from src import auth  # noqa: E402
+from src import profile  # noqa: E402
+from src import ai_blurb  # noqa: E402
+from src import usage_log  # noqa: E402
 
 st.set_page_config(
     page_title="{r}Evolving Kinship",
@@ -69,6 +78,15 @@ _verified_db_init()
 # Apply the unified theme on every load.
 theme.inject_css()
 
+# Pre-init cookie manager + try restore before anything else renders.
+# CookieManager's component reads from the browser asynchronously, so the
+# very first script run after a page load gets an empty cookie dict.
+# Streamlit auto-reruns when the component sends real data; on that rerun
+# the cookie is available and the user is signed in silently. By calling
+# _try_cookie_restore here, we make sure the restore happens BEFORE the
+# auth gate decides whether to show the sign-in form.
+auth._try_cookie_restore()
+
 
 def _stem(name: str) -> str:
     """Tree-name slug used for output filenames. Delegates to tree._safe so
@@ -83,15 +101,6 @@ def _label(hit: dict) -> str:
     return f"{hit['scientific_name']} [{hit['rank']}]"
 
 
-from src import species_profile  # noqa: E402
-from src import species_player  # noqa: E402
-from src import tree_settings  # noqa: E402
-from src import library  # noqa: E402
-from src import i18n  # noqa: E402
-from src import auth  # noqa: E402
-from src import profile  # noqa: E402
-from src import ai_blurb  # noqa: E402
-from src import usage_log  # noqa: E402
 
 
 # Light Python-level memoization. Streamlit's @st.cache_data had reliability
@@ -399,7 +408,12 @@ with dash_tab:
         pick_tree = st.selectbox("Pick a tree",
                                  trees["tree_name"].tolist())
         _fav_toggle_for_tree(pick_tree)
-        df = _cached_read_tree(pick_tree)
+        try:
+            df = _cached_read_tree(pick_tree)
+        except Exception as _exc:
+            st.error(f"Could not load this tree from the database. "
+                      f"Try again, or contact Maya. ({_exc})")
+            st.stop()
         headers = {
             "common_name": "Common", "scientific_name": "Scientific",
             "genus": "Genus", "family": "Family", "order_": "Order",
@@ -978,7 +992,6 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
         try:
             if _listen_open and nwk.exists() and meta:
                 with st.expander("Listen to each species", expanded=True):
-                    from src import species_audio
                     admin = auth.is_admin()
                     tip_rows = [(n, i) for n, i in meta.items()
                                 if i.get("is_leaf")]
@@ -1103,7 +1116,11 @@ with map_tab:
                                 map_trees["tree_name"].tolist(),
                                 key="map_tree_pick")
         from src import gbif_map
-        species_for_map = gbif_map.species_for_tree(map_pick)
+        try:
+            species_for_map = gbif_map.species_for_tree(map_pick)
+        except Exception as _exc:
+            st.error(f"Could not load the species list for the map. ({_exc})")
+            species_for_map = []
 
         if not species_for_map:
             st.caption("This tree has no species yet.")

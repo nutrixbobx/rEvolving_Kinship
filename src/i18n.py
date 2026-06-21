@@ -401,16 +401,6 @@ REGIONS_BY_MACRO: dict[str, list[tuple[str, str]]] = {
 }
 
 
-def region_dropdown_choices() -> list[str]:
-    """Single flattened list with macro-region prefix so the user can scan."""
-    out: list[str] = ["(none)"]
-    for macro, items in REGIONS_BY_MACRO.items():
-        for code, name in items:
-            out.append(f"[{macro}] {code} — {name}")
-    out.append(OTHER_LABEL)
-    return out
-
-
 def render_region_picker(label: str, key: str,
                           initial_code: str | None = None) -> str | None:
     """Two-step region picker: macro-region first, then country within it.

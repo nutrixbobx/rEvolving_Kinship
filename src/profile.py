@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import base64
 import io
-from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -551,7 +550,12 @@ def _render_admin_team() -> None:
         "Promote a signed-in user to editor (can edit anyone's contributions, "
         "but can't touch admin-owned trees) or admin (full access). Guests "
         "without accounts don't show up here.")
-    df = _cached_all_users()
+    try:
+        df = _cached_all_users()
+    except Exception as _exc:
+        st.warning(f"Could not load the team list ({_exc}). The "
+                    "auth_migration.sql may need to run.")
+        return
     if df.empty:
         st.caption("No users yet.")
         return
@@ -801,6 +805,15 @@ def _render_change_password_card(force: bool = False) -> None:
     with st.expander("Change your password",
                      expanded=force):
         with st.form("change_pw_form"):
+            if not force:
+                # Normal change: ask for current password first.
+                # On force=True (post-reset) we skip this since the user
+                # just typed the temp password to sign in.
+                current_pw = st.text_input(
+                    "Current password", type="password",
+                    help="Required to confirm it's really you.")
+            else:
+                current_pw = None
             new_pw = st.text_input("New password", type="password",
                                    help="Six characters minimum.")
             new_pw2 = st.text_input("Confirm new password", type="password")
@@ -810,7 +823,8 @@ def _render_change_password_card(force: bool = False) -> None:
             if not new_pw or new_pw != new_pw2:
                 st.error("Passwords don't match.")
                 return
-            ok, msg = auth.change_my_password(new_pw)
+            ok, msg = auth.change_my_password(new_pw,
+                                               current_password=current_pw)
             if ok:
                 st.success(msg)
                 st.rerun()

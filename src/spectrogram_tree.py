@@ -148,8 +148,8 @@ def build_sound_tree(tree_name: str, out_dir: Path | None = None) -> Path:
         common = info.get("common_name")
         try:
             rec = species_audio.find_recording(sci, common)
-        except Exception as exc:
-            print(f"  err {sci}: {exc}"); rec = None
+        except Exception:
+            print("  err {sci}: {exc}"); rec = None
         rec_by_tip[tip] = rec
         print(f"  {sci:30} -> {'OK' if rec else '-'}")
 

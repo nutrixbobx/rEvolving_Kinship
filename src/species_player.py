@@ -121,26 +121,3 @@ def player_html(common: str | None, scientific: str,
   </script>
 </div>'''
 
-
-def players_for_tree(tree_name: str, meta: dict) -> list[tuple[str, int]]:
-    """Yield (html, pixel_height) for every species in the tree that has a
-    recording. Returns a list so the caller (Streamlit) can render each in its
-    own component frame."""
-    from src import species_audio
-    out = []
-    for tip_name, info in meta.items():
-        if not info.get("is_leaf"):
-            continue
-        sci = info.get("scientific_name") or tip_name.replace("_", " ")
-        common = info.get("common_name")
-        try:
-            rec = species_audio.find_recording(sci, common)
-        except Exception:
-            rec = None
-        if not rec:
-            continue
-        html = player_html(common, sci, rec["path"],
-                           attribution=rec.get("attribution"))
-        # rough height: label + spec + audio control + attribution + padding
-        out.append((html, SPEC_HEIGHT_PX + 130))
-    return out
