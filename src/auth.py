@@ -277,28 +277,35 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
 
 def _try_cookie_restore() -> bool:
     """If a valid auth cookie is present, populate session_state['user'].
-    Runs at most once per Streamlit session so the JWT decode + DB lookup
-    only happen on the first page load."""
-    if st.session_state.get("_cookie_restore_attempted"):
-        return is_named()
-    st.session_state["_cookie_restore_attempted"] = True
+    streamlit-authenticator 0.3.x exposes an 'unrendered' login location
+    that silently performs the cookie check (decode + validate + populate
+    session_state['authentication_status'] + ['username']) without
+    rendering any widget. We run it on EVERY page load so a returning
+    user with a valid cookie is restored to a signed-in state before any
+    UI gates check is_named().
+
+    Returns True if the user is named (either by cookie restore or because
+    they were already in this session)."""
     if is_named():
         return True
     auth_obj = _get_authenticator()
-    # streamlit-authenticator 0.3.x exposes the cookie controller as
-    # `cookie_controller`. Calling its get_cookie() reads + validates the
-    # JWT. If a valid token is present, the library populates
-    # st.session_state['authentication_status'] and ['username'].
     try:
-        cookie_token = auth_obj.cookie_controller.get_cookie()
+        # 'unrendered' tells the library to do the work but draw nothing.
+        auth_obj.login(location="unrendered", key="cookie_restore_login")
+    except TypeError:
+        # Older 0.3.x signatures don't accept 'unrendered'. Fall back to
+        # the sidebar location (it renders a small login widget but the
+        # cookie check fires either way).
+        try:
+            auth_obj.login(location="sidebar", key="cookie_restore_login")
+        except Exception:
+            return False
     except Exception:
-        cookie_token = None
-    if not cookie_token:
         return False
-    username = st.session_state.get("username")
-    if not username:
-        return False
-    _set_session_user_from_db(username)
+    if st.session_state.get("authentication_status"):
+        username = st.session_state.get("username")
+        if username:
+            _set_session_user_from_db(username)
     return is_named()
 
 

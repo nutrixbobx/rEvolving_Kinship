@@ -1,0 +1,16 @@
+# Streamlit built-in theme. Mirrors src/theme.PALETTE so the page paints in
+# the crimson + amber scheme from the first frame, before src/theme.py's CSS
+# injects on top. Without this, Streamlit briefly renders in its default
+# (or the user's chosen) theme and our colors flash in a second later.
+
+[theme]
+base = "dark"
+primaryColor = "#cfd78c"
+backgroundColor = "#3a0124"
+secondaryBackgroundColor = "#4a0030"
+textColor = "#f4ecdc"
+font = "sans serif"
+
+[server]
+# Larger upload cap so avatar uploads don't fail.
+maxUploadSize = 8

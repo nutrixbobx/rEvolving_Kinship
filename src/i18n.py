@@ -159,3 +159,426 @@ def render_language_picker(label: str, key: str,
         )
         code = normalize_language_code(custom)
     return code
+
+
+# ---------------------------------------------------------------------------
+# Region picker: macro-region → country/sub-region (ISO 3166 codes)
+# ---------------------------------------------------------------------------
+REGIONS_BY_MACRO: dict[str, list[tuple[str, str]]] = {
+    "South Asia": [
+        ("IN",    "India"),
+        ("PK",    "Pakistan"),
+        ("BD",    "Bangladesh"),
+        ("LK",    "Sri Lanka"),
+        ("NP",    "Nepal"),
+        ("BT",    "Bhutan"),
+        ("MV",    "Maldives"),
+        ("AF",    "Afghanistan"),
+    ],
+    "Southeast Asia": [
+        ("ID",    "Indonesia"),
+        ("PH",    "Philippines"),
+        ("VN",    "Vietnam"),
+        ("TH",    "Thailand"),
+        ("MM",    "Myanmar"),
+        ("MY",    "Malaysia"),
+        ("SG",    "Singapore"),
+        ("KH",    "Cambodia"),
+        ("LA",    "Laos"),
+        ("TL",    "Timor-Leste"),
+        ("BN",    "Brunei"),
+    ],
+    "East Asia": [
+        ("CN",    "China"),
+        ("JP",    "Japan"),
+        ("KR",    "South Korea"),
+        ("KP",    "North Korea"),
+        ("TW",    "Taiwan"),
+        ("HK",    "Hong Kong"),
+        ("MO",    "Macau"),
+        ("MN",    "Mongolia"),
+    ],
+    "West Asia": [
+        ("TR",    "Turkey"),
+        ("SY",    "Syria"),
+        ("LB",    "Lebanon"),
+        ("IL",    "Israel"),
+        ("PS",    "Palestine"),
+        ("JO",    "Jordan"),
+        ("IQ",    "Iraq"),
+        ("IR",    "Iran"),
+        ("SA",    "Saudi Arabia"),
+        ("YE",    "Yemen"),
+        ("OM",    "Oman"),
+        ("AE",    "UAE"),
+        ("QA",    "Qatar"),
+        ("BH",    "Bahrain"),
+        ("KW",    "Kuwait"),
+        ("AM",    "Armenia"),
+        ("AZ",    "Azerbaijan"),
+        ("GE",    "Georgia"),
+        ("CY",    "Cyprus"),
+    ],
+    "Central Asia": [
+        ("KZ",    "Kazakhstan"),
+        ("UZ",    "Uzbekistan"),
+        ("TM",    "Turkmenistan"),
+        ("KG",    "Kyrgyzstan"),
+        ("TJ",    "Tajikistan"),
+    ],
+    "North Africa": [
+        ("EG",    "Egypt"),
+        ("LY",    "Libya"),
+        ("TN",    "Tunisia"),
+        ("DZ",    "Algeria"),
+        ("MA",    "Morocco"),
+        ("SD",    "Sudan"),
+        ("SS",    "South Sudan"),
+    ],
+    "West Africa": [
+        ("NG",    "Nigeria"),
+        ("GH",    "Ghana"),
+        ("SN",    "Senegal"),
+        ("CI",    "Côte d'Ivoire"),
+        ("ML",    "Mali"),
+        ("BF",    "Burkina Faso"),
+        ("NE",    "Niger"),
+        ("GM",    "Gambia"),
+        ("GN",    "Guinea"),
+        ("LR",    "Liberia"),
+        ("SL",    "Sierra Leone"),
+        ("BJ",    "Benin"),
+        ("TG",    "Togo"),
+        ("MR",    "Mauritania"),
+        ("CV",    "Cape Verde"),
+        ("GW",    "Guinea-Bissau"),
+    ],
+    "East Africa": [
+        ("KE",    "Kenya"),
+        ("ET",    "Ethiopia"),
+        ("TZ",    "Tanzania"),
+        ("UG",    "Uganda"),
+        ("RW",    "Rwanda"),
+        ("BI",    "Burundi"),
+        ("ER",    "Eritrea"),
+        ("SO",    "Somalia"),
+        ("DJ",    "Djibouti"),
+        ("MG",    "Madagascar"),
+        ("MU",    "Mauritius"),
+        ("SC",    "Seychelles"),
+        ("KM",    "Comoros"),
+    ],
+    "Central Africa": [
+        ("CD",    "DR Congo"),
+        ("CG",    "Republic of Congo"),
+        ("AO",    "Angola"),
+        ("CM",    "Cameroon"),
+        ("CF",    "Central African Republic"),
+        ("TD",    "Chad"),
+        ("GQ",    "Equatorial Guinea"),
+        ("GA",    "Gabon"),
+        ("ST",    "São Tomé and Príncipe"),
+    ],
+    "Southern Africa": [
+        ("ZA",    "South Africa"),
+        ("NA",    "Namibia"),
+        ("BW",    "Botswana"),
+        ("ZW",    "Zimbabwe"),
+        ("ZM",    "Zambia"),
+        ("MW",    "Malawi"),
+        ("MZ",    "Mozambique"),
+        ("LS",    "Lesotho"),
+        ("SZ",    "Eswatini"),
+    ],
+    "Western Europe": [
+        ("FR",    "France"),
+        ("DE",    "Germany"),
+        ("ES",    "Spain"),
+        ("PT",    "Portugal"),
+        ("IT",    "Italy"),
+        ("NL",    "Netherlands"),
+        ("BE",    "Belgium"),
+        ("CH",    "Switzerland"),
+        ("AT",    "Austria"),
+        ("LU",    "Luxembourg"),
+        ("IE",    "Ireland"),
+        ("GB",    "United Kingdom"),
+        ("IS",    "Iceland"),
+    ],
+    "Northern Europe": [
+        ("SE",    "Sweden"),
+        ("NO",    "Norway"),
+        ("DK",    "Denmark"),
+        ("FI",    "Finland"),
+        ("EE",    "Estonia"),
+        ("LV",    "Latvia"),
+        ("LT",    "Lithuania"),
+    ],
+    "Eastern Europe": [
+        ("PL",    "Poland"),
+        ("CZ",    "Czechia"),
+        ("SK",    "Slovakia"),
+        ("HU",    "Hungary"),
+        ("RO",    "Romania"),
+        ("BG",    "Bulgaria"),
+        ("UA",    "Ukraine"),
+        ("BY",    "Belarus"),
+        ("RU",    "Russia"),
+        ("MD",    "Moldova"),
+        ("HR",    "Croatia"),
+        ("SI",    "Slovenia"),
+        ("RS",    "Serbia"),
+        ("BA",    "Bosnia and Herzegovina"),
+        ("ME",    "Montenegro"),
+        ("MK",    "North Macedonia"),
+        ("AL",    "Albania"),
+        ("GR",    "Greece"),
+        ("XK",    "Kosovo"),
+    ],
+    "North America": [
+        ("US",    "United States"),
+        ("CA",    "Canada"),
+        ("MX",    "Mexico"),
+    ],
+    "Mesoamerica": [
+        ("MX",    "Mexico"),
+        ("GT",    "Guatemala"),
+        ("BZ",    "Belize"),
+        ("HN",    "Honduras"),
+        ("SV",    "El Salvador"),
+        ("NI",    "Nicaragua"),
+        ("CR",    "Costa Rica"),
+        ("PA",    "Panama"),
+    ],
+    "Caribbean": [
+        ("CU",    "Cuba"),
+        ("DO",    "Dominican Republic"),
+        ("HT",    "Haiti"),
+        ("JM",    "Jamaica"),
+        ("PR",    "Puerto Rico"),
+        ("TT",    "Trinidad and Tobago"),
+        ("BS",    "Bahamas"),
+        ("BB",    "Barbados"),
+    ],
+    "South America": [
+        ("BR",    "Brazil"),
+        ("AR",    "Argentina"),
+        ("CO",    "Colombia"),
+        ("PE",    "Peru"),
+        ("VE",    "Venezuela"),
+        ("CL",    "Chile"),
+        ("EC",    "Ecuador"),
+        ("BO",    "Bolivia"),
+        ("PY",    "Paraguay"),
+        ("UY",    "Uruguay"),
+        ("GY",    "Guyana"),
+        ("SR",    "Suriname"),
+    ],
+    "Oceania": [
+        ("AU",    "Australia"),
+        ("NZ",    "New Zealand"),
+        ("PG",    "Papua New Guinea"),
+        ("FJ",    "Fiji"),
+        ("SB",    "Solomon Islands"),
+        ("VU",    "Vanuatu"),
+        ("WS",    "Samoa"),
+        ("TO",    "Tonga"),
+        ("KI",    "Kiribati"),
+        ("PW",    "Palau"),
+        ("MH",    "Marshall Islands"),
+        ("FM",    "Micronesia"),
+        ("NR",    "Nauru"),
+        ("TV",    "Tuvalu"),
+    ],
+    "Indigenous North America": [
+        ("US-CHR", "Cherokee Nation"),
+        ("US-NAV", "Navajo Nation"),
+        ("US-LKT", "Lakota / Dakota"),
+        ("US-OJI", "Ojibwe / Anishinaabe"),
+        ("US-HAW", "Hawai'i"),
+        ("CA-IND", "Canadian First Nations"),
+    ],
+}
+
+
+def region_dropdown_choices() -> list[str]:
+    """Single flattened list with macro-region prefix so the user can scan."""
+    out: list[str] = ["(none)"]
+    for macro, items in REGIONS_BY_MACRO.items():
+        for code, name in items:
+            out.append(f"[{macro}] {code} — {name}")
+    out.append(OTHER_LABEL)
+    return out
+
+
+def render_region_picker(label: str, key: str,
+                          initial_code: str | None = None) -> str | None:
+    """Two-step region picker: macro-region first, then country within it.
+    Returns the ISO 3166 code (or 'US-CHR'-style indigenous code), or None
+    for the 'none' option, or whatever the user types when they pick Other."""
+    import streamlit as st
+    initial_macro = "(none)"
+    initial_country = None
+    if initial_code:
+        for macro, items in REGIONS_BY_MACRO.items():
+            for code, _name in items:
+                if code == initial_code:
+                    initial_macro = macro
+                    initial_country = code
+                    break
+            if initial_country:
+                break
+
+    macro_choices = ["(none)"] + list(REGIONS_BY_MACRO.keys()) + [OTHER_LABEL]
+    macro_idx = (macro_choices.index(initial_macro)
+                  if initial_macro in macro_choices else 0)
+    macro = st.selectbox(label, macro_choices, index=macro_idx,
+                          key=f"{key}_macro")
+    if macro == "(none)":
+        return None
+    if macro == OTHER_LABEL:
+        custom = st.text_input(
+            "Region code", value=initial_code or "",
+            key=f"{key}_other",
+            help="Any ISO 3166 code (US-GA, AM, MX) or a custom prefix.")
+        return (custom or "").strip().upper() or None
+
+    items = REGIONS_BY_MACRO[macro]
+    country_labels = [f"{code} — {name}" for code, name in items]
+    initial_country_idx = 0
+    if initial_country:
+        for i, (code, _) in enumerate(items):
+            if code == initial_country:
+                initial_country_idx = i
+                break
+    country_label = st.selectbox(
+        "Country or sub-region", country_labels,
+        index=initial_country_idx, key=f"{key}_country")
+    return country_label.split(" — ", 1)[0].strip()
+
+
+# ---------------------------------------------------------------------------
+# Script picker (basic click-to-compose keyboard for non-Latin scripts)
+# ---------------------------------------------------------------------------
+# Each script: a list of rows (each row is a string of characters). The
+# UI lays them out as buttons; clicking appends to the buffer that the
+# user can copy into the Name field.
+SCRIPTS = {
+    "Devanagari (Hindi, Sanskrit, Marathi)": [
+        "अआइईउऊऋॠऌॡएऐओऔ",
+        "कखगघङचछजझञ",
+        "टठडढणतथदधन",
+        "पफबभमयरलवशषसह",
+        "ािीुूृॄेैोौंः्",
+    ],
+    "Gurmukhi (Panjabi)": [
+        "ਅਆਇਈਉਊਏਐਓਔ",
+        "ਕਖਗਘਙਚਛਜਝਞ",
+        "ਟਠਡਢਣਤਥਦਧਨ",
+        "ਪਫਬਭਮਯਰਲਵਸਹ",
+        "ਾਿੀੁੂੇੈੋੌਂੰ੍",
+    ],
+    "Bengali": [
+        "অআইঈউঊঋএঐওঔ",
+        "কখগঘঙচছজঝঞ",
+        "টঠডঢণতথদধন",
+        "পফবভমযরলশষসহ",
+        "ািীুূেৈোৌংঃ্",
+    ],
+    "Tamil": [
+        "அஆஇஈஉஊஎஏஐஒஓஔ",
+        "கசஞடணதநபமயரலவ",
+        "ழளறனஜஶஷஸஹ",
+        "ாிீுூெேைொோௌஂ்",
+    ],
+    "Armenian": [
+        "ԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄ",
+        "ՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖ",
+        "աբգդեզէըթժիլխծկհձղճմ",
+        "յնշոչպջռսվտրցւփքօֆ",
+    ],
+    "Arabic": [
+        "ابتثجحخدذر",
+        "زسشصضطظعغف",
+        "قكلمنهوي",
+        "ءأإآؤئىة",
+        "ًٌٍَُِّْـ",
+    ],
+    "Hebrew": [
+        "אבגדהוזחטיכלמ",
+        "נסעפצקרשת",
+        "ךםןףץ",
+        "ְֱֲֳִֵֶַָֹֻּ",
+    ],
+    "Cyrillic (Russian, Ukrainian, etc.)": [
+        "АБВГДЕЁЖЗИЙКЛМНО",
+        "ПРСТУФХЦЧШЩЪЫЬЭЮЯ",
+        "абвгдеёжзийклмно",
+        "прстуфхцчшщъыьэюя",
+    ],
+    "Greek": [
+        "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ",
+        "αβγδεζηθικλμνξοπρστυφχψω",
+    ],
+    "Hiragana (Japanese)": [
+        "あいうえお",
+        "かきくけこ",
+        "さしすせそ",
+        "たちつてと",
+        "なにぬねの",
+        "はひふへほ",
+        "まみむめも",
+        "やゆよ",
+        "らりるれろ",
+        "わをん",
+    ],
+    "Katakana (Japanese)": [
+        "アイウエオ",
+        "カキクケコ",
+        "サシスセソ",
+        "タチツテト",
+        "ナニヌネノ",
+        "ハヒフヘホ",
+        "マミムメモ",
+        "ヤユヨ",
+        "ラリルレロ",
+        "ワヲン",
+    ],
+}
+
+
+def render_script_keyboard(target_key: str) -> str:
+    """Inline 'compose in another script' helper. The current composition
+    lives in st.session_state[f'{target_key}_script_buf']; clicking any
+    character button appends to it; a 'Clear' button resets it. The caller
+    is responsible for inserting the buffer into the Name field (typically
+    by setting a default value or asking the user to paste). Returns the
+    current buffer string."""
+    import streamlit as st
+    buf_key = f"{target_key}_script_buf"
+    if buf_key not in st.session_state:
+        st.session_state[buf_key] = ""
+    script = st.selectbox(
+        "Script", list(SCRIPTS.keys()),
+        key=f"{target_key}_script_pick")
+    st.caption("Click letters to compose. Copy the result into the Name "
+                "field above when done.")
+    rows = SCRIPTS.get(script, [])
+    for ridx, row in enumerate(rows):
+        cols = st.columns(len(row))
+        for cidx, ch in enumerate(row):
+            with cols[cidx]:
+                if st.button(ch, key=f"{target_key}_btn_{ridx}_{cidx}_{ch}"):
+                    st.session_state[buf_key] += ch
+                    st.rerun()
+    bcol1, bcol2 = st.columns([5, 1])
+    with bcol1:
+        st.text_input("Composed text", value=st.session_state[buf_key],
+                       key=f"{buf_key}_display",
+                       disabled=True)
+    with bcol2:
+        if st.button("Clear", key=f"{target_key}_clear_buf"):
+            st.session_state[buf_key] = ""
+            st.rerun()
+    return st.session_state[buf_key]
+

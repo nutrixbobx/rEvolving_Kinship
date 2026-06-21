@@ -448,11 +448,13 @@ def get_or_create_species(ncbi_taxid: int, scientific_name: str,
 
 
 def add_species_name(species_id: str, name_text: str,
-                     language: str = "en",
+                     language: str = "ENG",
                      category: str = "common",
                      source: str = "community",
                      is_preferred: bool = False,
-                     contributor_id: str | None = None) -> None:
+                     contributor_id: str | None = None,
+                     region_code: str | None = None,
+                     script: str | None = None) -> None:
     if not name_text or not name_text.strip():
         return
     name_text = name_text.strip()
@@ -472,19 +474,36 @@ def add_species_name(species_id: str, name_text: str,
                 """),
                 {"s": species_id, "l": language, "c": category, "n": name_text},
             )
-        conn.execute(
-            text("""
+        # Try the insert with script first; if the column hasn't been
+        # migrated yet, fall back to the legacy insert.
+        try:
+            conn.execute(text("""
                 INSERT INTO species_name
                     (species_id, name_text, language_code, name_category,
-                     source, is_preferred, contributed_by)
-                VALUES (:s, :n, :l, :c, :src, :p, :by)
+                     region_code, source, is_preferred, contributed_by, script)
+                VALUES (:s, :n, :l, :c, :r, :src, :p, :by, :sc)
                 ON CONFLICT (species_id, name_text, language_code, name_category)
-                DO UPDATE SET is_preferred = EXCLUDED.is_preferred
-            """),
-            {"s": species_id, "n": name_text, "l": language,
-             "c": category, "src": source, "p": is_preferred,
-             "by": contributor_id},
-        )
+                DO UPDATE SET is_preferred = EXCLUDED.is_preferred,
+                              region_code  = COALESCE(EXCLUDED.region_code,
+                                                       species_name.region_code),
+                              script       = COALESCE(EXCLUDED.script,
+                                                       species_name.script)
+            """), {"s": species_id, "n": name_text, "l": language,
+                   "c": category, "r": region_code, "src": source,
+                   "p": is_preferred, "by": contributor_id, "sc": script})
+        except Exception:
+            conn.execute(text("""
+                INSERT INTO species_name
+                    (species_id, name_text, language_code, name_category,
+                     region_code, source, is_preferred, contributed_by)
+                VALUES (:s, :n, :l, :c, :r, :src, :p, :by)
+                ON CONFLICT (species_id, name_text, language_code, name_category)
+                DO UPDATE SET is_preferred = EXCLUDED.is_preferred,
+                              region_code  = COALESCE(EXCLUDED.region_code,
+                                                       species_name.region_code)
+            """), {"s": species_id, "n": name_text, "l": language,
+                   "c": category, "r": region_code, "src": source,
+                   "p": is_preferred, "by": contributor_id})
 
 
 # ---------------------------------------------------------------------------

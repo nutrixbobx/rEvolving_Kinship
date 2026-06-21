@@ -767,27 +767,40 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     format_func=lambda s: label_by_sci.get(s, s),
                     key=f"dash_addname_pick_{pick_tree}",
                 )
+                # Out-of-form: pickers + script keyboard (interactive)
+                _lang = i18n.render_language_picker(
+                    "Language",
+                    key=f"dash_addname_lang_{pick_tree}",
+                    initial_code="ENG")
+                _region = i18n.render_region_picker(
+                    "Region (optional)",
+                    key=f"dash_addname_region_{pick_tree}")
+                _non_latin = st.checkbox(
+                    "Script (non-Latin)",
+                    key=f"dash_addname_script_flag_{pick_tree}",
+                    help="Tick if the name is written in Devanagari, "
+                         "Armenian, Han, etc. A character keyboard appears "
+                         "below to compose it.")
+                _script_name = None
+                if _non_latin:
+                    _composed = i18n.render_script_keyboard(
+                        f"dash_addname_kbd_{pick_tree}")
+                    _script_name = st.session_state.get(
+                        f"dash_addname_kbd_{pick_tree}_script_pick")
+                    if _composed:
+                        st.caption(
+                            f"Composed: **{_composed}** — paste into "
+                            "Name below.")
                 with st.form(f"dash_addname_form_{pick_tree}"):
                     _name_text = st.text_input(
                         "Name",
                         key=f"dash_addname_text_{pick_tree}",
                         help="The name as written in its language.")
-                    _lang = i18n.render_language_picker(
-                        "Language",
-                        key=f"dash_addname_lang_{pick_tree}",
-                        initial_code="ENG")
-                    _c1, _c2 = st.columns(2)
-                    with _c1:
-                        _cat = st.selectbox(
-                            "Category",
-                            ["common","folk","ceremonial",
-                             "scientific","synonym"],
-                            key=f"dash_addname_cat_{pick_tree}")
-                    with _c2:
-                        _region = st.text_input(
-                            "Region (optional)",
-                            key=f"dash_addname_region_{pick_tree}",
-                            help="ISO 3166: US-GA, AM, MX, ...")
+                    _cat = st.selectbox(
+                        "Category",
+                        ["common","folk","ceremonial",
+                         "scientific","synonym"],
+                        key=f"dash_addname_cat_{pick_tree}")
                     _pref = st.checkbox(
                         "Make this the preferred name for this "
                         "(species, language, category)",
@@ -814,7 +827,9 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                     source="community",
                                     is_preferred=bool(_pref),
                                     contributor_id=
-                                        auth.active_contributor_id())
+                                        auth.active_contributor_id(),
+                                    region_code=_region,
+                                    script=_script_name if _non_latin else None)
                                 _invalidate_dashboard_caches()
                                 try:
                                     from src import library as _lib

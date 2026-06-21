@@ -338,15 +338,27 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                 "Name", help="The name as written in its language.")
             lang = i18n.render_language_picker(
                 "Language", key="addname_lang", initial_code="ENG")
-            cols = st.columns(2)
-            with cols[0]:
-                cat = st.selectbox(
-                    "Category",
-                    ["common", "folk", "ceremonial", "scientific", "synonym"])
-            with cols[1]:
-                region = st.text_input(
-                    "Region (optional)",
-                    help="ISO 3166 (US-GA, AM, MX, ...).")
+            cat = st.selectbox(
+                "Category",
+                ["common", "folk", "ceremonial", "scientific", "synonym"])
+            region = i18n.render_region_picker(
+                "Region (optional)", key="addname_region")
+            non_latin = st.checkbox(
+                "Script (non-Latin)",
+                key="addname_script_flag",
+                help="Tick if this name is written in a script other than "
+                     "Latin (Devanagari, Armenian, Han, etc.). A character "
+                     "keyboard appears below.")
+            script_name = None
+            if non_latin:
+                with st.container():
+                    composed = i18n.render_script_keyboard("addname_kbd")
+                    script_name = st.session_state.get(
+                        "addname_kbd_script_pick")
+                    if composed:
+                        st.caption(
+                            f"Copy the composed text above into the Name "
+                            f"field, or use it directly: **{composed}**")
             is_pref = st.checkbox(
                 "Make this the preferred name for this species + language",
                 value=False)
@@ -393,7 +405,7 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                         db.add_story(
                             body, species_id=sp_id, tree_id=tr_id,
                             title=title.strip() or None,
-                            language=lang.strip() or "en",
+                            language=lang or "ENG",
                             region=region.strip() or None,
                             contributor_id=contributor_id)
                         _saved("Saved.")
