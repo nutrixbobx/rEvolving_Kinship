@@ -26,16 +26,17 @@ import streamlit as st
 # Earth-dark palette. Same six anchor colors used across the GBIF map, the
 # tree renders, and now the chrome.
 PALETTE = {
-    "bg":         "#0e1b1a",  # page background
-    "bg_alt":     "#13211f",  # sidebar / cards
-    "ink":        "#e8f3ef",  # primary text
-    "muted":      "#9ab3ab",  # secondary text
-    "rule":       "#1c2e2b",  # dividers, borders
-    "accent":     "#ffd97a",  # links, focus, highlights
-    "warm":       "#f0a24a",  # warm accents (chord, build CTAs)
-    "primary":    "#46c79a",  # green accent (success, primary actions)
-    "danger":     "#c8651b",  # destructive
-    "donate":     "#a85a1f",  # donation links
+    "bg":         "#3a0124",  # crimson violet, deeper than the anchor so the
+                              # bigger anchor (#700143) reads as a highlight
+    "bg_alt":     "#4a0030",  # sidebar / cards — slightly lifted from bg
+    "ink":        "#f4ecdc",  # warm cream for body text on the violet bg
+    "muted":      "#c9a5b6",  # dusty rose for secondary text
+    "rule":       "#5a1c40",  # dividers, borders — soft violet line
+    "accent":     "#cfd78c",  # PALE AMBER — links, focus, highlights
+    "warm":       "#cfd78c",  # primary buttons share the amber for cohesion
+    "primary":    "#9bc77b",  # leaf green (success, primary actions)
+    "danger":     "#e08a4a",  # warm coral against the violet
+    "donate":     "#ffd97a",  # bright donate links pop without clashing
 }
 
 _CSS_INJECTED_KEY = "_theme_css_injected"
@@ -140,7 +141,7 @@ _CSS = f"""
 .stApp {{
   background: var(--kn-bg) !important;
 }}
-[data-testid="stHeader"] {{ background: rgba(14,27,26,0.85)!important; }}
+[data-testid="stHeader"] {{ background: rgba(58,1,36,0.92)!important; }}
 .block-container {{
   padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1200px;
 }}
@@ -174,7 +175,7 @@ input, textarea, select,
 }}
 input:focus, textarea:focus, select:focus {{
   border-color: var(--kn-accent) !important;
-  box-shadow: 0 0 0 2px rgba(255,217,122,0.18) !important;
+  box-shadow: 0 0 0 2px rgba(207,215,140,0.22) !important;
 }}
 [data-testid="stTextInput"] label,
 [data-testid="stTextArea"] label,
@@ -209,18 +210,19 @@ input:focus, textarea:focus, select:focus {{
 .stButton > button:hover, .stDownloadButton > button:hover,
 .stFormSubmitButton > button:hover {{
   border-color: var(--kn-accent);
-  background: rgba(255,217,122,0.07);
+  background: rgba(207,215,140,0.10);
 }}
 .stButton > button:active {{ transform: translateY(1px); }}
 /* Primary button: warm accent for build CTAs */
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
   background: var(--kn-warm);
-  color: #1a0f04;
+  color: #3a0124;  /* deep crimson on amber for readability */
   border-color: var(--kn-warm);
+  font-weight: 600;
 }}
 .stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primary"]:hover {{
-  background: #ffb866;
-  border-color: #ffb866;
+  background: #dde29d;
+  border-color: #dde29d;
 }}
 .stButton > button:disabled {{
   opacity: 0.55; cursor: not-allowed;
@@ -247,7 +249,7 @@ input:focus, textarea:focus, select:focus {{
 }}
 [data-baseweb="tab"][aria-selected="true"] {{
   color: var(--kn-accent) !important;
-  background: rgba(255,217,122,0.07) !important;
+  background: rgba(207,215,140,0.10) !important;
 }}
 [data-baseweb="tab-highlight"] {{ background: var(--kn-accent) !important; }}
 
@@ -384,9 +386,9 @@ input:focus, textarea:focus, select:focus {{
   text-transform: uppercase;
   font-weight: 600;
 }}
-.role-admin {{ background: rgba(255,217,122,0.15); color: var(--kn-accent); }}
-.role-editor {{ background: rgba(70,199,154,0.14); color: var(--kn-primary); }}
-.role-visitor {{ background: rgba(154,179,171,0.12); color: var(--kn-muted); }}
+.role-admin {{ background: rgba(207,215,140,0.18); color: var(--kn-accent); }}
+.role-editor {{ background: rgba(155,199,123,0.16); color: var(--kn-primary); }}
+.role-visitor {{ background: rgba(201,165,182,0.14); color: var(--kn-muted); }}
 
 /* Identity card in sidebar */
 .identity-card {{

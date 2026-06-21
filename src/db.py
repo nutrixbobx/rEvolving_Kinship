@@ -783,7 +783,7 @@ _READ_TREE_SQL = text("""
                 WHERE sn.name_id = ts.display_name_id),
             (SELECT sn.name_text FROM species_name sn
                 WHERE sn.species_id = s.species_id
-                  AND sn.language_code = 'en'
+                  AND sn.language_code = 'ENG'
                   AND sn.name_category = 'common'
                   AND sn.is_preferred = true
                 ORDER BY sn.contributed_at DESC LIMIT 1)
@@ -996,7 +996,7 @@ def list_dish_ingredients(dish_id: str | None = None) -> pd.DataFrame:
                s.canonical_scientific_name AS species_scientific,
                (SELECT sn.name_text FROM species_name sn
                   WHERE sn.species_id = s.species_id
-                    AND sn.language_code = 'en'
+                    AND sn.language_code = 'ENG'
                     AND sn.name_category = 'common'
                     AND sn.is_preferred = true LIMIT 1) AS species_common,
                ds.role, ds.quantity_note
@@ -1031,7 +1031,7 @@ def list_species_deities() -> pd.DataFrame:
         SELECT s.canonical_scientific_name AS species,
                (SELECT sn.name_text FROM species_name sn
                   WHERE sn.species_id = s.species_id
-                    AND sn.language_code = 'en'
+                    AND sn.language_code = 'ENG'
                     AND sn.name_category = 'common'
                     AND sn.is_preferred = true LIMIT 1) AS common_name,
                de.name AS deity, p.name AS pantheon,
@@ -1050,7 +1050,7 @@ def list_cultural_connections() -> pd.DataFrame:
                s.canonical_scientific_name AS species,
                (SELECT sn.name_text FROM species_name sn
                   WHERE sn.species_id = s.species_id
-                    AND sn.language_code = 'en'
+                    AND sn.language_code = 'ENG'
                     AND sn.name_category = 'common'
                     AND sn.is_preferred = true LIMIT 1) AS common_name,
                cc.culture, cc.significance_type, cc.description, cc.source,
@@ -1086,7 +1086,7 @@ def list_species_for_picker() -> pd.DataFrame:
         SELECT s.species_id, s.canonical_scientific_name,
                (SELECT sn.name_text FROM species_name sn
                   WHERE sn.species_id = s.species_id
-                    AND sn.language_code = 'en'
+                    AND sn.language_code = 'ENG'
                     AND sn.name_category = 'common'
                     AND sn.is_preferred = true LIMIT 1) AS common_name
         FROM species s
@@ -1104,7 +1104,7 @@ def list_species_overview() -> pd.DataFrame:
             s.canonical_scientific_name AS scientific_name,
             (SELECT sn.name_text FROM species_name sn
                 WHERE sn.species_id = s.species_id
-                  AND sn.language_code = 'en'
+                  AND sn.language_code = 'ENG'
                   AND sn.name_category = 'common'
                   AND sn.is_preferred = true LIMIT 1) AS common_name,
             s.rank,

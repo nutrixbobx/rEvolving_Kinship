@@ -17,6 +17,7 @@ from __future__ import annotations
 import streamlit as st
 
 from src import db
+from src import i18n
 
 
 # ---------------------------------------------------------------------------
@@ -335,16 +336,14 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
             sp_id = _species_picker("Species", key="addname_sp")
             name_text = st.text_input(
                 "Name", help="The name as written in its language.")
-            cols = st.columns(3)
+            lang = i18n.render_language_picker(
+                "Language", key="addname_lang", initial_code="ENG")
+            cols = st.columns(2)
             with cols[0]:
-                lang = st.text_input(
-                    "Language code", value="en",
-                    help="ISO 639-1 (en, hy, es, fr, ja, sw, ...).")
-            with cols[1]:
                 cat = st.selectbox(
                     "Category",
                     ["common", "folk", "ceremonial", "scientific", "synonym"])
-            with cols[2]:
+            with cols[1]:
                 region = st.text_input(
                     "Region (optional)",
                     help="ISO 3166 (US-GA, AM, MX, ...).")
@@ -355,7 +354,7 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                 if sp_id and name_text.strip():
                     db.add_species_name(
                         sp_id, name_text.strip(),
-                        language=lang.strip() or "en",
+                        language=lang or "ENG",
                         category=cat, source="community",
                         is_preferred=is_pref,
                         contributor_id=contributor_id)
@@ -380,7 +379,8 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                 help="Plain text; line breaks render as paragraphs.")
             cols = st.columns(2)
             with cols[0]:
-                lang = st.text_input("Language code", value="en")
+                lang = i18n.render_language_picker(
+                    "Language", key="addstory_lang", initial_code="ENG")
             with cols[1]:
                 region = st.text_input("Region (optional)")
             if st.form_submit_button("Save story", type="primary"):
@@ -809,7 +809,10 @@ def _render_edit_form_inline(kind: str, row_id: str,
             body = st.text_area("Story", value=row[1] or "", height=140)
             lcols = st.columns(2)
             with lcols[0]:
-                lang = st.text_input("Language code", value=row[2] or "en")
+                lang = i18n.render_language_picker(
+                    "Language",
+                    key=f"{key_prefix}_story_lang",
+                    initial_code=row[2] or "ENG")
             with lcols[1]:
                 region = st.text_input("Region (optional)", value=row[3] or "")
             save = st.form_submit_button("Save changes", type="primary",
@@ -823,7 +826,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
             db.update_story(row_id, {
                 "title": (t or "").strip() or None,
                 "body_text": (body or "").strip() or None,
-                "language_code": (lang or "").strip() or "en",
+                "language_code": lang or "ENG",
                 "region_code": (region or "").strip() or None,
             })
             _invalidate_all_caches()
@@ -933,17 +936,17 @@ def _render_edit_form_inline(kind: str, row_id: str,
             return
         with st.form(f"{key_prefix}_name_form"):
             n = st.text_input("Name", value=row[0] or "")
-            c1, c2, c3 = st.columns(3)
+            lang = i18n.render_language_picker(
+                "Language",
+                key=f"{key_prefix}_name_lang",
+                initial_code=row[1] or "ENG")
+            c1, c2 = st.columns(2)
             with c1:
-                lang = st.text_input("Language code",
-                                     value=row[1] or "en",
-                                     help="ISO 639-1 (en, hy, es, sw, ...)")
-            with c2:
                 cats = ["common","folk","ceremonial","scientific","synonym"]
                 cat = st.selectbox(
                     "Category", cats,
                     index=cats.index(row[2] or "common"))
-            with c3:
+            with c2:
                 region = st.text_input("Region (optional)",
                                        value=row[3] or "")
             pref = st.checkbox("Preferred name for this "
@@ -959,7 +962,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
         if save:
             db.update_species_name(row_id, {
                 "name_text": (n or "").strip() or row[0],
-                "language_code": (lang or "").strip() or "en",
+                "language_code": lang or "ENG",
                 "name_category": cat,
                 "region_code": (region or "").strip() or None,
                 "is_preferred": bool(pref),

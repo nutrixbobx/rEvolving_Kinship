@@ -87,6 +87,7 @@ from src import species_profile  # noqa: E402
 from src import species_player  # noqa: E402
 from src import tree_settings  # noqa: E402
 from src import library  # noqa: E402
+from src import i18n  # noqa: E402
 from src import auth  # noqa: E402
 from src import profile  # noqa: E402
 from src import ai_blurb  # noqa: E402
@@ -131,7 +132,7 @@ def _cached_audio(sci, common):
     return out
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_list_trees_for_dashboard():
     """Cache the trees-in-warehouse list for 60s so the picker doesn't
     refetch on every interaction. Invalidated implicitly by TTL when admins
@@ -139,14 +140,14 @@ def _cached_list_trees_for_dashboard():
     return db.list_trees()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_read_tree(tree_name):
     """Cache one tree's species DataFrame for 60s. Invalidated by TTL after
     the kiosk adds a species; admin edits call .clear() to refresh now."""
     return db.read_tree(tree_name)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_tree_species_picker(tree_name):
     """Cache the per-tree name picker. The query is a 1-shot scan of
     tree_species + species_name; caching it 60s removes a noticeable hit
@@ -754,6 +755,79 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
+        # ------- Add a name (any signed-in user / guest) --------------------
+        if auth.is_named() and label_by_sci:
+            with st.expander("Add a name in another language (Dashboard)"):
+                st.caption("Save a name in another language or category "
+                            "for any species in this tree. Same effect as "
+                            "Library → Add → Multilingual name, kept here "
+                            "for speed.")
+                _pick_sci = st.selectbox(
+                    "Species", list(label_by_sci.keys()),
+                    format_func=lambda s: label_by_sci.get(s, s),
+                    key=f"dash_addname_pick_{pick_tree}",
+                )
+                with st.form(f"dash_addname_form_{pick_tree}"):
+                    _name_text = st.text_input(
+                        "Name",
+                        key=f"dash_addname_text_{pick_tree}",
+                        help="The name as written in its language.")
+                    _lang = i18n.render_language_picker(
+                        "Language",
+                        key=f"dash_addname_lang_{pick_tree}",
+                        initial_code="ENG")
+                    _c1, _c2 = st.columns(2)
+                    with _c1:
+                        _cat = st.selectbox(
+                            "Category",
+                            ["common","folk","ceremonial",
+                             "scientific","synonym"],
+                            key=f"dash_addname_cat_{pick_tree}")
+                    with _c2:
+                        _region = st.text_input(
+                            "Region (optional)",
+                            key=f"dash_addname_region_{pick_tree}",
+                            help="ISO 3166: US-GA, AM, MX, ...")
+                    _pref = st.checkbox(
+                        "Make this the preferred name for this "
+                        "(species, language, category)",
+                        value=False,
+                        key=f"dash_addname_pref_{pick_tree}")
+                    if st.form_submit_button("Save name", type="primary",
+                                              use_container_width=True):
+                        if not (_name_text or "").strip():
+                            st.warning("Name can't be empty.")
+                        else:
+                            # Resolve species_id from scientific_name
+                            _row = df[df["scientific_name"] == _pick_sci]
+                            _row = _row.iloc[0] if not _row.empty else None
+                            if _row is None:
+                                st.warning("Couldn't find that species.")
+                            else:
+                                _sp_id = db.get_or_create_species(
+                                    int(_row["ncbi_taxid"]), _pick_sci)
+                                db.add_species_name(
+                                    _sp_id,
+                                    _name_text.strip(),
+                                    language=_lang or "ENG",
+                                    category=_cat,
+                                    source="community",
+                                    is_preferred=bool(_pref),
+                                    contributor_id=
+                                        auth.active_contributor_id())
+                                _invalidate_dashboard_caches()
+                                try:
+                                    from src import library as _lib
+                                    _lib._invalidate_all_caches()
+                                except Exception:
+                                    pass
+                                st.success(
+                                    f"Saved {_name_text!r} "
+                                    f"({_lang}/{_cat}). Rebuild the tree so "
+                                    "the labels show the new name if you "
+                                    "made it preferred.")
+                                st.rerun()
+
         # ------- Per-tree common-name picker --------------------------------
         if _can_edit_this_tree:
             with st.expander("Choose how each species is named in this tree"):
@@ -845,11 +919,22 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             f'</div>',
             unsafe_allow_html=True)
 
-        # ------- Listen to each species (last, isolated) ----------
+        # ------- Listen to each species (lazy: opt-in to load) ------
         st.divider()
         st.markdown("### Listen to each species")
+        # The per-species profile + audio + player_html lookups are the
+        # slowest part of the Dashboard, so we hide them behind a checkbox.
+        # Users who actually want to listen flip it on; the page renders
+        # instantly otherwise.
+        _listen_open = st.checkbox(
+            "Load the listening cards",
+            key=f"listen_open_{pick_tree}",
+            value=False,
+            help="Off by default so the Dashboard stays fast. Switch on "
+                 "to fetch photos, summaries, and play audio for each "
+                 "species in this tree.")
         try:
-            if nwk.exists() and meta:
+            if _listen_open and nwk.exists() and meta:
                 with st.expander("Listen to each species", expanded=True):
                     from src import species_audio
                     admin = auth.is_admin()
