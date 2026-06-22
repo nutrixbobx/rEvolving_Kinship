@@ -87,6 +87,19 @@ theme.inject_css()
 # auth gate decides whether to show the sign-in form.
 auth._try_cookie_restore()
 
+# If the cookie hasn't reported back yet (first ~200-500ms after page
+# load), show a brief placeholder instead of the sign-in gate so
+# returning visitors don't see the gate flash by. After 2 retries we
+# conclude there's no cookie and the caller proceeds to the gate.
+if auth.should_show_restoring_placeholder():
+    st.markdown(
+        '<div style="text-align:center;padding:60px 0;'
+        'color:#9ab3ab;font-style:italic">'
+        'Restoring your session…</div>',
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
 
 def _stem(name: str) -> str:
     """Tree-name slug used for output filenames. Delegates to tree._safe so
@@ -275,8 +288,8 @@ with station_tab:
                 ncbi_url = os.environ.get("NCBI_TAXA_URL")
                 if ncbi_url:
                     with st.spinner(
-                            f"Downloading NCBI taxonomy from your bucket. "
-                            f"This takes about 30 seconds."):
+                            "Downloading NCBI taxonomy from your bucket. "
+                            "This takes about 30 seconds."):
                         if setup_ncbi.ensure_taxonomy_from_url():
                             st.success(
                                 "NCBI taxonomy downloaded from your bucket. "
@@ -411,7 +424,7 @@ with dash_tab:
         try:
             df = _cached_read_tree(pick_tree)
         except Exception as _exc:
-            st.error(f"Could not load this tree from the database. "
+            st.error("Could not load this tree from the database. "
                       f"Try again, or contact Maya. ({_exc})")
             st.stop()
         headers = {
@@ -460,7 +473,7 @@ with dash_tab:
             layout_name = st.radio("Layout", list(render_mod.LAYOUTS.keys()))
             show_sci = st.checkbox("Show scientific names", value=True)
             st.markdown(
-                f"""<div style="font-size:13px;line-height:1.9">
+                """<div style="font-size:13px;line-height:1.9">
 <span style="display:inline-block;width:11px;height:11px;border-radius:50%;
 background:{render_mod.LEAF_COLOR}"></span> species (leaf)<br>
 <span style="display:inline-block;width:13px;height:13px;border-radius:50%;
@@ -496,7 +509,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                    key=f"med_dl_{pick_tree}_{med_secs}")
             if st.button(f"Build {med_min} min meditation",
                          key=f"med_build_{pick_tree}_{med_secs}"):
-                with st.spinner(f"Blending the chord and the chorus into a "
+                with st.spinner("Blending the chord and the chorus into a "
                                 f"{med_min} minute track."):
                     try:
                         from src import meditation
@@ -727,7 +740,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                         title_template=tmpl_in.strip())
                     st.success("Saved.")
                     st.rerun()
-                st.caption(f"Will render as: "
+                st.caption("Will render as: "
                            f"“{tree_settings.title_for(pick_tree)}”")
 
         # ------- Edit a species (admin only) --------------------------------
@@ -920,8 +933,8 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                                 db.set_tree_species_display_name(
                                     pick_tree, _sp_id, _picked)
                                 _invalidate_dashboard_caches()
-                                st.success(f"Saved. Rebuild the tree so the "
-                                            f"label updates in the render.")
+                                st.success("Saved. Rebuild the tree so the "
+                                            "label updates in the render.")
                                 st.rerun()
 
         if _can_edit_this_tree:
@@ -939,7 +952,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             st.caption("Removing is permanent. Rebuild afterward so the tree "
                        "and chord match the data.")
             st.divider()
-            confirm = st.checkbox(f"Yes, permanently delete the whole "
+            confirm = st.checkbox("Yes, permanently delete the whole "
                                   f"'{pick_tree}' tree")
             if st.button("Delete entire tree", disabled=not confirm):
                 removed = db.delete_tree(pick_tree)

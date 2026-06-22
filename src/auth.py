@@ -295,58 +295,75 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
 _COOKIE_NAME = "kinship_session"
 
 
+# Single component key used by EVERY call (init, get_all, set, delete)
+# so they all touch the same Streamlit component / iframe / cookie state.
+# Different keys = different components, each with its own JS sync timing —
+# that's the bug that kept the cookie data invisible on rerun.
+_COOKIE_COMPONENT_KEY = "kinship_cookie_mgr_v2"
+
+
 def _get_cookie_manager():
-    """One CookieManager per Streamlit session. The library caches its own
-    component-key state internally, so creating multiple managers will
-    fight over keys and corrupt the cookie dict. We stash one in
-    session_state and reuse it for every read/write."""
-    if "_cookie_manager" in st.session_state:
-        return st.session_state["_cookie_manager"]
+    """Fresh CookieManager per script run, always using the same component
+    key. The library's __init__ wires self.cookies to whatever the JS
+    iframe has on this render — empty on first load, real on rerun."""
     try:
         import extra_streamlit_components as stx
-        cm = stx.CookieManager(key="kinship_cookie_mgr_init")
+        return stx.CookieManager(key=_COOKIE_COMPONENT_KEY)
     except Exception as exc:
         print(f"CookieManager init failed: {exc}")
-        cm = None
-    st.session_state["_cookie_manager"] = cm
-    return cm
+        return None
 
 
 def _read_session_cookie() -> str | None:
-    """Read our session cookie from the CookieManager. On the very first
-    script run after a fresh page load, the manager's internal dict is
-    still {} because the JS iframe hasn't synced yet — it returns None.
-    Streamlit auto-reruns when the component sends real data; on that
-    rerun we get the real value. No retry loop needed here, just don't
-    crash on the empty case."""
+    """Read our session cookie from the CookieManager.
+
+    Two critical details:
+      1. Use get_all() not get() — get() returns the dict captured at
+         __init__ time only, which is {} until the JS iframe syncs.
+         get_all() re-queries the component.
+      2. Pass the same key as the manager's __init__ so both calls hit
+         the same component instance. Different keys = different iframes,
+         each with their own sync timing — was a hidden source of empties.
+
+    First page load: returns None (JS hasn't synced; cookies dict is {}).
+    Streamlit's component framework triggers a rerun when the JS does
+    send real data. On that rerun, this function returns the actual
+    session_id and the restore fires silently."""
     cm = _get_cookie_manager()
     if cm is None:
         return None
     try:
-        v = cm.get(cookie=_COOKIE_NAME)
+        all_cookies = cm.get_all(key=_COOKIE_COMPONENT_KEY)
+        if not all_cookies:
+            return None
+        v = all_cookies.get(_COOKIE_NAME)
         return v if v else None
     except Exception:
         return None
 
 
 def _write_session_cookie(session_id: str) -> None:
-    """Write the session_id cookie. The two attributes that matter for
-    Streamlit Cloud + iframe contexts:
-      - same_site='none' lets the cookie ride along even when the component
-        iframe is a cross-site context (which it always is)
-      - secure=True is required by browsers whenever same_site='none'
+    """Write the session_id cookie with iframe-friendly attributes.
 
-    Default of the library is same_site='strict' which silently discards
-    the cookie in iframe contexts — that was the bug all along."""
+      - same_site='none' lets the cookie persist across the iframe
+        boundary that every Streamlit component lives in
+      - secure=True is required by browsers when same_site='none'
+      - path='/' so the cookie is offered on every URL in the app
+      - 30-day expiry matches the auth_session table default
+
+    The library default of same_site='strict' was the original bug:
+    browsers silently discarded the cookie because the write originated
+    from a component iframe, not the parent page."""
     cm = _get_cookie_manager()
     if cm is None:
         return
     from datetime import datetime, timedelta
     try:
+        # Unique key per write op so successive writes don't dedup
         cm.set(
             _COOKIE_NAME, session_id,
             expires_at=datetime.now() + timedelta(days=30),
-            key=f"kinship_cookie_set_{session_id[:8]}",
+            key=f"kinship_cookie_set_{session_id[:12]}",
             same_site="none",
             secure=True,
             path="/",
@@ -393,8 +410,15 @@ def _try_cookie_restore() -> bool:
             pass
     if is_named():
         return True
+    # Bump per-session attempt counter so we don't wait forever for users
+    # who genuinely have no cookie.
+    attempts = st.session_state.get("_cookie_restore_attempts", 0)
     session_id = _read_session_cookie()
     if not session_id:
+        # First-render miss: bump counter so the placeholder gives the JS
+        # one more rerun to sync. After 2 misses, we conclude there's no
+        # cookie and the caller falls through to the gate.
+        st.session_state["_cookie_restore_attempts"] = attempts + 1
         return False
     cid = db.lookup_auth_session(session_id)
     if not cid:
@@ -450,6 +474,21 @@ def _end_remembered_session() -> None:
 # ---------------------------------------------------------------------------
 # UI: landing-page gate (main panel — mobile friendly)
 # ---------------------------------------------------------------------------
+
+def should_show_restoring_placeholder() -> bool:
+    """True for the first ~1 rerun after page load where we don't yet
+    know whether a cookie is present. The caller (station.py) renders a
+    brief 'Restoring session…' message instead of the sign-in gate,
+    avoiding a gate-flash for returning users."""
+    if is_named():
+        return False
+    attempts = st.session_state.get("_cookie_restore_attempts", 0)
+    # 0 attempts = haven't even tried yet (impossible here since
+    # _try_cookie_restore is called first); 1 = first miss, give one more
+    # rerun for the JS to sync; >=2 = give up, show the gate.
+    return 0 < attempts < 2
+
+
 def render_main_gate() -> None:
     """A wider, friendlier version of the sign-in / sign-up / guest forms
     that sits in the main panel. Used by the landing screen when the

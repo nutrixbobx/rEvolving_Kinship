@@ -349,8 +349,6 @@ def _render_edit_form(u: dict, cid: str) -> None:
                 patch["bio"] = (new_bio or "").strip() or None
             if (new_email or "").strip() != (u.get("email") or ""):
                 patch["email"] = (new_email or "").strip() or None
-
-            new_avatar_value: str | None = None
             if clear_avatar:
                 new_avatar_value = None
                 patch["avatar_url"] = None

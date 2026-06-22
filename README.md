@@ -265,6 +265,36 @@ iNaturalist or Wikipedia returned.
 
 ---
 
+## The community layer
+
+The piece has grown a community side that lives alongside the kiosk.
+Visitors who want their contributions remembered can make a free account
+from the sidebar (email optional, just used for password resets); anyone
+can stay a guest by typing a first name. Signed-in people can:
+
+- **Add names** in any language and any script for any species in any
+  tree, with optional region tagging and a click-to-compose keyboard for
+  Devanagari, Armenian, Arabic, Han, and a few others
+- **Add stories, dishes, cultural connections, deities** through the
+  Library tab
+- **Follow** other contributors and **favorite** trees they want to
+  return to
+- **Own their trees** — only the tree's owner (or an admin/editor) can
+  rename, edit, or delete it
+- See their **profile page** with avatar, bio, and an activity feed of
+  everything they've contributed; visit other contributors' public
+  profiles by clicking any byline in the Library
+
+Admins can promote anyone to editor (the in-between role: can edit
+anyone's contributions, can't touch admin-owned trees), bulk-delete spam,
+and review every recent addition from one feed. Roles and ownership live
+in Postgres so deploys persist them.
+
+See `MIGRATIONS.md` for the full schema setup including every migration
+the community layer needs.
+
+---
+
 ## Credits and licence
 
 This pipeline is released under CC-BY-SA so any collective can take it,

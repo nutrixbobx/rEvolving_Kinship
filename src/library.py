@@ -340,69 +340,74 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
     # ---------- Multilingual name ----------
     with st.expander("Add a name in another language or category",
                      expanded=False):
+        # Pickers OUTSIDE the form so their interactive widgets (selectbox
+        # branches, character keyboard buttons) actually fire on each
+        # click. Forms only submit when the submit button is pressed —
+        # interactive widgets inside them don't trigger reruns.
+        sp_id = _species_picker("Species", key="addname_sp")
+        lang = i18n.render_language_picker(
+            "Language", key="addname_lang", initial_code="ENG")
+        region = i18n.render_region_picker(
+            "Region (optional)", key="addname_region")
+        non_latin = st.checkbox(
+            "Script (non-Latin)",
+            key="addname_script_flag",
+            help="Tick if this name is written in a script other than "
+                 "Latin (Devanagari, Armenian, Han, etc.). A character "
+                 "keyboard appears below to compose it.")
+        script_name = None
+        if non_latin:
+            composed = i18n.render_script_keyboard("addname_kbd")
+            script_name = st.session_state.get("addname_kbd_script_pick")
+            if composed:
+                st.caption(
+                    f"Composed: **{composed}** — paste into Name below.")
+
+        # The form holds just the fields that don't need live interactivity.
         with st.form("add_name_form"):
-            sp_id = _species_picker("Species", key="addname_sp")
             name_text = st.text_input(
                 "Name", help="The name as written in its language.")
-            lang = i18n.render_language_picker(
-                "Language", key="addname_lang", initial_code="ENG")
             cat = st.selectbox(
                 "Category",
                 ["common", "folk", "ceremonial", "scientific", "synonym"])
-            region = i18n.render_region_picker(
-                "Region (optional)", key="addname_region")
-            non_latin = st.checkbox(
-                "Script (non-Latin)",
-                key="addname_script_flag",
-                help="Tick if this name is written in a script other than "
-                     "Latin (Devanagari, Armenian, Han, etc.). A character "
-                     "keyboard appears below.")
-            script_name = None
-            if non_latin:
-                with st.container():
-                    composed = i18n.render_script_keyboard("addname_kbd")
-                    script_name = st.session_state.get(
-                        "addname_kbd_script_pick")
-                    if composed:
-                        st.caption(
-                            f"Copy the composed text above into the Name "
-                            f"field, or use it directly: **{composed}**")
             is_pref = st.checkbox(
                 "Make this the preferred name for this species + language",
                 value=False)
             if st.form_submit_button("Save name", type="primary"):
-                if sp_id and name_text.strip():
+                if sp_id and (name_text or "").strip():
                     db.add_species_name(
                         sp_id, name_text.strip(),
                         language=lang or "ENG",
                         category=cat, source="community",
                         is_preferred=is_pref,
-                        contributor_id=contributor_id)
+                        contributor_id=contributor_id,
+                        region_code=region,
+                        script=script_name if non_latin else None)
                     _saved(f"Saved {name_text!r} ({lang}/{cat}).")
                 else:
                     st.warning("Need a species and a non-empty name.")
 
     # ---------- Story ----------
     with st.expander("Add a story", expanded=False):
+        # Pickers outside the form (interactive)
+        sp_id = _species_picker(
+            "Species (optional if linked to a tree instead)",
+            key="addstory_sp", allow_none=True)
+        tr_id = _tree_picker(
+            "Tree (optional if linked to a species instead)",
+            key="addstory_tr")
+        # Language picker outside the form (interactive)
+        story_lang = i18n.render_language_picker(
+            "Language", key="addstory_lang", initial_code="ENG")
         with st.form("add_story_form"):
-            sp_id = _species_picker(
-                "Species (optional if linked to a tree instead)",
-                key="addstory_sp", allow_none=True)
-            tr_id = _tree_picker(
-                "Tree (optional if linked to a species instead)",
-                key="addstory_tr")
             title = st.text_input(
                 "Title (optional)",
                 help="Leave blank for a short note without a heading.")
             body = st.text_area(
                 "Story body", height=180,
                 help="Plain text; line breaks render as paragraphs.")
-            cols = st.columns(2)
-            with cols[0]:
-                lang = i18n.render_language_picker(
-                    "Language", key="addstory_lang", initial_code="ENG")
-            with cols[1]:
-                region = st.text_input("Region (optional)")
+            region = st.text_input(
+                "Region (optional)", key="addstory_region")
             if st.form_submit_button("Save story", type="primary"):
                 if not body.strip():
                     st.warning("Story body cannot be empty.")
@@ -413,7 +418,7 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                         db.add_story(
                             body, species_id=sp_id, tree_id=tr_id,
                             title=title.strip() or None,
-                            language=lang or "ENG",
+                            language=story_lang or "ENG",
                             region=region.strip() or None,
                             contributor_id=contributor_id)
                         _saved("Saved.")
@@ -828,10 +833,13 @@ def _render_edit_form_inline(kind: str, row_id: str,
             body = st.text_area("Story", value=row[1] or "", height=140)
             lcols = st.columns(2)
             with lcols[0]:
-                lang = i18n.render_language_picker(
-                    "Language",
+                # Plain text input inside the form (selectbox + conditional
+                # reveal doesn't work in forms; user types 3-letter ISO 639-3)
+                lang = st.text_input(
+                    "Language (3-letter ISO 639-3)",
+                    value=row[2] or "ENG",
                     key=f"{key_prefix}_story_lang",
-                    initial_code=row[2] or "ENG")
+                    max_chars=5)
             with lcols[1]:
                 region = st.text_input("Region (optional)", value=row[3] or "")
             save = st.form_submit_button("Save changes", type="primary",
@@ -955,10 +963,11 @@ def _render_edit_form_inline(kind: str, row_id: str,
             return
         with st.form(f"{key_prefix}_name_form"):
             n = st.text_input("Name", value=row[0] or "")
-            lang = i18n.render_language_picker(
-                "Language",
+            lang = st.text_input(
+                "Language (3-letter ISO 639-3)",
+                value=row[1] or "ENG",
                 key=f"{key_prefix}_name_lang",
-                initial_code=row[1] or "ENG")
+                max_chars=5)
             c1, c2 = st.columns(2)
             with c1:
                 cats = ["common","folk","ceremonial","scientific","synonym"]

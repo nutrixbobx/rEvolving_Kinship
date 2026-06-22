@@ -18,10 +18,15 @@ identically once these two pieces are connected.
 
 2. In your Supabase project, open the **SQL Editor** in the left sidebar.
 
-3. Open `db/schema.sql` from this repo, copy everything, paste it into the
-   SQL editor, and click **Run**. This creates the warehouse table, the
-   unique constraint, and the two governance views
-   (`v_tree_summary`, `v_species_public`).
+3. Apply the schema and migrations in order, all from the **SQL Editor**.
+   See `MIGRATIONS.md` in this repo for the complete numbered list and the
+   verification queries. In short:
+   - `db/schema_v2.sql` (baseline)
+   - then every `db/*_migration.sql` file in the order listed in `MIGRATIONS.md`
+   - then `db/backfill_attribution_to_maya.sql` (optional, data-only)
+
+   Every migration is idempotent (uses `IF NOT EXISTS` / `IF EXISTS`), so
+   re-running any of them is a safe no-op.
 
 4. Get your connection string from
    **Project Settings → Database → Connection string → URI**.
@@ -45,10 +50,12 @@ identically once these two pieces are connected.
 
 2. Paste this block (replacing each placeholder), then **Save**:
 
-       DATABASE_URL = "postgresql+psycopg2://postgres:YOUR-PASSWORD@db.YOUR-PROJECT.supabase.co:5432/postgres"
-       ADMIN_PASSWORD = "otterhood6"
-       XENO_CANTO_API_KEY = "f9a979326bc115d27f3020a85800a172304ca2e6"
-       # Optional, only if you sign up:
+       DATABASE_URL = "postgresql+psycopg2://postgres:YOUR-PASSWORD@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+       ADMIN_PASSWORD = "<your admin password>"
+       COOKIE_KEY = "<any 32+ char random string — used to sign remember-me tokens>"
+       NCBI_TAXA_URL = "https://github.com/<you>/<repo>/releases/download/taxa/taxa.sqlite.gz"
+       XENO_CANTO_API_KEY = "<your-xc-key>"
+       # Optional:
        # GROQ_API_KEY = "your-groq-key"
        # HF_TOKEN = "your-hf-token"
 

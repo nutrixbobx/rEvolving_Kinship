@@ -99,7 +99,6 @@ def export_all(df: pd.DataFrame, leaves: list[str],
                stem: str | None = None):
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    _prefix = f"itol_{stem}_" if stem else "itol_"
     paths = [
         write_common_names(df, leaves, out_dir),
         write_internal_mya(internal_clades, out_dir),
