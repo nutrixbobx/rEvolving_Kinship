@@ -216,8 +216,6 @@ def _cached_player_html(common, sci, path_str, attribution):
 # carries the sign-in / sign-up / guest forms so phone visitors do not
 # have to discover the collapsed sidebar.
 auth.render_sidebar_gate()
-if auth.is_admin():
-    auth.render_auth_diagnostic()
 
 if not auth.is_named():
     theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
@@ -1180,6 +1178,12 @@ with library_tab:
 with profile_tab:
     profile.render()
 
+
+# Admin-only diagnostic panel (collapsed by default; tucked above the
+# footer so it doesn't crowd the main UI but is one click away when
+# debugging an auth issue).
+if auth.is_admin():
+    auth.render_auth_diagnostic()
 
 # Site footer (license, byline, support links).
 theme.render_footer(tree_settings.PROJECT_SLOGAN)

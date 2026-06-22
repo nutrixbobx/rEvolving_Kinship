@@ -573,7 +573,13 @@ def render_auth_diagnostic() -> None:
         except Exception as exc:
             st.error(f"st.query_params unavailable: {exc}")
         st.markdown("**Current session_state['user']:**")
-        st.json(current_user())
+        # Redact bulky / sensitive fields so the panel stays scannable
+        _u = dict(current_user())
+        if _u.get("avatar_url"):
+            v = _u["avatar_url"]
+            _u["avatar_url"] = (f"<base64 image, {len(v)} bytes>"
+                                  if v.startswith("data:") else v)
+        st.json(_u)
         st.markdown("**Token lookup result:**")
         token = _read_session_token()
         if not token:
