@@ -372,6 +372,14 @@ input:focus, textarea:focus, select:focus {{
 }}
 .footer-row a {{ color: var(--kn-muted); }}
 .footer-row a:hover {{ color: var(--kn-accent); }}
+.support-row {{
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}}
+.support-row > * {{ margin: 0 !important; }}
 .support-row .support {{ color: var(--kn-donate) !important; font-weight: 500; }}
 .support-row .support:hover {{ color: var(--kn-accent) !important; }}
 .footer-row .muted {{ color: var(--kn-muted); margin-right: 6px; }}
