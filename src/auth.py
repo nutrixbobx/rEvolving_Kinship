@@ -1,21 +1,28 @@
 """
-Authentication, roles, and permissions for {r}Evolving Kinship.
+Authentication, roles, and remember-me for {r}Evolving Kinship.
 
 Three classes of visitor:
 
-  - **admin** — Maya (and anyone she promotes). Can edit anything.
-  - **editor** — trusted signed-in user. Can edit anyone's contributions
-    except admin-owned trees.
-  - **visitor** / signed-in users — can add to community datapoints and edit
-    their own trees + contributions. Includes both registered accounts and
-    named guests (no account, just a name).
+  - **admin** (Maya, and anyone she promotes): can edit anything.
+  - **editor**: signed-in user trusted to moderate. Can edit anyone's
+    contributions except admin-owned trees.
+  - **visitor**: signed-in user OR named guest. Can add to community
+    datapoints + edit their own trees and contributions.
 
-Persistent login uses streamlit-authenticator's signed-cookie JWT, so
-returning visitors stay logged in across browser sessions for 30 days.
+Remember-me mechanism:
 
-Maya's admin password is read from the ADMIN_PASSWORD env var (Streamlit
-Cloud secret); on first run the auth module hashes it into the `maya`
-contributor row, so there's no plaintext anywhere on disk or in code.
+  After successful sign-in we create an auth_session row in Postgres and
+  put its session_id into the URL as `?s=<token>`. On every page load we
+  read the token from the URL, look it up in Postgres, and silently
+  restore the user. The URL is the source of truth because cookies
+  proved unreliable on Streamlit Cloud (iframe + third-party blocking).
+
+  Trade-off: anyone with a copy of the URL can sign in as that user.
+  For a single-curator art app this is acceptable; the user rotates
+  their token by signing out + back in.
+
+No streamlit-authenticator dependency. Just bcrypt + auth_session table
++ st.query_params.
 """
 
 from __future__ import annotations
@@ -24,7 +31,6 @@ import os
 
 import bcrypt
 import streamlit as st
-import streamlit_authenticator as stauth
 
 from src import db
 
@@ -50,12 +56,11 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Bootstrap Maya admin password from env (one-time, on first import)
+# Admin password bootstrap (one-time per session)
 # ---------------------------------------------------------------------------
 def seed_admin_password_if_needed() -> None:
-    """If maya exists in contributor but has no password_hash, set it from
-    the ADMIN_PASSWORD env var. Runs at most once per Streamlit session
-    so we don't pay a DB read on every script rerun."""
+    """If Maya's contributor row has no password_hash, set it from the
+    ADMIN_PASSWORD env var. Runs at most once per session."""
     if st.session_state.get("_admin_pw_seeded"):
         return
     st.session_state["_admin_pw_seeded"] = True
@@ -66,77 +71,13 @@ def seed_admin_password_if_needed() -> None:
         user = db.get_user_by_username("maya")
     except Exception:
         return
-    if not user:
+    if not user or user.get("password_hash"):
         return
-    if user.get("password_hash"):
-        return
-    hashed = hash_password(admin_pw)
-    db.set_user_password(user["contributor_id"], hashed)
+    db.set_user_password(user["contributor_id"], hash_password(admin_pw))
 
 
 # ---------------------------------------------------------------------------
-# streamlit-authenticator wiring
-# ---------------------------------------------------------------------------
-@st.cache_data(ttl=60, show_spinner=False)
-def _build_credentials_dict() -> dict:
-    """Pull all signed-in users from the contributor table into the format
-    streamlit-authenticator expects. Cached 60s so we don't hit the DB
-    every script rerun."""
-    try:
-        users = db.list_signed_in_users()
-    except Exception:
-        users = None
-
-    creds: dict = {"usernames": {}}
-    if users is None or users.empty:
-        return creds
-    for _, row in users.iterrows():
-        username = row.get("username")
-        pw_hash = row.get("password_hash")
-        if not username or not pw_hash:
-            continue
-        creds["usernames"][username] = {
-            "name": row.get("display_name") or username,
-            "password": pw_hash,
-            "email": row.get("email") or "",
-            "failed_login_attempts": 0,
-            "logged_in": False,
-        }
-    return creds
-
-
-def _get_authenticator() -> stauth.Authenticate:
-    """Build the streamlit-authenticator instance. Cached per session so the
-    same cookie state is reused across reruns within a session."""
-    if "_authenticator" in st.session_state:
-        return st.session_state["_authenticator"]
-    # JWT signing key for the auth cookie. Prefer the explicit COOKIE_KEY env
-    # var. Fall back to a key derived from ADMIN_PASSWORD so existing
-    # deployments keep working. As a last resort, use a clearly-labeled
-    # default and warn — production should override.
-    cookie_key = os.environ.get("COOKIE_KEY")
-    if not cookie_key:
-        admin_pw = os.environ.get("ADMIN_PASSWORD", "").strip()
-        if admin_pw:
-            cookie_key = admin_pw + "-kinship-cookie"
-        else:
-            cookie_key = "kinship-please-set-COOKIE_KEY-in-secrets-1f9a"
-    auth = stauth.Authenticate(
-        _build_credentials_dict(),
-        cookie_name="kinship_auth",
-        cookie_key=cookie_key,
-        cookie_expiry_days=30,
-        # We store our own bcrypt hashes; tell the library not to re-hash
-        # them. Without this, 0.3.x will try to bcrypt the bcrypt string on
-        # every rerun, breaking login.
-        auto_hash=False,
-    )
-    st.session_state["_authenticator"] = auth
-    return auth
-
-
-# ---------------------------------------------------------------------------
-# Current user (session_state shape we agree on across the app)
+# Session state shape
 # ---------------------------------------------------------------------------
 _GUEST_USER = {
     "username": None,
@@ -149,81 +90,9 @@ _GUEST_USER = {
 
 
 def current_user() -> dict:
-    """The active user. Always returns a dict, with None fields when nobody
-    has named themselves yet."""
     return st.session_state.get("user", dict(_GUEST_USER))
 
 
-def _set_session_user_from_db(username: str) -> None:
-    """Load a full user row from contributor and store it in session_state.
-    Updates last_login_at AND starts a server-side session (writes the
-    remember-me cookie) so the next browser refresh stays signed in."""
-    user_row = db.get_user_by_username(username)
-    if not user_row:
-        return
-    st.session_state["user"] = {
-        "username": user_row["username"],
-        "name": user_row.get("display_name") or username,
-        "role": user_row.get("role") or "visitor",
-        "contributor_id": user_row["contributor_id"],
-        "bio": user_row.get("bio"),
-        "avatar_url": user_row.get("avatar_url"),
-    }
-    st.session_state["is_admin"] = (
-        st.session_state["user"]["role"] == "admin"
-    )
-    try:
-        db.update_last_login(user_row["contributor_id"])
-    except Exception:
-        pass
-    # Persist the session in our own table + cookie so refresh = stay in.
-    try:
-        _start_remembered_session(user_row["contributor_id"])
-    except Exception:
-        pass
-
-
-def clear_session_user() -> None:
-    # Clear both the in-memory session AND the server-side row + cookie
-    # so the next page load doesn't auto-restore the user we just signed
-    # out.
-    try:
-        _end_remembered_session()
-    except Exception:
-        pass
-    st.session_state.pop("user", None)
-    st.session_state["is_admin"] = False
-
-
-def set_guest_user(name: str) -> tuple[bool, str]:
-    """Named-guest path: no password, just a display name. Returns
-    (success, message). Refuses if `name` belongs to a registered user, so
-    a guest can't impersonate Maya/an editor."""
-    if not name or not name.strip():
-        return (False, "Give yourself a name first.")
-    name = name.strip()
-    contributor_id, is_registered = db.get_or_create_guest_contributor(name)
-    if is_registered:
-        return (False,
-                f"\"{name}\" is a registered account. Sign in with your "
-                "password, or use a different name as a guest.")
-    if not contributor_id:
-        return (False, "Could not create a guest profile. Try again.")
-    st.session_state["user"] = {
-        "username": None,
-        "name": name,
-        "role": "visitor",
-        "contributor_id": contributor_id,
-        "bio": None,
-        "avatar_url": None,
-    }
-    st.session_state["is_admin"] = False
-    return (True, "")
-
-
-# ---------------------------------------------------------------------------
-# Role + permission helpers
-# ---------------------------------------------------------------------------
 def role() -> str | None:
     return current_user().get("role")
 
@@ -237,24 +106,19 @@ def is_editor_or_admin() -> bool:
 
 
 def is_signed_in() -> bool:
-    """True for username/password accounts (not named guests)."""
     return bool(current_user().get("username"))
 
 
 def is_named() -> bool:
-    """True once the user has either signed in or given a guest name."""
     return bool(current_user().get("name"))
 
 
+def active_contributor_id() -> str | None:
+    return current_user().get("contributor_id")
+
+
 def can_edit_tree(tree_row: dict | None) -> bool:
-    """
-    tree_row is a dict with at least owner_id + owner_role.
-    Rules:
-      - admin: can edit anything
-      - signed-in user / editor / visitor: can edit their own trees
-      - if tree's owner is admin: only admins can edit (locked)
-      - editor (not own tree, not admin-owned): can edit
-    """
+    """admin: anything. owner: their own. editor: anything not admin-owned."""
     if tree_row is None:
         return False
     u = current_user()
@@ -268,12 +132,7 @@ def can_edit_tree(tree_row: dict | None) -> bool:
 
 
 def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
-    """
-    Rules:
-      - admin / editor: can edit anyone's contribution
-      - contributor: can edit their own
-      - everyone else: no
-    """
+    """admin / editor: anyone's. otherwise: their own only."""
     u = current_user()
     if u.get("role") in ("admin", "editor"):
         return True
@@ -283,36 +142,25 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
     return False
 
 
-
-
-# --- URL query-param remember-me -------------------------------------------
-# Cookies failed too many ways on Streamlit Cloud (iframe context + third-
-# party cookie blocking). URL query params are synchronous, native to
-# Streamlit, and immune to any of the cookie privacy rules. The token in
-# the URL is just a lookup key into the auth_session table; the actual
-# identity check happens server-side, so revoking access is a one-row
-# DELETE in Postgres.
-
+# ---------------------------------------------------------------------------
+# URL query-param remember-me
+# ---------------------------------------------------------------------------
 _SESSION_PARAM = "s"
 
 
 def _read_session_token() -> str | None:
-    """Read the session token from the URL query string. None if missing."""
     try:
         v = st.query_params.get(_SESSION_PARAM)
     except Exception:
         return None
     if not v:
         return None
-    # st.query_params may return a list when the param is repeated; we
-    # only ever set it once but be defensive.
     if isinstance(v, list):
         v = v[0] if v else None
     return str(v) if v else None
 
 
 def _write_session_token(token: str) -> None:
-    """Set ?s=<token> in the URL so the next page load can restore."""
     if not token:
         return
     try:
@@ -329,14 +177,56 @@ def _clear_session_token() -> None:
         pass
 
 
-def _try_cookie_restore() -> bool:
-    """Read the URL session token. If it points at a valid auth_session row,
-    sign the user in silently. Runs on every page load.
+def _set_session_user(user_row: dict) -> None:
+    """Populate session_state["user"] from a contributor row."""
+    st.session_state["user"] = {
+        "username": user_row.get("username"),
+        "name": user_row.get("display_name") or user_row.get("username"),
+        "role": user_row.get("role") or "visitor",
+        "contributor_id": user_row.get("contributor_id"),
+        "bio": user_row.get("bio"),
+        "avatar_url": user_row.get("avatar_url"),
+    }
+    st.session_state["is_admin"] = (user_row.get("role") == "admin")
 
-    Function name kept as _try_cookie_restore for callers' backward
-    compatibility; the underlying mechanism is now URL query params, not
-    cookies. Returns True if the user is named after the call."""
-    # Probabilistic GC: ~1% of page loads sweep expired auth_session rows.
+
+def _start_remembered_session(contributor_id: str) -> None:
+    """Create auth_session row + write the token to URL."""
+    if not contributor_id:
+        return
+    token = db.create_auth_session(contributor_id)
+    if token:
+        _write_session_token(token)
+
+
+def _end_remembered_session() -> None:
+    """Delete the auth_session row + clear the URL token."""
+    token = _read_session_token()
+    if token:
+        try:
+            db.delete_auth_session(token)
+        except Exception:
+            pass
+    _clear_session_token()
+
+
+def clear_session_user() -> None:
+    """Sign out: clear session_state + URL token + auth_session row."""
+    try:
+        _end_remembered_session()
+    except Exception:
+        pass
+    st.session_state.pop("user", None)
+    st.session_state["is_admin"] = False
+
+
+def _try_cookie_restore() -> bool:
+    """Read the URL session token. If valid, sign the user in silently.
+
+    Function name retained for backward compatibility with callers in
+    station.py; the actual mechanism is URL query params, not cookies.
+    Returns True if the user is named after the call."""
+    # Probabilistic GC: 1% of page loads sweep expired auth_session rows.
     import secrets as _s
     if _s.randbelow(100) == 0:
         try:
@@ -350,148 +240,159 @@ def _try_cookie_restore() -> bool:
         return False
     cid = db.lookup_auth_session(token)
     if not cid:
-        # Stale token (expired or revoked). Strip it so the URL doesn't
-        # keep advertising a token we don't honour.
         _clear_session_token()
         return False
     user = db.get_user_by_id(cid)
     if not user or not user.get("username"):
         _clear_session_token()
         return False
-    st.session_state["user"] = {
-        "username": user["username"],
-        "name": user.get("display_name") or user["username"],
-        "role": user.get("role") or "visitor",
-        "contributor_id": user["contributor_id"],
-        "bio": user.get("bio"),
-        "avatar_url": user.get("avatar_url"),
-    }
-    st.session_state["is_admin"] = (user.get("role") == "admin")
+    _set_session_user(user)
     try:
         db.touch_auth_session(token)
+        db.update_last_login(cid)
     except Exception:
         pass
     return True
 
 
 def should_show_restoring_placeholder() -> bool:
-    """Always False — URL query params are synchronous, so there's no
-    asynchronous 'loading' window like there was with cookies. Kept as a
-    public symbol so existing callers in station.py don't break."""
+    """Kept as a public symbol for backward compat. Query params are
+    synchronous, so no placeholder is ever needed."""
     return False
 
 
-def _start_remembered_session(contributor_id: str) -> None:
-    """Called right after a successful sign-in. Creates the server-side
-    session row + writes ?s=<token> to the URL so the next page load
-    restores automatically."""
+# ---------------------------------------------------------------------------
+# Guest entry
+# ---------------------------------------------------------------------------
+def set_guest_user(name: str) -> tuple[bool, str]:
+    """Guest path: no password, just a display name. Refuses if `name`
+    belongs to a registered user (so a guest can't impersonate Maya).
+    Returns (success, error_msg_if_any)."""
+    if not name or not name.strip():
+        return (False, "Give yourself a name first.")
+    name = name.strip()
+    contributor_id, is_registered = db.get_or_create_guest_contributor(name)
+    if is_registered:
+        return (False,
+                f'"{name}" is a registered account. Sign in with your '
+                "password, or use a different name as a guest.")
     if not contributor_id:
-        return
-    token = db.create_auth_session(contributor_id)
-    if token:
-        _write_session_token(token)
+        return (False, "Could not create a guest profile. Try again.")
+    st.session_state["user"] = {
+        "username": None,
+        "name": name,
+        "role": "visitor",
+        "contributor_id": contributor_id,
+        "bio": None,
+        "avatar_url": None,
+    }
+    st.session_state["is_admin"] = False
+    return (True, "")
 
 
-def _end_remembered_session() -> None:
-    """Called on explicit sign-out. Deletes the server-side row + clears
-    the URL token. Other browsers sharing the URL would be evicted on
-    their next request because the auth_session row is gone."""
-    token = _read_session_token()
-    if token:
-        try:
-            db.delete_auth_session(token)
-        except Exception:
-            pass
-    _clear_session_token()
-
-def render_main_gate() -> None:
-    """A wider, friendlier version of the sign-in / sign-up / guest forms
-    that sits in the main panel. Used by the landing screen when the
-    visitor has not yet named themselves, so phone users do not have to
-    discover the collapsed sidebar. Tries the cookie first so returning
-    users don't see the gate at all."""
-    seed_admin_password_if_needed()
-    _try_cookie_restore()
-    auth_obj = _get_authenticator()
-
-    st.markdown(
-        '<div style="max-width:540px;margin:18px auto;">',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="welcome-card">'
-        '<h3>Step into the river</h3>'
-        '<div class="muted">'
-        "Every species in our tree is held by a real person. Pick how you "
-        "want to enter: sign in, make a quick account, or just leave us "
-        "your first name."
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
-
-    mode = st.radio(
-        "How would you like to enter?",
-        ["I have an account", "Make an account", "Just a name"],
-        key="auth_main_mode",
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-    if mode == "I have an account":
-        try:
-            auth_obj.login(location="main", key="main_login_widget")
-        except Exception:
-            pass
-        status = st.session_state.get("authentication_status")
-        if status:
-            username = st.session_state.get("username")
-            if username:
-                _set_session_user_from_db(username)
-                st.rerun()
-        elif status is False:
-            st.error("Username or password is incorrect.")
-        with st.expander("Forgot your password?", expanded=False):
-            _render_forgot_password_form(form_key="forgot_main")
-
-    elif mode == "Make an account":
-        with st.form("main_signup_form"):
-            new_user = st.text_input("Username", help="No spaces.")
-            new_name = st.text_input("Display name")
-            new_email = st.text_input("Email (optional)")
-            new_pw = st.text_input("Password", type="password")
-            new_pw2 = st.text_input("Confirm password", type="password")
-            if st.form_submit_button("Create account", type="primary",
-                                     use_container_width=True):
-                _handle_signup(new_user, new_name, new_email,
-                               new_pw, new_pw2)
-
-    else:  # Just a name
-        with st.form("main_guest_form"):
-            st.caption(
-                "We use your name so contributions stay attributable. "
-                "You can sign up later to keep a profile and revisit "
-                "your trees.")
-            guest_name = st.text_input(
-                "Your name",
-                placeholder="Maya, Yui, Ade, ...",
-            )
-            if st.form_submit_button("Enter as guest", type="primary",
-                                     use_container_width=True):
-                if guest_name.strip():
-                    ok, msg = set_guest_user(guest_name)
-                    if ok:
-                        st.rerun()
-                    else:
-                        st.warning(msg)
-                else:
-                    st.warning("Give yourself a name first.")
-    st.markdown("</div>", unsafe_allow_html=True)
+# ---------------------------------------------------------------------------
+# Sign-in / sign-up (no streamlit-authenticator)
+# ---------------------------------------------------------------------------
+def _do_signin(username: str, password: str) -> tuple[bool, str]:
+    """Validate credentials against the contributor table.
+    Returns (success, error_msg). On success, populates session_state and
+    starts the remembered session (URL token + auth_session row)."""
+    if not username or not password:
+        return (False, "Username and password required.")
+    user = db.get_user_by_username(username.strip())
+    if not user or not user.get("password_hash"):
+        return (False, "Username or password is incorrect.")
+    if not verify_password(password, user["password_hash"]):
+        return (False, "Username or password is incorrect.")
+    _set_session_user(user)
+    try:
+        _start_remembered_session(user["contributor_id"])
+    except Exception:
+        pass
+    return (True, "")
 
 
+def _do_signup(username: str, display_name: str, email: str,
+                password: str, password_confirm: str) -> tuple[bool, str]:
+    username = (username or "").strip()
+    display_name = (display_name or "").strip()
+    email = (email or "").strip() or None
+    if not username or not display_name or not password:
+        return (False, "Username, display name, and password are required.")
+    if " " in username:
+        return (False, "Username can't contain spaces.")
+    if password != password_confirm:
+        return (False, "Passwords don't match.")
+    if len(password) < 6:
+        return (False, "Password must be at least 6 characters.")
+    try:
+        if db.get_user_by_username(username):
+            return (False, "That username is taken.")
+        db.create_signed_in_user(
+            username=username,
+            password_hash=hash_password(password),
+            display_name=display_name,
+            email=email,
+            role="visitor",
+        )
+        return (True, "")
+    except Exception as exc:
+        return (False, f"Sign up failed: {exc}")
+
+
+def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
+    """Forgot-password flow — generate a one-time temp password.
+    Returns (success, temp_password_or_error_message)."""
+    user = db.request_password_reset(username, email)
+    if not user:
+        return (False, "No account matches that username and email.")
+    import secrets as _secrets
+    import string as _string
+    words = ["river", "leaf", "moss", "stone", "willow", "heron",
+             "fern", "otter", "tide", "kelp", "ember", "loam", "reed"]
+    temp_pw = "-".join([
+        _secrets.choice(words),
+        _secrets.choice(words),
+        "".join(_secrets.choice(_string.digits) for _ in range(3)),
+    ])
+    db.complete_password_reset(user["contributor_id"], hash_password(temp_pw))
+    return (True, temp_pw)
+
+
+def must_change_password() -> bool:
+    """True when the current user signed in with a temp password and
+    hasn't replaced it. Tolerates missing forgot_password migration."""
+    cid = active_contributor_id()
+    if not cid:
+        return False
+    return db.get_user_must_change_password(cid)
+
+
+def change_my_password(new_password: str,
+                        current_password: str | None = None) -> tuple[bool, str]:
+    u = current_user()
+    cid = u.get("contributor_id")
+    if not cid or not u.get("username"):
+        return (False, "You are not signed in with an account.")
+    if not new_password or len(new_password) < 6:
+        return (False, "Password must be at least 6 characters.")
+    if current_password is not None:
+        user_row = db.get_user_by_id(cid)
+        if not user_row or not user_row.get("password_hash"):
+            return (False, "Could not verify current password.")
+        if not verify_password(current_password, user_row["password_hash"]):
+            return (False, "Current password is wrong.")
+    db.set_user_password(cid, hash_password(new_password))
+    db.clear_must_change_password(cid)
+    return (True, "Password updated.")
+
+
+# ---------------------------------------------------------------------------
+# UI: identity card (sidebar, when signed in)
+# ---------------------------------------------------------------------------
 def render_sidebar_identity() -> None:
-    """Compact identity card for the sidebar once the user is named.
-    Shows display name with a role glyph (shield for admin, writing hand for
-    editor, leaf for visitor), optional bio, sign-out button."""
+    """Compact identity card with avatar, name, role glyph, sign-out button.
+    Rendered in the sidebar once the user is named."""
     from src import theme as _theme
     u = current_user()
     bio_html = (f'<div class="identity-bio">{u["bio"]}</div>'
@@ -511,240 +412,181 @@ def render_sidebar_identity() -> None:
             f'</div>',
             unsafe_allow_html=True,
         )
-        auth_obj = _get_authenticator()
         if is_signed_in():
-            try:
-                auth_obj.logout("Sign out", "sidebar", key="auth_logout")
-            except Exception:
-                if st.button("Sign out", key="auth_logout_fallback",
-                             use_container_width=True):
-                    clear_session_user()
-                    st.rerun()
-            if (st.session_state.get("authentication_status") is None
-                    and is_signed_in()):
+            if st.button("Sign out", key="signout_btn",
+                          use_container_width=True):
                 clear_session_user()
                 st.rerun()
         else:
             if st.button("Leave guest mode", key="leave_guest",
-                         use_container_width=True):
+                          use_container_width=True):
                 clear_session_user()
                 st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# UI: the sidebar gate (kept for desktop fallback — collapses into the
-# identity card when the user is named)
+# UI: main-panel gate (landing screen)
 # ---------------------------------------------------------------------------
-def render_sidebar_gate() -> None:
-    """Render the auth widget in the sidebar. Replaces the old admin password
-    gate. Once the user is signed in or named, the sidebar shows their info
-    plus a sign-out button. Tries to restore a previous session's cookie
-    first so returning users don't see the sign-in form again."""
-
-    # Make sure the maya admin row has a password hash on first run.
+def render_main_gate() -> None:
+    """Three-door entry on the landing screen: sign in / sign up / guest.
+    Used when not is_named() on mobile (sidebar collapsed by default)."""
     seed_admin_password_if_needed()
-    # Restore session from the auth cookie if one is still valid (30 days).
-    _try_cookie_restore()
+    st.markdown(
+        '<div class="welcome-card">'
+        '<h3>Step into the river</h3>'
+        '<div class="muted">'
+        "Every species in our tree is held by a real person. Pick how you "
+        "want to enter: sign in, make a quick account, or just leave us "
+        "your first name."
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    mode = st.radio(
+        "How would you like to enter?",
+        ["I have an account", "Make an account", "Just a name"],
+        key="auth_main_mode",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if mode == "I have an account":
+        _render_signin_form("main")
+    elif mode == "Make an account":
+        _render_signup_form("main")
+    else:
+        _render_guest_form("main")
 
-    auth_obj = _get_authenticator()
 
-    with st.sidebar:
-        if is_named():
-            # Hand off to the dedicated identity card so we don't duplicate
-            # the markup. This is the only path the station uses now.
-            pass
-        else:
-            pass
+def render_sidebar_gate() -> None:
+    """Slim version of the gate for the sidebar. Used on desktop where the
+    sidebar is the natural place to live. Once the user is named, the
+    sidebar shows the identity card instead via render_sidebar_identity."""
+    seed_admin_password_if_needed()
     if is_named():
         render_sidebar_identity()
         return
-
-        # Not yet logged in or named. Three doors.
+    with st.sidebar:
         st.markdown("### Welcome")
-        st.caption(
-            "Sign in, make an account, or give a name and visit as a guest.")
+        st.caption("Sign in, make an account, or give a name as a guest.")
         mode = st.radio(
             "Choose how to enter",
             ["Sign in", "Create an account", "Continue as guest"],
-            key="auth_mode",
-            label_visibility="collapsed")
-
-        if mode == "Sign in":
-            try:
-                auth_obj.login(location="sidebar", key="login_widget")
-            except Exception:
-                pass
-            status = st.session_state.get("authentication_status")
-            if status:
-                username = st.session_state.get("username")
-                if username:
-                    _set_session_user_from_db(username)
-                    st.rerun()
-            elif status is False:
-                st.error("Username or password is incorrect.")
-            with st.expander("Forgot your password?", expanded=False):
-                _render_forgot_password_form(form_key="forgot_sidebar")
-
-        elif mode == "Create an account":
-            with st.form("signup_form"):
-                new_user = st.text_input("Username", help="No spaces.")
-                new_name = st.text_input("Display name")
-                new_email = st.text_input("Email (optional)")
-                new_pw = st.text_input("Password", type="password")
-                new_pw2 = st.text_input("Confirm password", type="password")
-                if st.form_submit_button("Create account", type="primary"):
-                    _handle_signup(new_user, new_name, new_email,
-                                   new_pw, new_pw2)
-
-        else:  # Continue as guest
-            with st.form("guest_form"):
-                guest_name = st.text_input(
-                    "Your name",
-                    help="So we know who's contributing. You can sign up "
-                         "later to keep a profile.")
-                if st.form_submit_button("Enter as guest", type="primary"):
-                    if guest_name.strip():
-                        ok, msg = set_guest_user(guest_name)
-                        if ok:
-                            st.rerun()
-                        else:
-                            st.warning(msg)
-                    else:
-                        st.warning("Give yourself a name first.")
-
-
-def _handle_signup(username: str, display_name: str, email: str,
-                   pw: str, pw_confirm: str) -> None:
-    username = (username or "").strip()
-    display_name = (display_name or "").strip()
-    email = (email or "").strip() or None
-    pw = pw or ""
-    if not username or not display_name or not pw:
-        st.warning("Username, display name, and password are required.")
-        return
-    if " " in username:
-        st.warning("Username can't contain spaces.")
-        return
-    if pw != pw_confirm:
-        st.error("Passwords don't match.")
-        return
-    if len(pw) < 6:
-        st.warning("Password must be at least 6 characters.")
-        return
-    try:
-        if db.get_user_by_username(username):
-            st.warning("That username is taken.")
-            return
-        db.create_signed_in_user(
-            username=username,
-            password_hash=hash_password(pw),
-            display_name=display_name,
-            email=email,
-            role="visitor",
+            key="auth_sidebar_mode",
+            label_visibility="collapsed",
         )
-        st.success(
-            f"Account created for {display_name}. Switch to **Sign in** "
-            "to enter.")
-    except Exception as exc:
-        st.error(f"Sign up failed: {exc}")
-
-
-# ---------------------------------------------------------------------------
-# Convenience: get the active contributor_id for any write path
-# ---------------------------------------------------------------------------
-def active_contributor_id() -> str | None:
-    return current_user().get("contributor_id")
-
-# ---------------------------------------------------------------------------
-# Forgot-password support
-# ---------------------------------------------------------------------------
-import secrets as _secrets
-import string as _string
-
-
-def _generate_temp_password() -> str:
-    """Pleasant-to-type temp password: three short words + 3 digits."""
-    words = ["river", "leaf", "moss", "stone", "willow", "heron",
-             "fern", "otter", "tide", "kelp", "ember", "loam", "reed"]
-    return "-".join([
-        _secrets.choice(words),
-        _secrets.choice(words),
-        "".join(_secrets.choice(_string.digits) for _ in range(3)),
-    ])
-
-
-def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
-    """Run a password reset. Returns (success, message_or_temp_password).
-    On success, the message IS the temp password — caller should display it
-    to the user. We don't differentiate the failure cases (wrong username,
-    wrong email, no email on file) so we don't leak whether a username
-    exists in the system."""
-    user = db.request_password_reset(username, email)
-    if not user:
-        return (False, "No account matches that username and email.")
-    temp_pw = _generate_temp_password()
-    db.complete_password_reset(user["contributor_id"], hash_password(temp_pw))
-    return (True, temp_pw)
-
-
-def must_change_password() -> bool:
-    """True when the current user got a temp password and hasn't replaced
-    it with one of their own. Tolerates the case where the
-    forgot_password_migration hasn't been applied (returns False)."""
-    u = current_user()
-    cid = u.get("contributor_id")
-    if not cid:
-        return False
-    return db.get_user_must_change_password(cid)
-
-
-def change_my_password(new_password: str,
-                        current_password: str | None = None) -> tuple[bool, str]:
-    """Self-service: signed-in user replaces their own password. If
-    current_password is provided, verify it first (used by the regular
-    'change my password' card; the forgot-password reset path skips this
-    because the user just typed a temp password to sign in)."""
-    u = current_user()
-    cid = u.get("contributor_id")
-    if not cid or not u.get("username"):
-        return (False, "You are not signed in with an account.")
-    if not new_password or len(new_password) < 6:
-        return (False, "Password must be at least 6 characters.")
-    if current_password is not None:
-        # Pull the current hash and verify before replacing.
-        user_row = db.get_user_by_id(cid)
-        if not user_row or not user_row.get("password_hash"):
-            return (False, "Could not verify current password.")
-        if not verify_password(current_password,
-                                user_row["password_hash"]):
-            return (False, "Current password is wrong.")
-    db.set_user_password(cid, hash_password(new_password))
-    db.clear_must_change_password(cid)
-    return (True, "Password updated.")
-
-def _render_forgot_password_form(form_key: str) -> None:
-    """Inline form used by both the main and sidebar sign-in tiles.
-
-    User supplies username + email. If they match, we generate a one-time
-    temp password and show it right here on the page (they're sitting at
-    the device that asked). They sign in with it, then the Profile tab
-    forces them to set a new one."""
-    with st.form(f"{form_key}_form"):
-        st.caption(
-            "Type your username and the email you signed up with. If they "
-            "match, you'll see a one-time temporary password to sign in "
-            "with. Change it from your Profile tab right after.")
-        fp_user = st.text_input("Username", key=f"{form_key}_user")
-        fp_email = st.text_input("Email", key=f"{form_key}_email")
-        submit = st.form_submit_button("Send reset", type="primary",
-                                        use_container_width=True)
-    if submit:
-        ok, msg = handle_forgot_password(fp_user.strip(), fp_email.strip())
-        if not ok:
-            st.warning(msg)
+        if mode == "Sign in":
+            _render_signin_form("sidebar")
+        elif mode == "Create an account":
+            _render_signup_form("sidebar")
         else:
-            st.success("Reset done. Your one-time temporary password is:")
-            st.code(msg, language=None)
-            st.caption("Sign in above with this password, then change it "
-                       "right away from your Profile tab.")
+            _render_guest_form("sidebar")
 
+
+def _render_signin_form(scope: str) -> None:
+    """Custom sign-in form (replaces streamlit-authenticator's login widget).
+    On success: populates session_state, writes URL token, st.rerun()s."""
+    with st.form(f"signin_form_{scope}"):
+        u = st.text_input("Username", key=f"signin_user_{scope}")
+        p = st.text_input("Password", type="password",
+                            key=f"signin_pw_{scope}")
+        if st.form_submit_button("Sign in", type="primary",
+                                   use_container_width=True):
+            ok, msg = _do_signin(u, p)
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
+    with st.expander("Forgot your password?", expanded=False):
+        with st.form(f"forgot_pw_form_{scope}"):
+            st.caption(
+                "Type your username and the email you signed up with. "
+                "If they match, you'll see a one-time temporary password "
+                "to sign in with. Change it from your Profile tab after.")
+            fp_user = st.text_input("Username", key=f"fp_user_{scope}")
+            fp_email = st.text_input("Email", key=f"fp_email_{scope}")
+            if st.form_submit_button("Send reset", type="primary",
+                                       use_container_width=True):
+                ok, msg = handle_forgot_password(fp_user.strip(),
+                                                  fp_email.strip())
+                if not ok:
+                    st.warning(msg)
+                else:
+                    st.success("Reset done. Your one-time temporary "
+                                "password is:")
+                    st.code(msg, language=None)
+
+
+def _render_signup_form(scope: str) -> None:
+    with st.form(f"signup_form_{scope}"):
+        new_user = st.text_input("Username", key=f"su_user_{scope}",
+                                   help="No spaces.")
+        new_name = st.text_input("Display name", key=f"su_name_{scope}")
+        new_email = st.text_input("Email (optional)",
+                                    key=f"su_email_{scope}")
+        new_pw = st.text_input("Password", type="password",
+                                 key=f"su_pw_{scope}")
+        new_pw2 = st.text_input("Confirm password", type="password",
+                                  key=f"su_pw2_{scope}")
+        if st.form_submit_button("Create account", type="primary",
+                                   use_container_width=True):
+            ok, msg = _do_signup(new_user, new_name, new_email,
+                                  new_pw, new_pw2)
+            if ok:
+                st.success(
+                    f"Account created for {new_name}. Switch to "
+                    "**Sign in** to enter.")
+            else:
+                st.error(msg)
+
+
+def _render_guest_form(scope: str) -> None:
+    with st.form(f"guest_form_{scope}"):
+        st.caption(
+            "We use your name so contributions stay attributable. "
+            "You can sign up later to keep a profile.")
+        guest_name = st.text_input("Your name", key=f"guest_name_{scope}")
+        if st.form_submit_button("Enter as guest", type="primary",
+                                   use_container_width=True):
+            if guest_name.strip():
+                ok, msg = set_guest_user(guest_name)
+                if ok:
+                    st.rerun()
+                else:
+                    st.warning(msg)
+            else:
+                st.warning("Give yourself a name first.")
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic panel (admin-visible, helps debug auth issues)
+# ---------------------------------------------------------------------------
+def render_auth_diagnostic() -> None:
+    """Render a debug panel showing URL query params, session state user,
+    and the auth_session lookup result. Admin can use this to verify the
+    remember-me chain is working end-to-end."""
+    if not is_admin():
+        return
+    with st.expander("Auth diagnostic (admin)", expanded=False):
+        st.markdown("**URL query params:**")
+        try:
+            params = dict(st.query_params)
+            st.json(params)
+        except Exception as exc:
+            st.error(f"st.query_params unavailable: {exc}")
+        st.markdown("**Current session_state['user']:**")
+        st.json(current_user())
+        st.markdown("**Token lookup result:**")
+        token = _read_session_token()
+        if not token:
+            st.warning("No URL session token present. Refresh = sign-out.")
+        else:
+            cid = db.lookup_auth_session(token)
+            if cid:
+                st.success(
+                    f"Token resolves to contributor_id={cid}. "
+                    "Refresh should keep you signed in.")
+            else:
+                st.error(
+                    f"Token {token[:8]}… does NOT resolve in "
+                    "auth_session. Either it expired, was deleted, or "
+                    "the auth_session_migration.sql has not been "
+                    "applied to this Supabase project.")

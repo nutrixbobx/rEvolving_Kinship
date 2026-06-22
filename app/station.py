@@ -216,6 +216,8 @@ def _cached_player_html(common, sci, path_str, attribution):
 # carries the sign-in / sign-up / guest forms so phone visitors do not
 # have to discover the collapsed sidebar.
 auth.render_sidebar_gate()
+if auth.is_admin():
+    auth.render_auth_diagnostic()
 
 if not auth.is_named():
     theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
