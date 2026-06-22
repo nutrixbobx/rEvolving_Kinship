@@ -20,7 +20,8 @@ into the **Supabase SQL Editor** and run, in this order:
 | 6 | `db/species_name_script_migration.sql`        | Adds optional `script` column to `species_name` for non-Latin entries.                                        |
 | 7 | `db/auth_session_migration.sql`               | Creates `auth_session` table backing the cookie-based remember-me. Required for refresh-stays-signed-in.      |
 | 8 | `db/fk_indexes_migration.sql`                | Adds 11 indexes on foreign-key columns that were missing them (joins on contributor_id, deity_id, etc.). Speeds up Profile + Library queries.   |
-| 9 | `db/backfill_attribution_to_maya.sql`         | Data-only: reassigns every existing row (trees, stories, dishes, names, cultural ties) to Maya admin.         |
+| 9 | `db/view_security_invoker_migration.sql`     | Flips public views from SECURITY DEFINER to INVOKER. Silences the Supabase linter and is the right posture before turning RLS on.                                   |
+| 10| `db/backfill_attribution_to_maya.sql`         | Data-only: reassigns every existing row (trees, stories, dishes, names, cultural ties) to Maya admin.         |
 
 ## Verification after each run
 

@@ -265,7 +265,7 @@ CREATE INDEX IF NOT EXISTS edit_log_timestamp_idx ON edit_log (edit_timestamp DE
 
 -- A flat species projection that BI tools and the website read instead of
 -- joining a dozen tables themselves. Names rolled into a JSON array.
-CREATE OR REPLACE VIEW v_species_full AS
+CREATE OR REPLACE VIEW v_species_full WITH (security_invoker = on) AS
 SELECT
     s.species_id,
     s.ncbi_taxid,
@@ -296,7 +296,7 @@ FROM species s
 ORDER BY s.canonical_scientific_name;
 
 -- Tree summary (what the dashboard lists).
-CREATE OR REPLACE VIEW v_tree_summary AS
+CREATE OR REPLACE VIEW v_tree_summary WITH (security_invoker = on) AS
 SELECT
     t.tree_id,
     t.name,
@@ -314,7 +314,7 @@ LEFT JOIN contributor co ON co.contributor_id = t.owner_id
 ORDER BY t.created_at DESC;
 
 -- Recipe index, for the dishes section of the future site.
-CREATE OR REPLACE VIEW v_recipe_index AS
+CREATE OR REPLACE VIEW v_recipe_index WITH (security_invoker = on) AS
 SELECT
     d.dish_id,
     d.name,
@@ -333,7 +333,7 @@ FROM dish d
 ORDER BY d.name;
 
 -- Pantheon index, for browsing mythological / religious connections.
-CREATE OR REPLACE VIEW v_pantheon_index AS
+CREATE OR REPLACE VIEW v_pantheon_index WITH (security_invoker = on) AS
 SELECT
     p.pantheon_id,
     p.name AS pantheon_name,
@@ -349,7 +349,7 @@ ORDER BY p.name;
 -- A back-compat view shaped like the OLD user_species_requests table, so the
 -- existing dashboard table-listing code keeps working while we refactor
 -- consumers tree-by-tree. Read only; writes go through the new API.
-CREATE OR REPLACE VIEW v_legacy_species_rows AS
+CREATE OR REPLACE VIEW v_legacy_species_rows WITH (security_invoker = on) AS
 SELECT
     t.name AS tree_name,
     (SELECT sn.name_text FROM species_name sn
@@ -381,7 +381,7 @@ LEFT JOIN contributor co ON co.contributor_id = ts.added_by
 ORDER BY t.name, s.canonical_scientific_name;
 
 -- A clean public surface for embedding (already mirrors v_species_public from v1).
-CREATE OR REPLACE VIEW v_species_public AS
+CREATE OR REPLACE VIEW v_species_public WITH (security_invoker = on) AS
 SELECT
     tree_name, common_name, scientific_name, ncbi_taxid,
     kingdom, phylum, class_, order_, family, genus, notes
