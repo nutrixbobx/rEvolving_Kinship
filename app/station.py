@@ -85,20 +85,10 @@ theme.inject_css()
 # the cookie is available and the user is signed in silently. By calling
 # _try_cookie_restore here, we make sure the restore happens BEFORE the
 # auth gate decides whether to show the sign-in form.
+# Read the URL session token (if any) and sign the user in silently.
+# Synchronous — no async iframe / cookie sync race. Either the token in
+# the URL is valid and we're signed in, or it isn't and we show the gate.
 auth._try_cookie_restore()
-
-# If the cookie hasn't reported back yet (first ~200-500ms after page
-# load), show a brief placeholder instead of the sign-in gate so
-# returning visitors don't see the gate flash by. After 2 retries we
-# conclude there's no cookie and the caller proceeds to the gate.
-if auth.should_show_restoring_placeholder():
-    st.markdown(
-        '<div style="text-align:center;padding:60px 0;'
-        'color:#9ab3ab;font-style:italic">'
-        'Restoring your session…</div>',
-        unsafe_allow_html=True,
-    )
-    st.stop()
 
 
 def _stem(name: str) -> str:

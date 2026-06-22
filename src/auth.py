@@ -285,123 +285,58 @@ def can_edit_contribution(contribution_contributor_id: str | None) -> bool:
 
 
 
-# --- Cookie-backed remember-me ----------------------------------------------
-# We replaced streamlit-authenticator's built-in cookie (which doesn't
-# persist reliably across refreshes on Streamlit Cloud, because the app
-# runs in an iframe and SameSite/Secure attributes aren't always set) with
-# a server-side session token. The browser cookie holds only an opaque
-# UUID; the auth_session table maps it to a contributor_id.
+# --- URL query-param remember-me -------------------------------------------
+# Cookies failed too many ways on Streamlit Cloud (iframe context + third-
+# party cookie blocking). URL query params are synchronous, native to
+# Streamlit, and immune to any of the cookie privacy rules. The token in
+# the URL is just a lookup key into the auth_session table; the actual
+# identity check happens server-side, so revoking access is a one-row
+# DELETE in Postgres.
 
-_COOKIE_NAME = "kinship_session"
-
-
-# Single component key used by EVERY call (init, get_all, set, delete)
-# so they all touch the same Streamlit component / iframe / cookie state.
-# Different keys = different components, each with its own JS sync timing —
-# that's the bug that kept the cookie data invisible on rerun.
-_COOKIE_COMPONENT_KEY = "kinship_cookie_mgr_v2"
+_SESSION_PARAM = "s"
 
 
-def _get_cookie_manager():
-    """Fresh CookieManager per script run, always using the same component
-    key. The library's __init__ wires self.cookies to whatever the JS
-    iframe has on this render — empty on first load, real on rerun."""
+def _read_session_token() -> str | None:
+    """Read the session token from the URL query string. None if missing."""
     try:
-        import extra_streamlit_components as stx
-        return stx.CookieManager(key=_COOKIE_COMPONENT_KEY)
-    except Exception as exc:
-        print(f"CookieManager init failed: {exc}")
-        return None
-
-
-def _read_session_cookie() -> str | None:
-    """Read our session cookie from the CookieManager.
-
-    Two critical details:
-      1. Use get_all() not get() — get() returns the dict captured at
-         __init__ time only, which is {} until the JS iframe syncs.
-         get_all() re-queries the component.
-      2. Pass the same key as the manager's __init__ so both calls hit
-         the same component instance. Different keys = different iframes,
-         each with their own sync timing — was a hidden source of empties.
-
-    First page load: returns None (JS hasn't synced; cookies dict is {}).
-    Streamlit's component framework triggers a rerun when the JS does
-    send real data. On that rerun, this function returns the actual
-    session_id and the restore fires silently."""
-    cm = _get_cookie_manager()
-    if cm is None:
-        return None
-    try:
-        all_cookies = cm.get_all(key=_COOKIE_COMPONENT_KEY)
-        if not all_cookies:
-            return None
-        v = all_cookies.get(_COOKIE_NAME)
-        return v if v else None
+        v = st.query_params.get(_SESSION_PARAM)
     except Exception:
         return None
+    if not v:
+        return None
+    # st.query_params may return a list when the param is repeated; we
+    # only ever set it once but be defensive.
+    if isinstance(v, list):
+        v = v[0] if v else None
+    return str(v) if v else None
 
 
-def _write_session_cookie(session_id: str) -> None:
-    """Write the session_id cookie with iframe-friendly attributes.
-
-      - same_site='none' lets the cookie persist across the iframe
-        boundary that every Streamlit component lives in
-      - secure=True is required by browsers when same_site='none'
-      - path='/' so the cookie is offered on every URL in the app
-      - 30-day expiry matches the auth_session table default
-
-    The library default of same_site='strict' was the original bug:
-    browsers silently discarded the cookie because the write originated
-    from a component iframe, not the parent page."""
-    cm = _get_cookie_manager()
-    if cm is None:
+def _write_session_token(token: str) -> None:
+    """Set ?s=<token> in the URL so the next page load can restore."""
+    if not token:
         return
-    from datetime import datetime, timedelta
     try:
-        # Unique key per write op so successive writes don't dedup
-        cm.set(
-            _COOKIE_NAME, session_id,
-            expires_at=datetime.now() + timedelta(days=30),
-            key=f"kinship_cookie_set_{session_id[:12]}",
-            same_site="none",
-            secure=True,
-            path="/",
-        )
-    except Exception as exc:
-        print(f"cookie write failed: {exc}")
-
-
-def _clear_session_cookie() -> None:
-    """Delete the session cookie. We also overwrite with an expired one
-    using the same SameSite settings, because some browsers only honor
-    delete-by-overwrite (not the Set-Cookie header's delete attribute)
-    when the original cookie was SameSite=none."""
-    cm = _get_cookie_manager()
-    if cm is None:
-        return
-    from datetime import datetime, timedelta
-    try:
-        cm.delete(_COOKIE_NAME, key="kinship_cookie_clear")
+        st.query_params[_SESSION_PARAM] = token
     except Exception:
         pass
+
+
+def _clear_session_token() -> None:
     try:
-        cm.set(_COOKIE_NAME, "",
-               expires_at=datetime.now() - timedelta(days=1),
-               key="kinship_cookie_overwrite",
-               same_site="none", secure=True, path="/")
+        if _SESSION_PARAM in st.query_params:
+            del st.query_params[_SESSION_PARAM]
     except Exception:
         pass
 
 
 def _try_cookie_restore() -> bool:
-    """Read the browser cookie. If it points at a valid auth_session row,
-    sign the user in silently. Runs on every page load so a returning
-    visitor is restored before any UI gate checks is_named().
+    """Read the URL session token. If it points at a valid auth_session row,
+    sign the user in silently. Runs on every page load.
 
-    Returns True if the user is named after the call."""
+    Function name kept as _try_cookie_restore for callers' backward
+    compatibility; the underlying mechanism is now URL query params, not
+    cookies. Returns True if the user is named after the call."""
     # Probabilistic GC: ~1% of page loads sweep expired auth_session rows.
-    # Cheap and self-healing without needing a separate cron.
     import secrets as _s
     if _s.randbelow(100) == 0:
         try:
@@ -410,27 +345,19 @@ def _try_cookie_restore() -> bool:
             pass
     if is_named():
         return True
-    # Bump per-session attempt counter so we don't wait forever for users
-    # who genuinely have no cookie.
-    attempts = st.session_state.get("_cookie_restore_attempts", 0)
-    session_id = _read_session_cookie()
-    if not session_id:
-        # First-render miss: bump counter so the placeholder gives the JS
-        # one more rerun to sync. After 2 misses, we conclude there's no
-        # cookie and the caller falls through to the gate.
-        st.session_state["_cookie_restore_attempts"] = attempts + 1
+    token = _read_session_token()
+    if not token:
         return False
-    cid = db.lookup_auth_session(session_id)
+    cid = db.lookup_auth_session(token)
     if not cid:
-        # Stale or unknown cookie. Clear it so the browser doesn't keep
-        # sending a token we don't recognize.
-        _clear_session_cookie()
+        # Stale token (expired or revoked). Strip it so the URL doesn't
+        # keep advertising a token we don't honour.
+        _clear_session_token()
         return False
     user = db.get_user_by_id(cid)
     if not user or not user.get("username"):
-        _clear_session_cookie()
+        _clear_session_token()
         return False
-    # Found a valid signed-in session — populate session_state directly.
     st.session_state["user"] = {
         "username": user["username"],
         "name": user.get("display_name") or user["username"],
@@ -440,54 +367,42 @@ def _try_cookie_restore() -> bool:
         "avatar_url": user.get("avatar_url"),
     }
     st.session_state["is_admin"] = (user.get("role") == "admin")
-    # Optional housekeeping
     try:
-        db.touch_auth_session(session_id)
+        db.touch_auth_session(token)
     except Exception:
         pass
     return True
 
 
+def should_show_restoring_placeholder() -> bool:
+    """Always False — URL query params are synchronous, so there's no
+    asynchronous 'loading' window like there was with cookies. Kept as a
+    public symbol so existing callers in station.py don't break."""
+    return False
+
+
 def _start_remembered_session(contributor_id: str) -> None:
     """Called right after a successful sign-in. Creates the server-side
-    session row + writes the cookie so the next page load restores
-    automatically."""
+    session row + writes ?s=<token> to the URL so the next page load
+    restores automatically."""
     if not contributor_id:
         return
-    session_id = db.create_auth_session(contributor_id)
-    if session_id:
-        _write_session_cookie(session_id)
+    token = db.create_auth_session(contributor_id)
+    if token:
+        _write_session_token(token)
 
 
 def _end_remembered_session() -> None:
     """Called on explicit sign-out. Deletes the server-side row + clears
-    the cookie. The browser will stop offering the token going forward."""
-    session_id = _read_session_cookie()
-    if session_id:
+    the URL token. Other browsers sharing the URL would be evicted on
+    their next request because the auth_session row is gone."""
+    token = _read_session_token()
+    if token:
         try:
-            db.delete_auth_session(session_id)
+            db.delete_auth_session(token)
         except Exception:
             pass
-    _clear_session_cookie()
-
-
-# ---------------------------------------------------------------------------
-# UI: landing-page gate (main panel — mobile friendly)
-# ---------------------------------------------------------------------------
-
-def should_show_restoring_placeholder() -> bool:
-    """True for the first ~1 rerun after page load where we don't yet
-    know whether a cookie is present. The caller (station.py) renders a
-    brief 'Restoring session…' message instead of the sign-in gate,
-    avoiding a gate-flash for returning users."""
-    if is_named():
-        return False
-    attempts = st.session_state.get("_cookie_restore_attempts", 0)
-    # 0 attempts = haven't even tried yet (impossible here since
-    # _try_cookie_restore is called first); 1 = first miss, give one more
-    # rerun for the JS to sync; >=2 = give up, show the gate.
-    return 0 < attempts < 2
-
+    _clear_session_token()
 
 def render_main_gate() -> None:
     """A wider, friendlier version of the sign-in / sign-up / guest forms

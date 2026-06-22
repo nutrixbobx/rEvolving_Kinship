@@ -350,17 +350,17 @@ def _render_edit_form(u: dict, cid: str) -> None:
             if (new_email or "").strip() != (u.get("email") or ""):
                 patch["email"] = (new_email or "").strip() or None
             if clear_avatar:
-                new_avatar_value = None
+                _ = None
                 patch["avatar_url"] = None
             elif avatar_upload is not None:
                 data_uri = _resize_to_data_uri(avatar_upload.getvalue())
                 if data_uri:
-                    new_avatar_value = data_uri
+                    _ = data_uri
                     patch["avatar_url"] = data_uri
             elif (avatar_url_in or "").strip():
                 cleaned = (avatar_url_in or "").strip()
                 if cleaned != (u.get("avatar_url") or ""):
-                    new_avatar_value = cleaned
+                    _ = cleaned
                     patch["avatar_url"] = cleaned
 
             if not patch:
@@ -511,8 +511,7 @@ def _row_with_delete(title: str, sub: str | None, when,
         if st.button(delete_label, key=delete_key,
                      use_container_width=True):
             try:
-                owner = on_delete()
-                # owner is the contributor_id that originally added it (or None).
+                on_delete()
                 # We don't re-check here because the UI only ever offers the
                 # button on rows the user can delete.
                 _invalidate_profile_caches()

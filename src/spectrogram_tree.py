@@ -176,7 +176,7 @@ def build_sound_tree(tree_name: str, out_dir: Path | None = None) -> Path:
         if rec:
             try:
                 _spectrogram_strip(ax, rec["path"])
-            except Exception as exc:
+            except Exception:
                 ax.text(0.5, 0.5, "decode failed", ha="center", va="center",
                         color="#7a7a7a", fontsize=9, transform=ax.transAxes)
         else:
