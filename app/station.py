@@ -442,6 +442,36 @@ if active_tab == "Dashboard":
         pick_tree = st.selectbox("Pick a tree",
                                  trees["tree_name"].tolist())
         _fav_toggle_for_tree(pick_tree)
+
+        # Tree personalization right under T0 (the picker) so the
+        # admin-customization fields are co-located with the tree they
+        # apply to instead of buried way down the page.
+        if auth.is_admin():
+            with st.expander("Tree personalization (admin)",
+                              expanded=False):
+                cur = tree_settings.get_tree_settings(pick_tree)
+                owner_in = st.text_input(
+                    "Owner name",
+                    value=cur.get("owner", ""),
+                    key=f"owner_{pick_tree}",
+                    help="Used in the header of generated graphics.")
+                tmpl_in = st.text_input(
+                    "Title template",
+                    value=cur.get(
+                        "title_template",
+                        tree_settings.DEFAULT_TEMPLATE),
+                    key=f"tmpl_{pick_tree}",
+                    help="Use {owner} as the placeholder.")
+                if st.button("Save personalization",
+                             key=f"save_owner_{pick_tree}"):
+                    tree_settings.set_tree_settings(
+                        pick_tree, owner=owner_in.strip(),
+                        title_template=tmpl_in.strip())
+                    st.success("Saved.")
+                    st.rerun()
+                st.caption("Will render as: "
+                            f"“{tree_settings.title_for(pick_tree)}”")
+
         try:
             df = _cached_read_tree(pick_tree)
         except Exception as _exc:
@@ -838,31 +868,6 @@ if active_tab == "Dashboard":
                         _invalidate_dashboard_caches()
                         st.success("Ownership transferred to you.")
                         st.rerun()
-
-        if auth.is_admin():
-            with st.expander("Tree personalization (admin)"):
-                cur = tree_settings.get_tree_settings(pick_tree)
-                owner_in = st.text_input(
-                    "Owner name",
-                    value=cur.get("owner", ""),
-                    key=f"owner_{pick_tree}",
-                    help="Used in the header of generated graphics.")
-                tmpl_in = st.text_input(
-                    "Title template",
-                    value=cur.get(
-                        "title_template",
-                        tree_settings.DEFAULT_TEMPLATE),
-                    key=f"tmpl_{pick_tree}",
-                    help="Use {owner} as the placeholder.")
-                if st.button("Save personalization",
-                             key=f"save_owner_{pick_tree}"):
-                    tree_settings.set_tree_settings(
-                        pick_tree, owner=owner_in.strip(),
-                        title_template=tmpl_in.strip())
-                    st.success("Saved.")
-                    st.rerun()
-                st.caption("Will render as: "
-                           f"“{tree_settings.title_for(pick_tree)}”")
 
         # ------- Edit a species (admin only) --------------------------------
         if _can_edit_this_tree:

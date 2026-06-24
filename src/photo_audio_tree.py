@@ -151,30 +151,39 @@ def build_photo_audio_tree(tree_name: str,
 
     # Layout: tree on left (50%), photo column (15%), spectrogram column
     # (28%), attribution column (rest)
-    ax_tree = fig.add_axes([0.02, 0.07, 0.48, 0.88])
+    # Tighter horizontal layout — less empty space between tree and
+    # photos. Tree shrinks to 42%; photo column starts at 44%.
+    tree_l, tree_b, tree_w, tree_h = 0.02, 0.07, 0.42, 0.88
+    ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
     image_tree._draw_tree(ax_tree, tre, pos, meta, dated, max_depth, n)
 
-    top, bot = 0.09, 0.07
-    row_h = (1 - top - bot) / n
-    # Compact layout: smaller photo column, tighter gaps. Credits
-    # don't live inline anymore — they go on a credits page in the
-    # report, so we can dedicate more room to the spectrogram.
-    photo_left = 0.52
+    # Photo + spec columns. No equal-row-height heuristic — instead we
+    # use the tree's actual tip Y positions so every photo lines up
+    # vertically with its tip dot.
+    photo_left = 0.44
     photo_w = 0.10
-    spec_left = photo_left + photo_w + 0.012
-    spec_w = 0.36
-    # attribution column dropped; spec gets the leftover width
+    spec_left = photo_left + photo_w + 0.010
+    spec_w = 0.42  # widened since attribution column was removed
+
+    # tree axes span: figure_y(tip i) = tree_b + tree_h - (i/(n-1)) * tree_h
+    # for n>=2. For n=1, center the single row.
+    def _tip_fig_y(i: int) -> float:
+        if n <= 1:
+            return tree_b + tree_h / 2
+        return tree_b + tree_h - (i / (n - 1)) * tree_h
+    # Row height in figure coords: half the spacing between two tips
+    row_pitch_fig = tree_h / max(n - 1, 1)
+    h = min(row_pitch_fig * 0.85, 0.07)  # cap so very tall trees don't crash
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})
         common = info.get("common_name") or info.get("scientific_name") or tip
         sci = info.get("scientific_name") or tip.replace("_", " ")
-        y_bottom = 1 - top - (i + 1) * row_h
-        h = row_h * 0.88
+        y_center = _tip_fig_y(i)
+        y_bottom = y_center - h / 2
 
-        # Photo (small square)
-        ax_p = fig.add_axes([photo_left, y_bottom + (row_h - h) / 2,
-                              photo_w, h])
+        # Photo (circular masked)
+        ax_p = fig.add_axes([photo_left, y_bottom, photo_w, h])
         ax_p.set_facecolor(BG)
         p = rows[tip].get("profile")
         if p and p.get("image_path") and Path(p["image_path"]).exists():
@@ -186,9 +195,8 @@ def build_photo_audio_tree(tree_name: str,
                 pass
         ax_p.axis("off")
 
-        # Spectrogram strip
-        ax_s = fig.add_axes([spec_left, y_bottom + (row_h - h) / 2,
-                              spec_w, h])
+        # Spectrogram strip — same y as photo (same row)
+        ax_s = fig.add_axes([spec_left, y_bottom, spec_w, h])
         ax_s.set_facecolor(BG)
         a = rows[tip].get("audio")
         if a and a.get("path"):

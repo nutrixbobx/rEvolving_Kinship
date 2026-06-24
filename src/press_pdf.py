@@ -527,45 +527,33 @@ def build_press_pdf(tree_name: str,
                                 kind="proportional"))
         except Exception as exc:
             print(f"blend embed failed: {exc}")
-        story.append(PageBreak())
 
-    # ---- Page 5: Range map index ----
-    # Embedding the live Leaflet map in a PDF requires a headless
-    # browser, which is heavy. Instead we link out: every species gets a
-    # GBIF page URL so the reader can pull the full interactive map.
-    try:
-        from src import gbif_map as _gbif
-        from src import db as _db
-        _df = _db.read_tree(tree_name)
-        _names = []
-        for _, _row in _df.iterrows():
-            _sci = _row.get("scientific_name")
-            if not isinstance(_sci, str):
-                continue
-            _names.append((_sci.strip(),
-                            _row.get("common_name") or ""))
-    except Exception:
-        _names = []
-    if _names:
-        story.append(Paragraph(
-            f"{title_text} — range index", h_sec))
-        story.append(Paragraph(
-            "Per-species GBIF range map. Click any link to open the "
-            "live occurrence map for that species.", h_body))
-        story.append(Spacer(1, 8))
-        for _sci, _common in _names:
-            try:
-                _key = _gbif.get_gbif_key(_sci)
-            except Exception:
-                _key = None
-            if _key:
-                _url = f"https://www.gbif.org/species/{_key}"
-                _link = f'<a href="{_url}">{_common or _sci}</a>'
-                _line = f"{_link}  <i>({_sci})</i>"
-            else:
-                _line = f"{_common or _sci}  <i>({_sci})</i>  · not in GBIF"
-            story.append(Paragraph(
-                _tag_runs(_line, _SCRIPT_FONTS, _BODY_FONT), h_body))
+        # Range map on the SAME page as the spectrogram blend (below it,
+        # no PageBreak) so we don't leave 30%-empty pages.
+        try:
+            from src import range_map_static
+            range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
+            if not range_png.exists():
+                try:
+                    range_map_static.build_range_map(tree_name)
+                except Exception as exc:
+                    print(f"range_map build during PDF failed: {exc}")
+            if range_png.exists() and range_png.stat().st_size > 0:
+                story.append(Spacer(1, 12))
+                story.append(Paragraph(
+                    "Range map — every species' GBIF occurrence density "
+                    "on a world basemap.", h_caption))
+                story.append(Spacer(1, 4))
+                try:
+                    rw = (PAGE_W - 2 * MARGIN)
+                    rh = rw * 0.55   # roughly the basemap aspect
+                    story.append(Image(str(range_png),
+                                         width=rw, height=rh,
+                                         kind="proportional"))
+                except Exception as exc:
+                    print(f"range_map embed failed: {exc}")
+        except Exception as exc:
+            print(f"range_map page failed: {exc}")
         story.append(PageBreak())
 
     # ---- Credits page (consolidated list, hyperlinked) ----

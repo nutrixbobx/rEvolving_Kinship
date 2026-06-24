@@ -60,6 +60,33 @@ def _format_clade_name(raw: str | None) -> str:
                        for w in name.split(" "))
 
 
+def _chain_combined_label(node, dated: set, meta: dict) -> str:
+    """Build the label for one dated clade.
+
+    If this clade is the INNERMOST dated clade in a single-child chain
+    of dated ancestors (i.e. it has no dated non-leaf child), walk UP
+    the chain and return all chain members' labels joined on newlines
+    (root-most first). Otherwise return "" so the label is suppressed
+    (the dot still draws).
+
+    Fixes the rectangular-layout overlap: chains like Eukaryota →
+    Eumetazoa → Amniota → Boreoeutheria all collapse to one Y in toytree's
+    rectangular layout. By combining them into one multi-line label at
+    the innermost node, we keep every age visible without any overlap."""
+    for child in (node.children or []):
+        if child.name in dated and not child.is_leaf():
+            return ""  # not innermost
+    chain = []
+    cur = node
+    while cur is not None and cur.name in dated:
+        info = meta.get(cur.name, {})
+        chain.append(f"{_format_clade_name(cur.name)}, {info.get('mya')}")
+        cur = cur.up
+    chain.reverse()
+    return "\n".join(chain)
+
+
+
 LEAF_COLOR = "#46c79a"          # species (leaf)
 DATED_NODE_COLOR = "#f0a24a"    # clade with a divergence age
 PLAIN_NODE_COLOR = "#6f8a82"    # clade without one
@@ -149,14 +176,11 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["dated_size"]
             colors[i] = pal["dated"]
             if show_dated_labels:
-                # Alternate-offset trick: every other dated label gets a
-                # leading newline so adjacent clades don't visually stack.
-                lbl = f"{_format_clade_name(node.name)}, {info.get('mya')}"
-                # Use idx parity so the pattern is stable across renders
-                if i % 2 == 1:
-                    nlabels[i] = "\n" + lbl
-                else:
-                    nlabels[i] = lbl + "\n"
+                lbl = _chain_combined_label(node, dated, meta)
+                # _chain_combined_label returns "" for non-innermost
+                # nodes in a chain, and the full chain text (one clade
+                # per line) for the innermost. No more overlap.
+                nlabels[i] = lbl
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
