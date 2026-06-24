@@ -660,26 +660,31 @@ if active_tab == "Dashboard":
         build_col, rename_col = st.columns([1, 2])
         with build_col:
             st.markdown("---")
-            st.markdown("**Photo tree**")
-            photo_tree = config.OUTPUT_DIR / f"{stem}_photo_tree.png"
-            if photo_tree.exists():
-                st.image(photo_tree.read_bytes())
+            st.markdown("**Photo + audio tree** (square layout)")
+            st.caption("Combined view: rectangular tree with each "
+                       "species' photo AND a small spectrogram of its "
+                       "recorded voice on the same row. Credits live "
+                       "in the third column.")
+            photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
+            if photo_audio.exists():
+                st.image(photo_audio.read_bytes())
                 st.download_button(
-                    "Download photo tree (.png)",
-                    photo_tree.read_bytes(),
-                    file_name=photo_tree.name,
+                    "Download photo + audio tree (.png)",
+                    photo_audio.read_bytes(),
+                    file_name=photo_audio.name,
                     mime="image/png",
-                    key=f"phototree_dl_{pick_tree}")
-            if st.button("Build / refresh photo tree",
-                         key=f"phototree_{pick_tree}"):
-                with st.spinner("Fetching photos and composing the tree."):
+                    key=f"photoaudio_dl_{pick_tree}")
+            if st.button("Build / refresh photo + audio tree",
+                         key=f"photoaudio_{pick_tree}"):
+                with st.spinner("Fetching photos + audio, rendering "
+                                  "spectrograms, composing the tree."):
                     try:
-                        from src import image_tree
-                        image_tree.build_image_tree(pick_tree)
+                        from src import photo_audio_tree
+                        photo_audio_tree.build_photo_audio_tree(pick_tree)
                         st.success("Built.")
                         st.rerun()
                     except Exception as exc:
-                        st.error(f"Photo tree build failed: {exc}")
+                        st.error(f"Combined tree build failed: {exc}")
 
             st.markdown("---")
             st.markdown("**Inline photo-tip tree**")
@@ -706,21 +711,21 @@ if active_tab == "Dashboard":
                         st.error(f"Photo-tip tree build failed: {exc}")
 
             st.markdown("---")
-            st.markdown("**Comprehensive press-kit PDF**")
+            st.markdown("**Personalized kinship report (PDF)**")
             st.caption("Multi-page: unrooted layout, blurb + about the "
                        "project, license + footprint, then one listening "
                        "card per species with photo, summary, attributions.")
-            press_pdf_path = config.OUTPUT_DIR / f"{stem}_press_kit.pdf"
+            press_pdf_path = config.OUTPUT_DIR / f"{stem}_kinship_report.pdf"
             if press_pdf_path.exists():
                 st.download_button(
-                    "Download press-kit (.pdf)",
+                    "Download kinship report (.pdf)",
                     press_pdf_path.read_bytes(),
                     file_name=press_pdf_path.name,
                     mime="application/pdf",
                     key=f"presspdf_dl_{pick_tree}")
-            if st.button("Build / refresh press-kit PDF",
+            if st.button("Build / refresh kinship report",
                          key=f"presspdf_{pick_tree}"):
-                with st.spinner("Composing PDF. This can take a minute "
+                with st.spinner("Composing the kinship report. This can take a minute "
                                   "if photos are being fetched for the "
                                   "first time."):
                     try:

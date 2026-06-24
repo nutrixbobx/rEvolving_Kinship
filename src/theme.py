@@ -39,15 +39,13 @@ PALETTE = {
     "donate":     "#ffd97a",  # bright donate links pop without clashing
 }
 
-_CSS_INJECTED_KEY = "_theme_css_injected"
-
-
 def inject_css() -> None:
-    """Apply the theme CSS once per session. Safe to call multiple times; the
-    second call is a no-op."""
-    if st.session_state.get(_CSS_INJECTED_KEY):
-        return
-    st.session_state[_CSS_INJECTED_KEY] = True
+    """Apply the theme CSS on every script run. We INTENTIONALLY do not
+    guard with session_state: Streamlit re-renders the page from scratch
+    on every rerun, so the <style> markdown element only sticks around
+    when we re-emit it each time. Without re-emission, all custom CSS
+    (palette, title sizes, footer styling) vanishes after the first
+    click and the page falls back to Streamlit's defaults."""
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
@@ -315,21 +313,24 @@ input:focus, textarea:focus, select:focus {{
   padding: 0 0 8px 0;
 }}
 .app-title {{
+  font-family: Georgia, "Times New Roman", serif;
   font-size: 38px;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--kn-ink);
   line-height: 1.05;
 }}
 .app-slogan {{
   color: var(--kn-muted);
   font-style: italic;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 400;
   margin-top: 6px;
-  margin-bottom: 20px;
-  max-width: 760px;
-  line-height: 1.45;
+  margin-bottom: 22px;
+  max-width: 680px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
 }}
 
 /* Footer */
@@ -344,9 +345,11 @@ input:focus, textarea:focus, select:focus {{
 }}
 .footer-title {{
   color: var(--kn-ink);
+  font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 15px;
 }}
 .footer-slogan {{
   color: var(--kn-muted);
@@ -416,7 +419,7 @@ input:focus, textarea:focus, select:focus {{
     padding-left: 0.7rem;
     padding-right: 0.7rem;
   }}
-  .app-title {{ font-size: 30px; font-weight: 700; line-height: 1.1; }}
+  .app-title {{ font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: 0.03em; }}
   .app-slogan {{ font-size: 13px; margin-bottom: 16px; }}
   .footer-title {{ font-size: 15px; }}
   .footer-slogan {{ font-size: 11px; }}

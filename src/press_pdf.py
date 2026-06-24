@@ -1,5 +1,5 @@
 """
-Comprehensive press-kit PDF for a single tree.
+Personalized kinship report (PDF) for a single tree.
 
 Layout (US Letter, portrait):
 
@@ -340,7 +340,7 @@ def build_press_pdf(tree_name: str,
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = _stem(tree_name)
-    out_path = out_dir / f"{stem}_press_kit.pdf"
+    out_path = out_dir / f"{stem}_kinship_report.pdf"
 
     styles = getSampleStyleSheet()
     h_title = ParagraphStyle(
@@ -377,10 +377,21 @@ def build_press_pdf(tree_name: str,
     story.append(Paragraph(tree_settings.PROJECT_SLOGAN, h_slogan))
     story.append(Paragraph(title_text, h_sec))
     try:
-        png_path = _ensure_tree_png(tree_name)
-        # Scale the tree to fit ~6.5 x 7.5 inch area
+        # Prefer the photo-tip tree (the prettier output Maya uses for
+        # the report's hero page). Build it if missing.
+        photo_tip_png = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
+        if not photo_tip_png.exists():
+            try:
+                from src import photo_tip_tree
+                photo_tip_tree.build_photo_tip_tree(tree_name)
+            except Exception as exc:
+                print(f"photo_tip build for PDF failed: {exc}")
+        if photo_tip_png.exists():
+            png_path = photo_tip_png
+        else:
+            png_path = _ensure_tree_png(tree_name)
         max_w = (PAGE_W - 2 * MARGIN)
-        max_h = (PAGE_H - 2 * MARGIN - 100)  # leave room for title+slogan
+        max_h = (PAGE_H - 2 * MARGIN - 100)
         img = Image(str(png_path), width=max_w, height=max_h,
                      kind="proportional")
         story.append(img)
@@ -389,35 +400,34 @@ def build_press_pdf(tree_name: str,
             f"<i>Tree image unavailable: {exc}</i>", h_caption))
     story.append(PageBreak())
 
-    # ---- Page 2: the sound kinship tree (auto-built if missing) ----
-    sound_png = config.OUTPUT_DIR / f"{stem}_sound_tree.png"
-    if not sound_png.exists():
-        # Try to build it now. Skip silently if the chorus / recordings
-        # aren't available — the PDF still has the species cards.
+    # ---- Page 3: combined photo + audio square tree ----
+    # Build it if missing — pulls every species' photo + spectrogram and
+    # composites them as a single image.
+    combined_png = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
+    if not combined_png.exists():
         try:
-            from src import spectrogram_tree
-            spectrogram_tree.build_sound_tree(tree_name)
+            from src import photo_audio_tree
+            photo_audio_tree.build_photo_audio_tree(tree_name)
         except Exception as exc:
-            print(f"sound tree build failed during PDF: {exc}")
-    if sound_png.exists() and sound_png.stat().st_size > 0:
+            print(f"photo_audio build during PDF failed: {exc}")
+    if combined_png.exists() and combined_png.stat().st_size > 0:
         story.append(Paragraph(
-            f"{title_text} — sound kinship", h_sec))
+            f"{title_text} — kin in image + voice", h_sec))
         story.append(Paragraph(
-            "The same tree, with each species' actual recorded voice "
-            "shown as a spectrogram at its tip. Branch lengths read "
-            "as deep-time silences; spectrograms read as the texture of "
-            "each lineage's voice.", h_body))
+            "Each species along the square tree, with its photo and a "
+            "spectrogram of its actual recorded voice. Image and audio "
+            "attributions ride along on the right column.", h_body))
         story.append(Spacer(1, 8))
         try:
             max_w = (PAGE_W - 2 * MARGIN)
             max_h = (PAGE_H - 2 * MARGIN - 120)
-            story.append(Image(str(sound_png),
+            story.append(Image(str(combined_png),
                                 width=max_w, height=max_h,
                                 kind="proportional"))
         except Exception as exc:
-            print(f"sound-tree Image embed failed: {exc}")
+            print(f"combined-tree Image embed failed: {exc}")
             story.append(Paragraph(
-                f"<i>Could not embed sound-kinship tree: {exc}</i>",
+                f"<i>Could not embed combined tree: {exc}</i>",
                 h_caption))
         story.append(PageBreak())
 
@@ -480,7 +490,7 @@ def build_press_pdf(tree_name: str,
     # ---- Page 3+: listening cards (one species per row, ~3-4 per page) ----
     records = _species_records(tree_name)
     if records:
-        story.append(Paragraph("Listening cards", h_sec))
+        story.append(Paragraph("Kin cards", h_sec))
         story.append(Paragraph(
             "One row per species. Photo and audio credits ride along with "
             "every recording — every image and every sound has the "
@@ -558,7 +568,7 @@ def build_press_pdf(tree_name: str,
         topMargin=MARGIN, bottomMargin=MARGIN,
         title=f"{tree_settings.PROJECT_MARK} — {title_text}",
         author="Maya (Shared Rivers)",
-        subject="Press kit",
+        subject="Personalized kinship report",
     )
     doc.build(story)
     return out_path

@@ -1,0 +1,200 @@
+"""
+Combined photo + audio square tree.
+
+The third of Maya's three core outputs (alongside the unrooted SVG and
+the unrooted-with-photos SVG). Same layout as image_tree.py but each
+species row carries BOTH its photo AND a small spectrogram of its
+recorded voice — a single image that shows the kinship + the visual +
+the sonic at once.
+
+Output: outputs/<stem>_photo_audio.png
+"""
+
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config  # noqa: E402
+
+BG = "#0e1b1a"
+EDGE = "#5f7d75"
+LEAF = "#46c79a"
+DATED = "#f0a24a"
+PLAIN = "#6f8a82"
+TIP_TEXT = "#e8f3ef"
+LABEL = "#ffd97a"
+
+
+def _spec_png(audio_path: Path) -> Path | None:
+    """Cached small spectrogram. Same cache as press_pdf's _spec_cache so
+    repeated runs reuse the same thumbnails."""
+    if not audio_path or not Path(audio_path).exists():
+        return None
+    cache_dir = config.OUTPUT_DIR / "_spec_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha1(str(Path(audio_path).resolve()).encode()).hexdigest()[:16]
+    out = cache_dir / f"{key}.png"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import librosa
+        import numpy as np
+        y, sr = librosa.load(str(audio_path), sr=None, mono=True,
+                              duration=8.0)
+        if len(y) == 0:
+            return None
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64,
+                                              fmax=sr // 2)
+        S_db = librosa.power_to_db(S, ref=np.max)
+        fig, ax = plt.subplots(figsize=(3.0, 1.0), dpi=120,
+                                  facecolor="#0e1b1a")
+        ax.imshow(S_db, aspect="auto", origin="lower", cmap="magma")
+        ax.axis("off")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.savefig(out, dpi=120, facecolor="#0e1b1a",
+                     bbox_inches="tight", pad_inches=0.02)
+        plt.close(fig)
+        return out
+    except Exception as exc:
+        print(f"  spec failed for {audio_path}: {exc}")
+        return None
+
+
+def build_photo_audio_tree(tree_name: str,
+                            out_dir: Path | None = None) -> Path:
+    """Build a square layout tree with photo + spectrogram per species
+    row. Skips species without a photo or audio gracefully (renders an
+    empty cell instead)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
+
+    from src import render, species_profile, species_audio, image_tree
+    from src.tree import _safe as _safe_stem
+
+    out_dir = out_dir or config.OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = _safe_stem(tree_name).lower()
+
+    meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
+    nwk_path = config.OUTPUT_DIR / f"{stem}_named_tree.nwk"
+    if not (meta_path.exists() and nwk_path.exists()):
+        raise FileNotFoundError(f"Build {tree_name} first.")
+    meta = render.load_meta(meta_path)
+    dated = {k for k, v in meta.items()
+             if not v.get("is_leaf") and v.get("mya") is not None}
+
+    import toytree
+    nwk_str = render._collapse_unary(nwk_path, dated)
+    tre = toytree.tree(nwk_str)
+    pos, max_depth, n = image_tree._layout(tre)
+    tips = list(tre.get_tip_labels())
+
+    print(f"fetching photos + audio for {n} tips ...")
+    rows = {}
+    for tip in tips:
+        info = meta.get(tip, {})
+        sci = info.get("scientific_name") or tip.replace("_", " ")
+        common = info.get("common_name")
+        try:
+            p = species_profile.find_profile(sci, common)
+        except Exception:
+            p = None
+        try:
+            a = species_audio.find_recording(sci, common)
+        except Exception:
+            a = None
+        rows[tip] = {"profile": p, "audio": a}
+        photo_status = "OK" if (p and p.get("image_path")) else "-"
+        audio_status = "OK" if (a and a.get("path")) else "-"
+        print(f"  {sci:30}  photo={photo_status}  audio={audio_status}")
+
+    fig_w = 16
+    fig_h = max(8, 1.15 * n + 2.6)
+    fig = plt.figure(figsize=(fig_w, fig_h), facecolor=BG)
+    image_tree.draw_header(fig, tree_name)
+    image_tree._draw_legend(fig)
+
+    # Layout: tree on left (50%), photo column (15%), spectrogram column
+    # (28%), attribution column (rest)
+    ax_tree = fig.add_axes([0.02, 0.07, 0.48, 0.88])
+    image_tree._draw_tree(ax_tree, tre, pos, meta, dated, max_depth, n)
+
+    top, bot = 0.09, 0.07
+    row_h = (1 - top - bot) / n
+    photo_left = 0.51
+    photo_w = 0.13
+    spec_left = photo_left + photo_w + 0.01
+    spec_w = 0.30
+    attr_left = spec_left + spec_w + 0.012
+
+    for i, tip in enumerate(tips):
+        info = meta.get(tip, {})
+        common = info.get("common_name") or info.get("scientific_name") or tip
+        sci = info.get("scientific_name") or tip.replace("_", " ")
+        y_bottom = 1 - top - (i + 1) * row_h
+        h = row_h * 0.88
+
+        # Photo (small square)
+        ax_p = fig.add_axes([photo_left, y_bottom + (row_h - h) / 2,
+                              photo_w, h])
+        ax_p.set_facecolor(BG)
+        p = rows[tip].get("profile")
+        if p and p.get("image_path") and Path(p["image_path"]).exists():
+            try:
+                img = mpimg.imread(p["image_path"])
+                ax_p.imshow(img, aspect="equal")
+            except Exception:
+                pass
+        ax_p.axis("off")
+
+        # Spectrogram strip
+        ax_s = fig.add_axes([spec_left, y_bottom + (row_h - h) / 2,
+                              spec_w, h])
+        ax_s.set_facecolor(BG)
+        a = rows[tip].get("audio")
+        if a and a.get("path"):
+            spec = _spec_png(Path(a["path"]))
+            if spec and spec.exists():
+                try:
+                    sp_img = mpimg.imread(spec)
+                    ax_s.imshow(sp_img, aspect="auto")
+                except Exception:
+                    pass
+        ax_s.axis("off")
+
+        # Attribution column
+        ax_a = fig.add_axes([attr_left, y_bottom + (row_h - h) / 2,
+                              1 - attr_left - 0.01, h])
+        ax_a.set_facecolor(BG)
+        attr_lines = []
+        if p and p.get("image_attribution"):
+            attr_lines.append(f"img: {p['image_attribution'][:60]}")
+        if a and a.get("attribution"):
+            attr_lines.append(f"aud: {a['attribution'][:60]}")
+        if attr_lines:
+            ax_a.text(0, 0.5, "\\n".join(attr_lines),
+                       color="#9ab3ab", fontsize=6, va="center",
+                       family="monospace")
+        ax_a.axis("off")
+
+    out_path = out_dir / f"{stem}_photo_audio.png"
+    fig.savefig(out_path, dpi=140, facecolor=BG, bbox_inches="tight",
+                pad_inches=0.2)
+    plt.close(fig)
+    print(f"wrote {out_path}")
+    return out_path
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("usage: python -m src.photo_audio_tree '<tree name>'")
+        sys.exit(1)
+    print(build_photo_audio_tree(sys.argv[1]))

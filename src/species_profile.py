@@ -124,6 +124,18 @@ def _download_image(url: str, key: str) -> Path | None:
     return out
 
 
+
+
+def _is_cc_license(license_code: str | None) -> bool:
+    """True for Creative Commons codes returned by iNaturalist.
+    Accepts cc0 + every cc-by variant (including -nc, -sa, -nd permutations).
+    None / empty means 'all rights reserved' — reject."""
+    if not license_code:
+        return False
+    code = license_code.strip().lower()
+    return code == "cc0" or code.startswith("cc-by")
+
+
 def _empty_profile(sci: str, common: str | None) -> dict:
     return {
         "scientific_name": sci,
@@ -168,7 +180,16 @@ def find_profile(scientific_name: str, common_name: str | None = None,
             full = _inat_taxon(int(inat["id"]))
             if full:
                 inat = full
+            # CC enforcement: skip the default photo if it's all-rights-
+            # reserved; walk inat['taxon_photos'] for the first CC one.
             photo = inat.get("default_photo") or {}
+            if not _is_cc_license(photo.get("license_code")):
+                photo = {}
+                for tp in (inat.get("taxon_photos") or []):
+                    cand = tp.get("photo") or {}
+                    if _is_cc_license(cand.get("license_code")):
+                        photo = cand
+                        break
             wiki_title = (inat.get("preferred_common_name")
                           or inat.get("name") or scientific_name)
             wiki = _wiki_summary(wiki_title)

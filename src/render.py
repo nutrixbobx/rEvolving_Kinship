@@ -31,7 +31,7 @@ import config  # noqa: E402
 
 # Layout names the dashboard offers, mapped to toytree's codes. Rectangular reads
 # best for this kind of tree, so it leads.
-LAYOUTS = {"Rectangular": "r", "Circular": "c", "Unrooted": "unrooted"}
+LAYOUTS = {"Unrooted": "unrooted", "Rectangular": "r"}
 
 # Legend colors the dashboard reads (matched to the dark palette below).
 
@@ -77,7 +77,7 @@ _LIGHT = {
     "bg": "#f7f3ec", "leaf": "#1f8f6a", "dated": "#d27d2c",
     "plain": "#b9c4bd", "edge": "#7e988f", "tip": "#23332e",
     "label": "#a85a1f", "align": "#d4ddd6", "nodestroke": "#ffffff",
-    "w": 1150, "h": 860, "shrink": 160,
+    "w": 1150, "h": 980, "shrink": 200,
     # plain dots stay small in the static render (no hover to worry about)
     "leaf_size": 7, "dated_size": 9, "plain_size": 4,
 }
@@ -119,6 +119,7 @@ def _collapse_unary(newick_path, dated: set) -> str:
 
 def _prepare(newick_path, meta: dict, pal: dict, *,
              collapse: bool, plain_visible: bool, show_dated_labels: bool,
+             show_undated_labels: bool = True,
              show_scientific: bool = True):
     """Build the toytree object plus the idx-ordered style lists. The flags let
     each layout (rectangular / unrooted / circular) choose how dense to draw.
@@ -153,10 +154,11 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
             # Label undated clades with just the clade name (no age
-            # suffix). The dot color (PLAIN_NODE_COLOR vs DATED_NODE_COLOR)
-            # already differentiates them from dated nodes for press
-            # exports.
-            if show_dated_labels and plain_visible and node.name:
+            # suffix), but only when show_undated_labels is on. The dot
+            # color (PLAIN_NODE_COLOR vs DATED_NODE_COLOR) already
+            # differentiates them visually in dense layouts.
+            if (show_dated_labels and plain_visible and node.name
+                    and show_undated_labels):
                 nlabels[i] = _format_clade_name(node.name)
 
     tre = tre.set_node_data("meta", hover, default="")
@@ -190,12 +192,15 @@ def _layout_settings(layout: str, pal: dict):
         side = max(pal["w"], pal["h"])
         return dict(
             collapse=True, plain_visible=True, show_dated_labels=True,
+            show_undated_labels=True,
             align=False, use_edges=False, edge_type="p",
             w=side, h=side, padding=60, shrink=120,
         )
-    # rectangular
+    # rectangular: hide undated-clade labels (they overlap horribly
+    # in dense trees). Dots stay; only dated clades get their name.
     return dict(
         collapse=True, plain_visible=True, show_dated_labels=True,
+        show_undated_labels=False,
         align=True, use_edges=False, edge_type="p",
         w=pal["w"], h=pal["h"], padding=70, shrink=pal["shrink"],
     )
@@ -209,6 +214,7 @@ def _draw(newick_path, meta: dict, layout: str,
         newick_path, meta, pal,
         collapse=s["collapse"], plain_visible=s["plain_visible"],
         show_dated_labels=s["show_dated_labels"],
+        show_undated_labels=s.get("show_undated_labels", True),
         show_scientific=show_scientific,
     )
     return tre.draw(
@@ -440,13 +446,9 @@ def _legend_band(svg_or_html: str) -> str:
     leg = (
         '<g class="kinship-legend" pointer-events="none">'
         # Background plate (rounded rect)
-        # Background plate sized to cover all three label rows
-        # (89.6%, 92.5%, 95.3%). No outline.
-        '<rect x="14" y="87.5%" width="430" height="50" rx="6" ry="6" '
-        'fill="rgba(20,28,30,0.78)"/>'
         # Row 1: species dot
         f'<circle cx="28" cy="89.6%" r="5" fill="{LEAF_COLOR}"/>'
-        '<text x="40" y="89.6%" fill="#e8f3ef" '
+        '<text x="40" y="89.6%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle">'
         '<tspan font-weight="bold">Common Name</tspan> '
@@ -454,14 +456,14 @@ def _legend_band(svg_or_html: str) -> str:
         '— a species (green tip)</text>'
         # Row 2: dated clade dot
         f'<circle cx="28" cy="92.5%" r="6.5" fill="{DATED_NODE_COLOR}"/>'
-        '<text x="40" y="92.5%" fill="#e8f3ef" '
+        '<text x="40" y="92.5%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle">'
         '<tspan font-weight="bold">Clade, ###</tspan> '
         '— ancestral node with a known divergence age (amber)</text>'
         # Row 3: undated clade dot
         f'<circle cx="28" cy="95.3%" r="4" fill="{PLAIN_NODE_COLOR}"/>'
-        '<text x="40" y="95.3%" fill="#e8f3ef" '
+        '<text x="40" y="95.3%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle">'
         '<tspan font-weight="bold">Clade</tspan> '
