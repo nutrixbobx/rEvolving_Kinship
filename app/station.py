@@ -462,6 +462,12 @@ with dash_tab:
             st.markdown("&nbsp;")
             layout_name = st.radio("Layout", list(render_mod.LAYOUTS.keys()))
             show_sci = st.checkbox("Show scientific names", value=True)
+            zoom_pct = st.slider(
+                "Zoom", min_value=50, max_value=130, value=85, step=5,
+                key=f"zoom_{pick_tree}",
+                help="100% = native; lower = fits more in view; "
+                     "higher = closer detail.",
+                format="%d%%")
             st.markdown(
                 """<div style="font-size:13px;line-height:1.9">
 <span style="display:inline-block;width:11px;height:11px;border-radius:50%;
@@ -587,24 +593,30 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                 html = render_mod.render_html(
                     nwk, meta, layout=render_mod.LAYOUTS[layout_name],
                     show_scientific=show_sci, tree_name=pick_tree,
+                    zoom=zoom_pct / 100.0,
                 )
                 components.html(html, height=880, scrolling=True)
                 st.markdown(
-                    '<div style="color:#9ab3ab;font-size:11px;'
-                    'background:#13211f;border:1px solid #1c2e2b;'
-                    'border-radius:8px;padding:8px 12px;margin-top:-4px;'
-                    'margin-bottom:8px;line-height:1.7">'
-                    '<b style="color:#e8f3ef">Label formats</b><br>'
-                    '<b>common name</b> '
-                    '<span style="font-style:italic">(scientific name)</span>'
-                    ' &nbsp;—&nbsp; species, drawn as a green dot at a tip<br>'
-                    '<b>clade, ### mya</b>'
-                    ' &nbsp;—&nbsp; ancestral node with a divergence age '
-                    'from TimeTree, drawn in amber<br>'
-                    '<b>clade</b>'
-                    ' &nbsp;—&nbsp; ancestral node without a dated age yet, '
-                    'drawn in muted teal'
-                    '</div>',
+                    '<div style="color:#c9a5b6;font-size:11px;'
+                    'background:#4a0030;border:1px solid #5a1c40;'
+                    'border-radius:8px;padding:10px 14px;margin-top:-4px;'
+                    'margin-bottom:8px;line-height:1.8">'
+                    '<div style="color:#f4ecdc;font-weight:600;'
+                    'margin-bottom:4px">How to read this tree</div>'
+                    '<b>Common Name</b> '
+                    '<span style="font-style:italic">(Scientific name)</span>'
+                    ' &nbsp;—&nbsp; a species (green tip)<br>'
+                    '<b>Clade, <span style="color:#cfd78c">###</span></b>'
+                    ' &nbsp;—&nbsp; an ancestral node with a known '
+                    'divergence age (amber)<br>'
+                    '<b>Clade</b>'
+                    ' &nbsp;—&nbsp; an ancestral node whose divergence '
+                    'age hasn&rsquo;t been added yet (muted teal)<br>'
+                    '<div style="color:#c9a5b6;font-style:italic;'
+                    'margin-top:6px">'
+                    'Numbers on amber clade nodes are millions of years '
+                    'since that last common ancestor lived (mya).'
+                    '</div></div>',
                     unsafe_allow_html=True,
                 )
                 # Download the current layout (SVG + PNG)

@@ -78,10 +78,19 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
                 ax.text(nx + 0.18, ny, sci, color=TIP_TEXT, fontsize=10,
                         va="center", style="italic")
         elif node.name in dated:
+            from src.render import _format_clade_name
             ax.plot(nx, ny, "o", color=DATED, ms=9, zorder=3)
             mya = info.get("mya")
-            ax.text(nx - 0.12, ny - 0.28, f"{node.name} {mya}",
+            ax.text(nx - 0.12, ny - 0.28,
+                    f"{_format_clade_name(node.name)}, {mya}",
                     color=LABEL, fontsize=8, ha="right", weight="bold")
+        elif node.name:
+            from src.render import _format_clade_name
+            ax.plot(nx, ny, "o", color=PLAIN, ms=5, zorder=3)
+            ax.text(nx - 0.12, ny - 0.28,
+                    _format_clade_name(node.name),
+                    color=TIP_TEXT, fontsize=7, ha="right",
+                    style="italic", alpha=0.7)
         else:
             ax.plot(nx, ny, "o", color=PLAIN, ms=4, zorder=3)
     ax.set_xlim(-0.6, max_depth + 6)

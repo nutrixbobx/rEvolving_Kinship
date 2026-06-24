@@ -34,6 +34,32 @@ import config  # noqa: E402
 LAYOUTS = {"Rectangular": "r", "Circular": "c", "Unrooted": "unrooted"}
 
 # Legend colors the dashboard reads (matched to the dark palette below).
+
+
+def _format_clade_name(raw: str | None) -> str:
+    """Format a raw clade name from NCBI for display:
+      - replace underscores with spaces
+      - title-case multi-word ('cellular_organism' -> 'Cellular Organism')
+      - keep single-word names that are already capitalized as-is
+        ('Eukaryota' stays 'Eukaryota')
+      - lowercase-only single words get capitalized ('commelinids' ->
+        'Commelinids')."""
+    if not raw:
+        return ""
+    name = raw.replace("_", " ").strip()
+    if not name:
+        return ""
+    # If the whole string is lowercase, title-case it. Otherwise leave
+    # the existing casing alone (NCBI gives most names already cased
+    # correctly; we only want to fix the obvious lowercase outliers).
+    if name == name.lower():
+        return name.title()
+    # Mixed/upper case already — replace underscores then return
+    return " ".join(w[0].upper() + w[1:] if w and w[0].isalpha() and
+                       w[0].islower() else w
+                       for w in name.split(" "))
+
+
 LEAF_COLOR = "#46c79a"          # species (leaf)
 DATED_NODE_COLOR = "#f0a24a"    # clade with a divergence age
 PLAIN_NODE_COLOR = "#6f8a82"    # clade without one
@@ -122,7 +148,7 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["dated_size"]
             colors[i] = pal["dated"]
             if show_dated_labels:
-                nlabels[i] = f"{node.name}, {info.get('mya')} mya"
+                nlabels[i] = f"{_format_clade_name(node.name)}, {info.get('mya')}"
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
@@ -131,7 +157,7 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             # already differentiates them from dated nodes for press
             # exports.
             if show_dated_labels and plain_visible and node.name:
-                nlabels[i] = node.name
+                nlabels[i] = _format_clade_name(node.name)
 
     tre = tre.set_node_data("meta", hover, default="")
 
@@ -416,8 +442,15 @@ def _cc_footer(svg_or_html: str) -> str:
 
 def render_html(newick_path, meta: dict, layout: str = "r",
                 show_scientific: bool = True,
-                tree_name: str | None = None) -> str:
-    """Return interactive HTML on a dark panel for the dashboard."""
+                tree_name: str | None = None,
+                zoom: float = 0.85) -> str:
+    """Return interactive HTML on a dark panel for the dashboard.
+
+    zoom: visual scaling factor applied via CSS transform. 1.0 = native
+    toyplot size. 0.85 (default) shrinks the tree so the whole thing
+    fits in the dashboard iframe without horizontal scrolling. The
+    actual SVG isn't re-rendered — just visually scaled — so hover
+    targets and downloads remain at native resolution."""
     import toyplot.html
 
     canvas, _, _ = _draw(newick_path, meta, layout, show_scientific, dark=True)
@@ -429,9 +462,14 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _header_band(html, tree_name)
     html = _hover_image_overlay(html, _build_image_map(meta))
     html = _cc_footer(html)
-    return (f'<div style="background:{bg};border-radius:10px;padding:10px;'
-            f'display:inline-block;min-width:100%;box-sizing:border-box">'
-            f"{html}</div>")
+    return (
+        f'<div style="background:{bg};border-radius:10px;padding:10px;'
+        f'display:inline-block;min-width:100%;box-sizing:border-box;'
+        f'overflow:auto">'
+        f'<div style="transform:scale({zoom});transform-origin:top left;'
+        f'width:{100/zoom:.1f}%">'
+        f'{html}'
+        f'</div></div>')
 
 
 def render_files(newick_path, meta: dict, out_stem: str,
