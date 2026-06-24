@@ -126,6 +126,11 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
+            # Label undated clades so the static export shows them too.
+            # Without this they're just unlabeled teal dots — invisible
+            # in press kits even though hover would say what they are.
+            if show_dated_labels and plain_visible and node.name:
+                nlabels[i] = f"{node.name} (age not set)"
 
     tre = tre.set_node_data("meta", hover, default="")
 
@@ -274,12 +279,33 @@ def _header_band(svg_or_html: str, tree_name: str | None) -> str:
         title = tree_settings.title_for(tree_name)
     except Exception:
         return svg_or_html
+    # Hand-wrap the slogan to two lines so it doesn't run into the title.
+    # SVG <text> doesn't auto-wrap; we split on the closest space to the
+    # midpoint for visually balanced lines.
+    slogan_lines = ["", ""]
+    if slogan:
+        words = slogan.split()
+        if len(words) <= 2:
+            slogan_lines = [slogan, ""]
+        else:
+            target = len(slogan) // 2
+            running = 0
+            split_at = 1
+            for i, w in enumerate(words):
+                running += len(w) + 1
+                if running >= target:
+                    split_at = i + 1
+                    break
+            slogan_lines = [" ".join(words[:split_at]),
+                             " ".join(words[split_at:])]
     band = (
         f'<g class="kinship-header" pointer-events="none">'
         f'  <text x="14" y="22" fill="#a85a1f" font-family="Georgia,serif" '
         f'font-weight="bold" font-size="14">{mark}</text>'
-        f'  <text x="14" y="38" fill="#5e6f68" font-family="Helvetica,Arial,sans-serif" '
-        f'font-size="10" font-style="italic">{slogan}</text>'
+        f'  <text x="14" y="40" fill="#5e6f68" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="10" font-style="italic">{slogan_lines[0]}</text>'
+        f'  <text x="14" y="54" fill="#5e6f68" font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="10" font-style="italic">{slogan_lines[1]}</text>'
         f'  <text x="50%" y="32" fill="#243b34" font-family="Helvetica,Arial,sans-serif" '
         f'font-size="14" text-anchor="middle" font-style="italic">{title}</text>'
         f'</g>'

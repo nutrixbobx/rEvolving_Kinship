@@ -665,6 +665,12 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
             photo_tree = config.OUTPUT_DIR / f"{stem}_photo_tree.png"
             if photo_tree.exists():
                 st.image(photo_tree.read_bytes())
+                st.download_button(
+                    "Download photo tree (.png)",
+                    photo_tree.read_bytes(),
+                    file_name=photo_tree.name,
+                    mime="image/png",
+                    key=f"phototree_dl_{pick_tree}")
             if st.button("Build / refresh photo tree",
                          key=f"phototree_{pick_tree}"):
                 with st.spinner("Fetching photos and composing the tree."):
@@ -675,6 +681,57 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Photo tree build failed: {exc}")
+
+            st.markdown("---")
+            st.markdown("**Inline photo-tip tree**")
+            st.caption("Same tree, but with a small circular photo at "
+                       "each species tip instead of in a side column.")
+            photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
+            if photo_tips.exists():
+                st.image(photo_tips.read_bytes())
+                st.download_button(
+                    "Download photo-tip tree (.png)",
+                    photo_tips.read_bytes(),
+                    file_name=photo_tips.name,
+                    mime="image/png",
+                    key=f"phototips_dl_{pick_tree}")
+            if st.button("Build / refresh photo-tip tree",
+                         key=f"phototips_{pick_tree}"):
+                with st.spinner("Fetching photos + drawing tip thumbnails."):
+                    try:
+                        from src import photo_tip_tree
+                        photo_tip_tree.build_photo_tip_tree(pick_tree)
+                        st.success("Built.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Photo-tip tree build failed: {exc}")
+
+            st.markdown("---")
+            st.markdown("**Comprehensive press-kit PDF**")
+            st.caption("Multi-page: unrooted layout, blurb + about the "
+                       "project, license + footprint, then one listening "
+                       "card per species with photo, summary, attributions.")
+            press_pdf_path = config.OUTPUT_DIR / f"{stem}_press_kit.pdf"
+            if press_pdf_path.exists():
+                st.download_button(
+                    "Download press-kit (.pdf)",
+                    press_pdf_path.read_bytes(),
+                    file_name=press_pdf_path.name,
+                    mime="application/pdf",
+                    key=f"presspdf_dl_{pick_tree}")
+            if st.button("Build / refresh press-kit PDF",
+                         key=f"presspdf_{pick_tree}"):
+                with st.spinner("Composing PDF. This can take a minute "
+                                  "if photos are being fetched for the "
+                                  "first time."):
+                    try:
+                        from src import press_pdf
+                        press_pdf.build_press_pdf(pick_tree)
+                        st.success("Built. Click the download button "
+                                    "above.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"PDF build failed: {exc}")
         with rename_col:
             new_name = st.text_input("Rename this tree", value=pick_tree,
                                      key=f"rename_{pick_tree}")
