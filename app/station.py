@@ -224,12 +224,20 @@ if not auth.is_named():
     st.stop()
 
 theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
-station_tab, dash_tab, map_tab, library_tab, profile_tab = st.tabs(["Request station", "Dashboard", "Range map", "Library", "Profile"])
+# Custom tab navigation: a radio backed by session_state. st.tabs()
+# resets to the first tab on every st.rerun() (a known Streamlit
+# behaviour) which kept booting users off the Dashboard whenever they
+# built a tree. Radios DO preserve their value via session_state, so we
+# use one and conditionally render the body of each "tab".
+_TAB_NAMES = ["Request station", "Dashboard", "Range map", "Library", "Profile"]
+active_tab = st.radio(
+    "Section", _TAB_NAMES, key="active_tab", horizontal=True,
+    label_visibility="collapsed")
 
 # ---------------------------------------------------------------------------
 # Request station (the kiosk)
 # ---------------------------------------------------------------------------
-with station_tab:
+if active_tab == "Request station":
     with st.expander("How this works (read me first)", expanded=False):
         st.markdown(
             "**1.** Name one or more species you feel kin to. Search by common name "
@@ -270,37 +278,42 @@ with station_tab:
                 "This downloads about 80 MB from NCBI and builds the local "
                 "taxonomy SQLite (~600 MB). One-time setup. On Streamlit "
                 "Cloud the build persists until the container restarts.")
-            if st.button("Start NCBI build", type="primary",
-                         key="build_ncbi"):
-                # Step 1: if NCBI_TAXA_URL is set (e.g. Supabase Storage),
-                # try the fast URL download first (~30 seconds).
+            _ncbi_panel = st.empty()  # Reusable slot: status replaces button
+            if _ncbi_panel.button("Start NCBI build", type="primary",
+                                    key="build_ncbi"):
+                # Step 1: if NCBI_TAXA_URL is set, try the fast URL
+                # download first (~30 seconds). Status overwrites the
+                # button so the screen doesn't stack greyed-out copies.
                 from src import setup_ncbi
                 ncbi_url = os.environ.get("NCBI_TAXA_URL")
                 if ncbi_url:
-                    with st.spinner(
-                            "Downloading NCBI taxonomy from your bucket. "
-                            "This takes about 30 seconds."):
-                        if setup_ncbi.ensure_taxonomy_from_url():
+                    with _ncbi_panel.container():
+                        with st.spinner(
+                                "Downloading NCBI taxonomy from your "
+                                "bucket. This takes about 30 seconds."):
+                            ok = setup_ncbi.ensure_taxonomy_from_url()
+                        if ok:
                             st.success(
-                                "NCBI taxonomy downloaded from your bucket. "
-                                "Reload the page to activate autocomplete.")
+                                "NCBI taxonomy downloaded. Reload the "
+                                "page to activate autocomplete.")
                             st.stop()
                         else:
                             st.warning(
-                                "Bucket download failed. Trying full NCBI "
-                                "build as a fallback (about five minutes).")
+                                "Bucket download failed. Trying full "
+                                "NCBI build (~five minutes).")
                 # Step 2: full ete3 build from NCBI FTP (slow path).
-                with st.spinner(
-                        "Building the NCBI taxonomy from scratch. Do not "
-                        "close this tab. This takes about five minutes."):
-                    try:
-                        from ete3 import NCBITaxa
-                        NCBITaxa()
-                        st.success(
-                            "NCBI taxonomy built. Reload the page to "
-                            "activate kiosk autocomplete.")
-                    except Exception as exc:
-                        st.error(f"Build failed: {exc}")
+                with _ncbi_panel.container():
+                    with st.spinner(
+                            "Building NCBI taxonomy from scratch. Do "
+                            "not close this tab. ~five minutes."):
+                        try:
+                            from ete3 import NCBITaxa
+                            NCBITaxa()
+                            st.success(
+                                "NCBI taxonomy built. Reload the page "
+                                "to activate kiosk autocomplete.")
+                        except Exception as exc:
+                            st.error(f"Build failed: {exc}")
                         st.info(
                             "Upload taxdump.tar.gz or a pre-built "
                             "taxa.sqlite.gz to your Supabase Storage and set "
@@ -367,7 +380,7 @@ with station_tab:
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
-with dash_tab:
+if active_tab == "Dashboard":
     # Admin: force re-download taxa.sqlite when corruption is suspected
     # (the build-images error "database disk image is malformed" comes
     # from a half-downloaded or stale taxa.sqlite on the Cloud container.)
@@ -1144,7 +1157,7 @@ with dash_tab:
 # ---------------------------------------------------------------------------
 # Range map tab. Interactive species range map via GBIF.
 # ---------------------------------------------------------------------------
-with map_tab:
+if active_tab == "Range map":
     theme.section_heading("Where these kin live", kicker="Range map")
     st.markdown(
         "Occurrence density for each species in your tree, drawn from "
@@ -1210,7 +1223,7 @@ with map_tab:
 # Library tab. Community knowledge: names, stories, dishes, pantheons,
 # cultural connections) with admin entry forms.
 # ---------------------------------------------------------------------------
-with library_tab:
+if active_tab == "Library":
     library.render(
         is_admin=auth.is_admin(),
         can_edit_contribution=auth.can_edit_contribution,
@@ -1218,7 +1231,7 @@ with library_tab:
     )
 
 
-with profile_tab:
+if active_tab == "Profile":
     profile.render()
 
 

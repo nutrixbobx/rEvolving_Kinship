@@ -470,6 +470,39 @@ input:focus, textarea:focus, select:focus {{
 }}
 .welcome-card h3 {{ margin: 0 0 6px 0; font-size: 18px; }}
 .welcome-card .muted {{ color: var(--kn-muted); font-size: 13px; line-height: 1.55; }}
+
+
+/* Top-level tab radio (the one with key="active_tab") styled to look
+   like tabs. Streamlit identifies it by data-baseweb="radio" inside
+   the first stHorizontal block of the page; the most robust selector is
+   the explicit aria-label "Section". */
+[data-testid="stRadio"] label[aria-label="Section"] + div {{
+  display: flex; flex-wrap: wrap; gap: 4px;
+  border-bottom: 1px solid var(--kn-rule);
+  padding-bottom: 0;
+}}
+[data-testid="stRadio"] label[aria-label="Section"] + div label {{
+  background: transparent;
+  padding: 10px 18px;
+  margin: 0;
+  border-radius: 8px 8px 0 0;
+  color: var(--kn-muted) !important;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  font-weight: 500;
+}}
+[data-testid="stRadio"] label[aria-label="Section"] + div label:hover {{
+  color: var(--kn-accent) !important;
+  background: rgba(207,215,140,0.06);
+}}
+/* Hide the radio circle, keep the text */
+[data-testid="stRadio"] label[aria-label="Section"] + div input[type="radio"] {{
+  display: none;
+}}
+[data-testid="stRadio"] label[aria-label="Section"] + div label > div:first-child {{
+  display: none;
+}}
+
 </style>
 """
 

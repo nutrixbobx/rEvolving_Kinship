@@ -111,6 +111,43 @@ def draw_header(fig, tree_name):
              color=TIP_TEXT, fontsize=14, ha="center", va="top", style="italic")
 
 
+
+def _draw_legend(fig):
+    """Inject a small legend at the bottom-left of the figure mirroring
+    the SVG legend in render.py: three colored dots + labels + mya note.
+    Matches the look of the dashboard tree."""
+    legend_ax = fig.add_axes([0.02, 0.005, 0.85, 0.045])
+    legend_ax.set_facecolor("#13211f")
+    legend_ax.axis("off")
+    # Three rows of dot+label
+    rows = [
+        (LEAF, 6, "Common Name", "(Scientific name)",
+         "— a species (green tip)"),
+        (DATED, 9, "Clade, ###", "",
+         "— ancestral node with a known divergence age (amber)"),
+        (PLAIN, 5, "Clade", "",
+         "— ancestral node, divergence age not added (teal)"),
+    ]
+    y_positions = [0.85, 0.5, 0.15]
+    for (color, size, bold, italic, rest), y in zip(rows, y_positions):
+        legend_ax.scatter([0.005], [y], s=size**2, c=color,
+                            zorder=3, transform=legend_ax.transAxes)
+        text = bold
+        if italic:
+            text += f"  $\\it{{{italic}}}$"
+        text += f"  {rest}"
+        legend_ax.text(0.02, y, text, color="#e8f3ef",
+                        fontsize=8, va="center",
+                        transform=legend_ax.transAxes)
+    # mya footnote
+    legend_ax.text(
+        0.99, 0.15,
+        "numbers are millions of years (mya) since the last common ancestor",
+        color="#9ab3ab", fontsize=7, va="center", ha="right",
+        style="italic", transform=legend_ax.transAxes)
+
+
+
 def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
     import matplotlib
     matplotlib.use("Agg")

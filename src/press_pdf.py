@@ -19,7 +19,6 @@ with the latest tree data.
 from __future__ import annotations
 
 import sys
-from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -32,6 +31,144 @@ MARGIN = 36
 ACCENT = "#a85a1f"
 INK = "#243b34"
 MUTED = "#5e6f68"
+
+
+
+
+# ---------------------------------------------------------------------------
+# Multi-font Unicode handling
+# ---------------------------------------------------------------------------
+# Map each Unicode block we care about to (script_key, candidate font files).
+# Streamlit Cloud's Debian base ships fonts-noto-core + fonts-noto-cjk +
+# fonts-noto-extra via packages.txt, so these paths typically exist.
+_NOTO_DIR = "/usr/share/fonts/truetype/noto"
+_NOTO_CJK_DIR = "/usr/share/fonts/opentype/noto"
+_DEJAVU_DIR = "/usr/share/fonts/truetype/dejavu"
+
+# (label, font filename candidates, range_predicate) per script
+_SCRIPT_FALLBACKS = [
+    ("latin",      [f"{_NOTO_DIR}/NotoSans-Regular.ttf",
+                    f"{_DEJAVU_DIR}/DejaVuSans.ttf"],
+                   lambda cp: cp < 0x0080 or 0x00A0 <= cp <= 0x024F),
+    ("devanagari", [f"{_NOTO_DIR}/NotoSansDevanagari-Regular.ttf"],
+                   lambda cp: 0x0900 <= cp <= 0x097F),
+    ("bengali",    [f"{_NOTO_DIR}/NotoSansBengali-Regular.ttf"],
+                   lambda cp: 0x0980 <= cp <= 0x09FF),
+    ("gurmukhi",   [f"{_NOTO_DIR}/NotoSansGurmukhi-Regular.ttf"],
+                   lambda cp: 0x0A00 <= cp <= 0x0A7F),
+    ("tamil",      [f"{_NOTO_DIR}/NotoSansTamil-Regular.ttf"],
+                   lambda cp: 0x0B80 <= cp <= 0x0BFF),
+    ("thai",       [f"{_NOTO_DIR}/NotoSansThai-Regular.ttf"],
+                   lambda cp: 0x0E00 <= cp <= 0x0E7F),
+    ("arabic",     [f"{_NOTO_DIR}/NotoSansArabic-Regular.ttf",
+                    f"{_NOTO_DIR}/NotoNaskhArabic-Regular.ttf"],
+                   lambda cp: 0x0600 <= cp <= 0x06FF
+                              or 0x0750 <= cp <= 0x077F
+                              or 0xFB50 <= cp <= 0xFDFF
+                              or 0xFE70 <= cp <= 0xFEFF),
+    ("hebrew",     [f"{_NOTO_DIR}/NotoSansHebrew-Regular.ttf"],
+                   lambda cp: 0x0590 <= cp <= 0x05FF),
+    ("armenian",   [f"{_NOTO_DIR}/NotoSansArmenian-Regular.ttf"],
+                   lambda cp: 0x0530 <= cp <= 0x058F),
+    ("greek",      [f"{_NOTO_DIR}/NotoSans-Regular.ttf"],
+                   lambda cp: 0x0370 <= cp <= 0x03FF
+                              or 0x1F00 <= cp <= 0x1FFF),
+    ("cyrillic",   [f"{_NOTO_DIR}/NotoSans-Regular.ttf"],
+                   lambda cp: 0x0400 <= cp <= 0x04FF
+                              or 0x0500 <= cp <= 0x052F),
+    ("cjk",        [f"{_NOTO_CJK_DIR}/NotoSansCJK-Regular.ttc",
+                    f"{_NOTO_DIR}/NotoSansCJK-Regular.ttc"],
+                   lambda cp: (0x3000 <= cp <= 0x303F)
+                              or (0x3040 <= cp <= 0x309F)
+                              or (0x30A0 <= cp <= 0x30FF)
+                              or (0x3400 <= cp <= 0x4DBF)
+                              or (0x4E00 <= cp <= 0x9FFF)
+                              or (0xAC00 <= cp <= 0xD7AF)),
+]
+
+
+def _register_unicode_fonts() -> tuple[dict, str, str]:
+    """Register every Noto script font we can find. Returns:
+      ({script_key: registered_font_name}, base_font, italic_font)
+    base_font is the one used for plain Latin text; italic_font is
+    its oblique variant when available, else the same font."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    registered: dict = {}
+    base = "Helvetica"
+    italic = "Helvetica-Oblique"
+    for script, candidates, _pred in _SCRIPT_FALLBACKS:
+        for path in candidates:
+            if not Path(path).exists():
+                continue
+            font_name = f"Noto-{script}"
+            try:
+                # .ttc collections need a sub-font index
+                if path.endswith(".ttc"):
+                    pdfmetrics.registerFont(
+                        TTFont(font_name, path, subfontIndex=0))
+                else:
+                    pdfmetrics.registerFont(TTFont(font_name, path))
+                registered[script] = font_name
+                # If this is the Latin font, set it as base + register
+                # the italic variant when available.
+                if script == "latin":
+                    base = font_name
+                    italic_path = path.replace(
+                        "-Regular.ttf", "-Italic.ttf")
+                    if (Path(italic_path).exists()
+                            and italic_path != path):
+                        try:
+                            pdfmetrics.registerFont(
+                                TTFont(f"{font_name}-Italic", italic_path))
+                            italic = f"{font_name}-Italic"
+                        except Exception:
+                            italic = font_name
+                    else:
+                        italic = font_name
+                break
+            except Exception as exc:
+                print(f"register {font_name} from {path}: {exc}")
+                continue
+    return registered, base, italic
+
+
+def _font_for_codepoint(cp: int, registered: dict) -> str | None:
+    """Pick the registered font that covers this code point."""
+    for script, _candidates, pred in _SCRIPT_FALLBACKS:
+        if pred(cp) and script in registered:
+            return registered[script]
+    return None
+
+
+def _tag_runs(text: str, registered: dict, default_font: str) -> str:
+    """Wrap runs of characters in <font name="..."> tags so ReportLab
+    uses the right script font for each block. ReportLab's Paragraph
+    interprets <font> tags inside the text."""
+    if not text or not registered:
+        return text or ""
+    out = []
+    current = default_font
+    buf = []
+    for ch in text:
+        cp = ord(ch)
+        font = _font_for_codepoint(cp, registered) or default_font
+        if font != current:
+            if buf:
+                if current == default_font:
+                    out.append("".join(buf))
+                else:
+                    out.append(
+                        f'<font name="{current}">{"".join(buf)}</font>')
+                buf = []
+            current = font
+        buf.append(ch)
+    if buf:
+        if current == default_font:
+            out.append("".join(buf))
+        else:
+            out.append(f'<font name="{current}">{"".join(buf)}</font>')
+    return "".join(out)
 
 
 def _stem(name: str) -> str:
@@ -89,7 +226,7 @@ def _footprint_lines(tree_name: str) -> list[str]:
 def _species_records(tree_name: str) -> list[dict]:
     """Per-species data for the listening cards: name, photo path, summary,
     audio attribution. Falls back gracefully when any piece is missing."""
-    from src import db, render
+    from src import db
     df = db.read_tree(tree_name)
     if df.empty:
         return []
@@ -129,10 +266,56 @@ def _species_records(tree_name: str) -> list[dict]:
                 rec_audio = species_audio.find_recording(sci, common)
                 if rec_audio:
                     rec["audio_attribution"] = rec_audio.get("attribution")
+                    rec["audio_path"] = str(rec_audio.get("path") or "")
             except Exception:
                 pass
         records.append(rec)
     return records
+
+
+
+
+def _render_spectrogram_thumb(audio_path: str) -> Path | None:
+    """Render a small matplotlib spectrogram PNG (cached by audio path)
+    and return its disk path. None if anything fails. Cached under
+    outputs/_spec_cache/."""
+    if not audio_path:
+        return None
+    src = Path(audio_path)
+    if not src.exists():
+        return None
+    cache_dir = config.OUTPUT_DIR / "_spec_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    import hashlib
+    key = hashlib.sha1(str(src.resolve()).encode()).hexdigest()[:16]
+    out = cache_dir / f"{key}.png"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import librosa
+        import numpy as np
+        y, sr = librosa.load(str(src), sr=None, mono=True, duration=8.0)
+        if len(y) == 0:
+            return None
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64,
+                                              fmax=sr // 2)
+        S_db = librosa.power_to_db(S, ref=np.max)
+        fig, ax = plt.subplots(figsize=(3.0, 1.1), dpi=120,
+                                  facecolor="#0e1b1a")
+        ax.imshow(S_db, aspect="auto", origin="lower", cmap="magma")
+        ax.axis("off")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.savefig(out, dpi=120, facecolor="#0e1b1a",
+                     bbox_inches="tight", pad_inches=0.02)
+        plt.close(fig)
+        return out
+    except Exception as exc:
+        print(f"  spec failed for {src.name}: {exc}")
+        return None
+
 
 
 def build_press_pdf(tree_name: str,
@@ -147,37 +330,12 @@ def build_press_pdf(tree_name: str,
         SimpleDocTemplate, Image, Paragraph, Spacer, PageBreak,
         KeepTogether, Table, TableStyle,
     )
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    # Register a Unicode-capable font so non-Latin species names (Devanagari,
-    # Armenian, Han, Arabic, etc.) render in the PDF. Falls back to
-    # Helvetica silently if no Unicode font is on the filesystem.
-    _BASE_FONT = "Helvetica"
-    _BODY_FONT = "Helvetica"
-    _ITALIC_FONT = "Helvetica-Oblique"
-    for _fontfile in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-    ):
-        if Path(_fontfile).exists():
-            try:
-                pdfmetrics.registerFont(TTFont("KinshipSans", _fontfile))
-                # Look for matching italic
-                _italic = _fontfile.replace(
-                    "DejaVuSans.ttf", "DejaVuSans-Oblique.ttf")
-                if Path(_italic).exists() and _italic != _fontfile:
-                    pdfmetrics.registerFont(
-                        TTFont("KinshipSans-Italic", _italic))
-                    _ITALIC_FONT = "KinshipSans-Italic"
-                else:
-                    _ITALIC_FONT = "KinshipSans"
-                _BODY_FONT = "KinshipSans"
-                _BASE_FONT = "KinshipSans"
-                break
-            except Exception:
-                continue
+    # Register every Noto Sans script font we can find so the PDF
+    # renders Devanagari, CJK, Arabic, Hebrew, Tamil, Thai, Armenian,
+    # etc. without rendering as boxes. Falls back to Helvetica only
+    # if no Unicode font is on the filesystem.
+    _SCRIPT_FONTS, _BASE_FONT, _ITALIC_FONT = _register_unicode_fonts()
+    _BODY_FONT = _BASE_FONT
 
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -330,13 +488,13 @@ def build_press_pdf(tree_name: str,
         story.append(Spacer(1, 10))
         for rec in records:
             block = []
-            # Heading
-            head = (f"{rec['common']} " if rec['common']
-                    else "")
-            block.append(Paragraph(head or rec['scientific'],
-                                     h_species_name))
-            block.append(Paragraph(
-                f"<i>{rec['scientific']}</i>", h_sci_name))
+            # Heading — tag runs so non-Latin scripts pick the right font
+            head_raw = (rec['common'] or rec['scientific']) or ''
+            head = _tag_runs(head_raw, _SCRIPT_FONTS, _BODY_FONT)
+            sci = _tag_runs(rec['scientific'] or '',
+                             _SCRIPT_FONTS, _ITALIC_FONT)
+            block.append(Paragraph(head, h_species_name))
+            block.append(Paragraph(f"<i>{sci}</i>", h_sci_name))
             # Two-column: photo on left, summary + attribution on right.
             left_cell = ""
             if rec.get("image_path") and Path(rec["image_path"]).exists():
@@ -348,14 +506,28 @@ def build_press_pdf(tree_name: str,
             summ = rec.get("summary") or "(no summary on file)"
             if len(summ) > 600:
                 summ = summ[:600] + "…"
+            summ = _tag_runs(summ, _SCRIPT_FONTS, _BODY_FONT)
             right_bits = [Paragraph(summ, h_body)]
             if rec.get("image_attribution"):
                 right_bits.append(Spacer(1, 4))
-                right_bits.append(Paragraph(
-                    f"Photo: {rec['image_attribution'][:120]}", h_caption))
+                ia = _tag_runs(rec['image_attribution'][:120],
+                                _SCRIPT_FONTS, _BODY_FONT)
+                right_bits.append(Paragraph(f"Photo: {ia}", h_caption))
             if rec.get("audio_attribution"):
-                right_bits.append(Paragraph(
-                    f"Audio: {rec['audio_attribution'][:120]}", h_caption))
+                aa = _tag_runs(rec['audio_attribution'][:120],
+                                _SCRIPT_FONTS, _BODY_FONT)
+                right_bits.append(Paragraph(f"Audio: {aa}", h_caption))
+            # Spectrogram thumbnail (cached on disk per audio file)
+            if rec.get("audio_path"):
+                spec_png = _render_spectrogram_thumb(rec["audio_path"])
+                if spec_png and spec_png.exists():
+                    try:
+                        right_bits.append(Spacer(1, 4))
+                        right_bits.append(Image(
+                            str(spec_png), width=2.6*inch, height=0.9*inch,
+                            kind="proportional"))
+                    except Exception as _exc:
+                        print(f"spec embed failed: {_exc}")
             links = []
             if rec.get("wikipedia"):
                 links.append(

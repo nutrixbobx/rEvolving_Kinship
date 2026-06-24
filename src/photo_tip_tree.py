@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
-THUMB_PX = 56  # pixel diameter of each circular thumbnail
+THUMB_PX = 72  # pixel diameter of each circular thumbnail
 
 
 def _circular_thumb_data_uri(image_path: Path | str,
@@ -121,7 +121,7 @@ def _label_candidates(text_inner: str) -> list[str]:
 
 
 def _inject_thumbs_into_svg(svg: str, uris: dict[str, str],
-                              thumb_px: int = 30) -> str:
+                              thumb_px: int = 39) -> str:
     """Inject circular tip thumbnails into a toytree SVG."""
     # Define one clipPath we can reuse via clip-path=url(#kn_tipclip)
     clip_id = "kn_tipclip"

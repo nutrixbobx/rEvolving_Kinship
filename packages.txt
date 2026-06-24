@@ -1,1 +1,15 @@
+# Streamlit Cloud uses apt-get to install Debian packages listed here on
+# every container build. These are the system-level deps the pipeline
+# can't get from pip.
+
+# Noto fonts cover essentially every writing system in Unicode. We need
+# them so the press-kit PDF renders Devanagari, CJK, Arabic, Hebrew,
+# Thai, Tamil, Armenian, etc. The base Helvetica that ReportLab ships
+# only covers Latin-1, so non-Latin characters were rendering as boxes.
+fonts-noto-core
+fonts-noto-cjk
+fonts-noto-extra
+
+# ffmpeg powers the audio chorus + spectrogram pipelines (Opus / Vorbis /
+# some MP3 variants that pip-installed libsndfile can't handle alone).
 ffmpeg
