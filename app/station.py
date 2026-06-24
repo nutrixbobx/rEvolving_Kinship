@@ -468,18 +468,9 @@ with dash_tab:
                 help="100% = native; lower = fits more in view; "
                      "higher = closer detail.",
                 format="%d%%")
-            st.markdown(
-                """<div style="font-size:13px;line-height:1.9">
-<span style="display:inline-block;width:11px;height:11px;border-radius:50%;
-background:{render_mod.LEAF_COLOR}"></span> species (leaf)<br>
-<span style="display:inline-block;width:13px;height:13px;border-radius:50%;
-background:{render_mod.DATED_NODE_COLOR}"></span> clade with a divergence age<br>
-<span style="display:inline-block;width:11px;height:11px;border-radius:50%;
-background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
-                unsafe_allow_html=True,
-            )
             st.caption(f"{len(df)} species, {n_dated} dated node(s). "
-                       "Hover any node for its details.")
+                       "Legend + 'mya' explanation are inside every "
+                       "exported tree. Hover any node for its details.")
             if wav.exists():
                 st.markdown("**Hear the ecosystem chord**")
                 st.audio(wav.read_bytes(), format="audio/wav")
@@ -596,29 +587,7 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     zoom=zoom_pct / 100.0,
                 )
                 components.html(html, height=880, scrolling=True)
-                st.markdown(
-                    '<div style="color:#c9a5b6;font-size:11px;'
-                    'background:#4a0030;border:1px solid #5a1c40;'
-                    'border-radius:8px;padding:10px 14px;margin-top:-4px;'
-                    'margin-bottom:8px;line-height:1.8">'
-                    '<div style="color:#f4ecdc;font-weight:600;'
-                    'margin-bottom:4px">How to read this tree</div>'
-                    '<b>Common Name</b> '
-                    '<span style="font-style:italic">(Scientific name)</span>'
-                    ' &nbsp;—&nbsp; a species (green tip)<br>'
-                    '<b>Clade, <span style="color:#cfd78c">###</span></b>'
-                    ' &nbsp;—&nbsp; an ancestral node with a known '
-                    'divergence age (amber)<br>'
-                    '<b>Clade</b>'
-                    ' &nbsp;—&nbsp; an ancestral node whose divergence '
-                    'age hasn&rsquo;t been added yet (muted teal)<br>'
-                    '<div style="color:#c9a5b6;font-style:italic;'
-                    'margin-top:6px">'
-                    'Numbers on amber clade nodes are millions of years '
-                    'since that last common ancestor lived (mya).'
-                    '</div></div>',
-                    unsafe_allow_html=True,
-                )
+
                 # Download the current layout (SVG + PNG)
                 dl_cols = st.columns(2)
                 with dl_cols[0]:

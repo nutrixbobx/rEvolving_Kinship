@@ -431,6 +431,51 @@ def _hover_image_overlay(svg_or_html: str, image_map: dict) -> str:
 
 
 
+
+
+def _legend_band(svg_or_html: str) -> str:
+    """Inject a small legend along the bottom-left of the SVG, just above
+    the CC footer. Three colored dots + labels + the 'mya' explanation
+    so every exported PNG/SVG/PDF carries its own key."""
+    leg = (
+        '<g class="kinship-legend" pointer-events="none">'
+        # Background plate (rounded rect)
+        '<rect x="14" y="92%" width="430" height="62" rx="6" ry="6" '
+        'fill="rgba(20,28,30,0.78)" stroke="#3a4d47" stroke-width="0.6"/>'
+        # Row 1: species dot
+        f'<circle cx="28" cy="93.5%" r="5" fill="{LEAF_COLOR}"/>'
+        '<text x="40" y="93.5%" fill="#e8f3ef" '
+        'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        'dominant-baseline="middle">'
+        '<tspan font-weight="bold">Common Name</tspan> '
+        '<tspan font-style="italic">(Scientific name)</tspan> '
+        '— a species (green tip)</text>'
+        # Row 2: dated clade dot
+        f'<circle cx="28" cy="96%" r="6.5" fill="{DATED_NODE_COLOR}"/>'
+        '<text x="40" y="96%" fill="#e8f3ef" '
+        'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        'dominant-baseline="middle">'
+        '<tspan font-weight="bold">Clade, ###</tspan> '
+        '— ancestral node with a known divergence age (amber)</text>'
+        # Row 3: undated clade dot
+        f'<circle cx="28" cy="98.3%" r="4" fill="{PLAIN_NODE_COLOR}"/>'
+        '<text x="40" y="98.3%" fill="#e8f3ef" '
+        'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        'dominant-baseline="middle">'
+        '<tspan font-weight="bold">Clade</tspan> '
+        '— ancestral node, divergence age not added (teal)</text>'
+        # mya footnote
+        '<text x="450" y="98.3%" fill="#9ab3ab" '
+        'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+        'font-style="italic" dominant-baseline="middle">'
+        'numbers are millions of years (mya) since the last common ancestor'
+        '</text>'
+        '</g>'
+    )
+    # Insert right before the CC footer text (which ends just before </svg>).
+    # Easiest: insert just before </svg>.
+    return re.sub(r"(</svg>)", leg + r"\1", svg_or_html, count=1)
+
 def _cc_footer(svg_or_html: str) -> str:
     """Append a small CC BY-SA notice as a <text> near the bottom of the SVG."""
     footer = ('<text x="50%" y="98%" fill="#6b7d76" '
@@ -461,6 +506,7 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _hover_targets(html)
     html = _header_band(html, tree_name)
     html = _hover_image_overlay(html, _build_image_map(meta))
+    html = _legend_band(html)
     html = _cc_footer(html)
     return (
         f'<div style="background:{bg};border-radius:10px;padding:10px;'
@@ -488,6 +534,7 @@ def render_files(newick_path, meta: dict, out_stem: str,
     svg = _bg_rect(_two_line(svg_path.read_text()), _LIGHT["bg"])
     svg = _hover_targets(svg)
     svg = _header_band(svg, tree_name)
+    svg = _legend_band(svg)
     svg = _cc_footer(svg)
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")

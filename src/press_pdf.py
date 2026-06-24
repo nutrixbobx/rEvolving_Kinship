@@ -231,9 +231,17 @@ def build_press_pdf(tree_name: str,
             f"<i>Tree image unavailable: {exc}</i>", h_caption))
     story.append(PageBreak())
 
-    # ---- Page 2 (optional): the sound kinship tree if it exists ----
+    # ---- Page 2: the sound kinship tree (auto-built if missing) ----
     sound_png = config.OUTPUT_DIR / f"{stem}_sound_tree.png"
-    if sound_png.exists():
+    if not sound_png.exists():
+        # Try to build it now. Skip silently if the chorus / recordings
+        # aren't available — the PDF still has the species cards.
+        try:
+            from src import spectrogram_tree
+            spectrogram_tree.build_sound_tree(tree_name)
+        except Exception as exc:
+            print(f"sound tree build failed during PDF: {exc}")
+    if sound_png.exists() and sound_png.stat().st_size > 0:
         story.append(Paragraph(
             f"{title_text} — sound kinship", h_sec))
         story.append(Paragraph(
@@ -245,10 +253,14 @@ def build_press_pdf(tree_name: str,
         try:
             max_w = (PAGE_W - 2 * MARGIN)
             max_h = (PAGE_H - 2 * MARGIN - 120)
-            story.append(Image(str(sound_png), width=max_w, height=max_h,
+            story.append(Image(str(sound_png),
+                                width=max_w, height=max_h,
                                 kind="proportional"))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"sound-tree Image embed failed: {exc}")
+            story.append(Paragraph(
+                f"<i>Could not embed sound-kinship tree: {exc}</i>",
+                h_caption))
         story.append(PageBreak())
 
     # ---- Page 3: blurb + about + footprint + license ----

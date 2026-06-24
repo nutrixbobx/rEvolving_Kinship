@@ -84,26 +84,46 @@ def _photo_uri_by_label(meta: dict) -> dict[str, str]:
     return uris
 
 
-_TIP_TEXT_RE = re.compile(
-    r'<text[^>]*\bid="t\d+"[^>]*x="([\d.\-]+)"[^>]*y="([\d.\-]+)"'
-    r'[^>]*>([^<]+)</text>',
+# Toytree wraps every tip label in this group with a translate(X,Y)
+# rotate(R) transform. We match the whole group, extract the label text
+# (handling single <text> and multi-<tspan>), and inject an <image> as
+# the first child so it inherits the group's transform (which positions
+# the image at the same rotation/translation as the label).
+_TIP_GROUP_RE = re.compile(
+    r'(<g class="toytree-TipLabel"[^>]*>)(.*?)(</g>)',
     re.S,
 )
+# Pull the label text from inside the group's <text>...</text>, including
+# multi-line <tspan> labels (common name + scientific name).
+_LABEL_TEXT_RE = re.compile(r'<text[^>]*>(.*?)</text>', re.S)
+_TSPAN_RE = re.compile(r'<tspan[^>]*>([^<]*)</tspan>', re.S)
+
+
+def _label_candidates(text_inner: str) -> list[str]:
+    """Return the variant strings to try as photo-dict keys: full label,
+    first line only, last line only, with/without parens."""
+    # Strip any markup; the content is either bare text or <tspan>...</tspan>
+    raw = text_inner.strip()
+    parts = _TSPAN_RE.findall(raw)
+    if not parts:
+        parts = [re.sub(r"<[^>]+>", "", raw)]
+    parts = [s.strip() for s in parts if s.strip()]
+    out = list(parts)
+    if parts:
+        out.append(parts[0])
+        out.append(parts[-1])
+        out.append(" ".join(parts))
+    # Strip surrounding parens for scientific names rendered as (Genus species)
+    extras = []
+    for s in out:
+        extras.append(s.replace("(", "").replace(")", "").strip())
+    return list({s: None for s in out + extras if s}.keys())
 
 
 def _inject_thumbs_into_svg(svg: str, uris: dict[str, str],
-                              thumb_px: int = 36) -> str:
-    """Find every tip-label <text> in the SVG and inject an <image>
-    immediately before it with the thumbnail clipped to a circle. The
-    thumbnail sits to the LEFT of the text label (offset by thumb_px)."""
-    # Toytree's tip text is rendered as <text class="toyplot-Text"...>
-    # We use a more permissive matcher.
-    pattern = re.compile(
-        r'(<text[^>]*\b(?:class="[^"]*toyplot-Text[^"]*")?[^>]*'
-        r'\sx="([\d.\-]+)"\s+y="([\d.\-]+)"[^>]*>)([^<]+)(</text>)',
-        re.S,
-    )
-    # Add a single <clipPath> def at the top of the SVG (circular mask)
+                              thumb_px: int = 30) -> str:
+    """Inject circular tip thumbnails into a toytree SVG."""
+    # Define one clipPath we can reuse via clip-path=url(#kn_tipclip)
     clip_id = "kn_tipclip"
     clip_def = (
         f'<defs><clipPath id="{clip_id}">'
@@ -114,34 +134,43 @@ def _inject_thumbs_into_svg(svg: str, uris: dict[str, str],
                    lambda m: m.group(1) + clip_def, svg, count=1)
 
     injected = 0
+    matched_labels = []
     def repl(m: re.Match) -> str:
         nonlocal injected
-        tag_open, x, y, text_content, tag_close = m.groups()
-        label = text_content.strip()
-        uri = (uris.get(label)
-               or uris.get(label.split("\n")[0].strip())
-               or uris.get(label.replace("(", "").replace(")", "").strip()))
+        open_tag, inner, close_tag = m.groups()
+        tx_m = _LABEL_TEXT_RE.search(inner)
+        if not tx_m:
+            return m.group(0)
+        candidates = _label_candidates(tx_m.group(1))
+        uri = None
+        chosen = None
+        for c in candidates:
+            if c in uris:
+                uri = uris[c]; chosen = c; break
         if not uri:
             return m.group(0)
-        try:
-            tx = float(x)
-            ty = float(y)
-        except ValueError:
-            return m.group(0)
-        # Place the image so its right edge meets the start of the text
-        img_x = tx - thumb_px - 4
-        img_y = ty - thumb_px / 2
+        matched_labels.append(chosen)
+        # The <text> sits with x>0 (label to the right of the pivot).
+        # We place the image immediately to the LEFT of the pivot so it
+        # appears just before the tip dot, in front of the label.
+        img_x = -thumb_px - 6
+        img_y = -thumb_px / 2
         image_tag = (
-            f'<g transform="translate({img_x:.1f},{img_y:.1f})">'
+            f'<g transform="translate({img_x},{img_y})">'
             f'<image href="{uri}" width="{thumb_px}" height="{thumb_px}" '
-            f'clip-path="url(#{clip_id})" preserveAspectRatio="xMidYMid slice"/>'
+            f'clip-path="url(#{clip_id})" '
+            f'preserveAspectRatio="xMidYMid slice"/>'
             f'</g>'
         )
         injected += 1
-        return image_tag + tag_open + text_content + tag_close
+        # Inject the image as the FIRST child of the TipLabel group so
+        # the text is drawn on top.
+        return open_tag + image_tag + inner + close_tag
 
-    svg3 = pattern.sub(repl, svg2)
-    print(f"  injected {injected} tip thumbnails")
+    svg3 = _TIP_GROUP_RE.sub(repl, svg2)
+    print(f"  matched {len(uris)} URIs, injected {injected} thumbnails")
+    if matched_labels:
+        print(f"  sample matches: {matched_labels[:5]}")
     return svg3
 
 
