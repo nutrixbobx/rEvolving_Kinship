@@ -121,7 +121,7 @@ def _label_candidates(text_inner: str) -> list[str]:
 
 
 def _inject_thumbs_into_svg(svg: str, uris: dict[str, str],
-                              thumb_px: int = 39) -> str:
+                              thumb_px: int = 47) -> str:
     """Inject circular tip thumbnails into a toytree SVG."""
     # Define one clipPath we can reuse via clip-path=url(#kn_tipclip)
     clip_id = "kn_tipclip"

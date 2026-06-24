@@ -47,6 +47,7 @@ from src import tree_settings  # noqa: E402
 from src import library  # noqa: E402
 from src import i18n  # noqa: E402
 from src import auth  # noqa: E402
+from src.credits import format_credit  # noqa: E402
 from src import profile  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
@@ -194,6 +195,23 @@ def _fav_toggle_for_tree(tree_name: str) -> None:
         except Exception:
             pass
         st.rerun()
+
+
+def _safe_url(url: str | None) -> str:
+    """URL-encode unsafe characters so a markdown link [text](url)
+    doesn't break on spaces, parens, etc. Wikipedia URLs from iNat
+    sometimes come back with raw spaces in the species path."""
+    if not url:
+        return ""
+    # Keep already-encoded sequences but quote spaces + parens
+    import urllib.parse as _u
+    # Split into prefix + path so we don't double-encode the scheme
+    if "://" in url:
+        scheme, rest = url.split("://", 1)
+        # quote everything except already-encoded %XX sequences
+        rest = _u.quote(rest, safe="/:?#=&%")
+        return f"{scheme}://{rest}"
+    return _u.quote(url, safe="/:?#=&%")
 
 
 def _invalidate_dashboard_caches():
@@ -537,7 +555,7 @@ if active_tab == "Dashboard":
                     if _sp_profile and _sp_profile.get("image_path"):
                         st.image(_sp_profile["image_path"], use_container_width=True)
                         if _sp_profile.get("image_attribution"):
-                            st.caption(_sp_profile["image_attribution"][:80])
+                            st.caption(format_credit(_sp_profile["image_attribution"]))
                     if _sp_profile:
                         st.markdown(f"**{row.get('common_name') or ql}**  "
                                     f"*{ql}*")
@@ -547,7 +565,7 @@ if active_tab == "Dashboard":
                                          ("iNaturalist", "inaturalist_url"),
                                          ("GBIF", "gbif_url")):
                             if _sp_profile.get(key):
-                                link_bits.append(f"[{lab}]({_sp_profile[key]})")
+                                link_bits.append(f"[{lab}]({_safe_url(_sp_profile[key])})")
                         if link_bits:
                             st.markdown(" · ".join(link_bits))
 
@@ -558,7 +576,6 @@ if active_tab == "Dashboard":
                            f"result as data/{stem}_timetree.nwk, then rebuild.")
 
             chorus = config.OUTPUT_DIR / f"{stem}_chorus.wav"
-            sound_tree = config.OUTPUT_DIR / f"{stem}_sound_tree.png"
             st.markdown("---")
             st.markdown("**Animal chorus**")
             if chorus.exists():
@@ -578,20 +595,6 @@ if active_tab == "Dashboard":
                             st.rerun()
                     except Exception as exc:
                         st.error(f"Chorus build failed: {exc}")
-            st.markdown("**Sound kinship tree**")
-            if sound_tree.exists():
-                st.image(sound_tree.read_bytes())
-            if st.button("Build / refresh sound tree",
-                         key=f"sound_tree_{pick_tree}"):
-                with st.spinner("Drawing the tree and rendering a "
-                                "spectrogram at each tip."):
-                    try:
-                        from src import spectrogram_tree
-                        spectrogram_tree.build_sound_tree(pick_tree)
-                        st.success("Built sound kinship tree.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Sound tree build failed: {exc}")
         with view:
             if nwk.exists() and meta:
                 html = render_mod.render_html(
@@ -660,7 +663,7 @@ if active_tab == "Dashboard":
         build_col, rename_col = st.columns([1, 2])
         with build_col:
             st.markdown("---")
-            st.markdown("**Photo + audio tree** (square layout)")
+            st.markdown("**Photo-Spectral Tree** (T2, rectangular)")
             st.caption("Combined view: rectangular tree with each "
                        "species' photo AND a small spectrogram of its "
                        "recorded voice on the same row. Credits live "
@@ -669,12 +672,12 @@ if active_tab == "Dashboard":
             if photo_audio.exists():
                 st.image(photo_audio.read_bytes())
                 st.download_button(
-                    "Download photo + audio tree (.png)",
+                    "Download Photo-Spectral Tree (.png)",
                     photo_audio.read_bytes(),
                     file_name=photo_audio.name,
                     mime="image/png",
                     key=f"photoaudio_dl_{pick_tree}")
-            if st.button("Build / refresh photo + audio tree",
+            if st.button("Build / refresh Photo-Spectral Tree",
                          key=f"photoaudio_{pick_tree}"):
                 with st.spinner("Fetching photos + audio, rendering "
                                   "spectrograms, composing the tree."):
@@ -687,19 +690,43 @@ if active_tab == "Dashboard":
                         st.error(f"Combined tree build failed: {exc}")
 
             st.markdown("---")
-            st.markdown("**Inline photo-tip tree**")
+            st.markdown("**Spectrogram Blend**")
+            st.caption("Every species' spectrogram averaged into one "
+                       "image — the ecosystem's collective voice.")
+            blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
+            if blend_png.exists():
+                st.image(blend_png.read_bytes())
+                st.download_button(
+                    "Download Spectrogram Blend (.png)",
+                    blend_png.read_bytes(),
+                    file_name=blend_png.name,
+                    mime="image/png",
+                    key=f"specblend_dl_{pick_tree}")
+            if st.button("Build / refresh Spectrogram Blend",
+                         key=f"specblend_{pick_tree}"):
+                with st.spinner("Overlaying every spectrogram..."):
+                    try:
+                        from src import spectrogram_blend
+                        spectrogram_blend.build_spectrogram_blend(pick_tree)
+                        st.success("Built.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Spectrogram Blend build failed: {exc}")
+
+            st.markdown("---")
+            st.markdown("**Unrooted Tree with Photos** (T3)")
             st.caption("Same tree, but with a small circular photo at "
                        "each species tip instead of in a side column.")
             photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
             if photo_tips.exists():
                 st.image(photo_tips.read_bytes())
                 st.download_button(
-                    "Download photo-tip tree (.png)",
+                    "Download Unrooted Tree with Photos (.png)",
                     photo_tips.read_bytes(),
                     file_name=photo_tips.name,
                     mime="image/png",
                     key=f"phototips_dl_{pick_tree}")
-            if st.button("Build / refresh photo-tip tree",
+            if st.button("Build / refresh Unrooted Tree with Photos",
                          key=f"phototips_{pick_tree}"):
                 with st.spinner("Fetching photos + drawing tip thumbnails."):
                     try:
@@ -1086,7 +1113,7 @@ if active_tab == "Dashboard":
                                          use_container_width=True)
                                 if _sp_profile.get("image_attribution"):
                                     st.caption(
-                                        _sp_profile["image_attribution"][:90])
+                                        format_credit(_sp_profile["image_attribution"]))
                             else:
                                 st.caption("(no photo)")
                         with c_text:

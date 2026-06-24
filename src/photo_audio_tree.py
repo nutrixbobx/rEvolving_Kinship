@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src.credits import format_credit
 
 BG = "#0e1b1a"
 EDGE = "#5f7d75"
@@ -64,6 +65,33 @@ def _spec_png(audio_path: Path) -> Path | None:
     except Exception as exc:
         print(f"  spec failed for {audio_path}: {exc}")
         return None
+
+
+
+
+def _circular_mask(img_arr):
+    """Apply a circular alpha mask to a numpy image array (h, w, 3 or 4)
+    so the photo renders as a clean circle matching T3's thumbnails."""
+    import numpy as np
+    h, w = img_arr.shape[:2]
+    side = min(h, w)
+    # Center-crop to square
+    y0 = (h - side) // 2
+    x0 = (w - side) // 2
+    cropped = img_arr[y0:y0+side, x0:x0+side]
+    # Build alpha
+    yy, xx = np.ogrid[:side, :side]
+    cy, cx = side / 2, side / 2
+    mask = ((xx - cx) ** 2 + (yy - cy) ** 2) <= (side / 2 - 1) ** 2
+    rgba = np.zeros((side, side, 4), dtype=np.float32)
+    if cropped.ndim == 2:
+        # grayscale -> stack
+        for c in range(3):
+            rgba[..., c] = cropped
+    else:
+        rgba[..., :3] = cropped[..., :3] / (255.0 if cropped.dtype.kind == "u" else 1.0)
+    rgba[..., 3] = mask.astype(np.float32)
+    return rgba
 
 
 def build_photo_audio_tree(tree_name: str,
@@ -129,11 +157,14 @@ def build_photo_audio_tree(tree_name: str,
 
     top, bot = 0.09, 0.07
     row_h = (1 - top - bot) / n
-    photo_left = 0.51
-    photo_w = 0.13
-    spec_left = photo_left + photo_w + 0.01
-    spec_w = 0.30
-    attr_left = spec_left + spec_w + 0.012
+    # Compact layout: smaller photo column, tighter gaps. Credits
+    # don't live inline anymore — they go on a credits page in the
+    # report, so we can dedicate more room to the spectrogram.
+    photo_left = 0.52
+    photo_w = 0.09
+    spec_left = photo_left + photo_w + 0.008
+    spec_w = 0.36
+    attr_left = spec_left + spec_w + 0.008
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})
@@ -150,7 +181,8 @@ def build_photo_audio_tree(tree_name: str,
         if p and p.get("image_path") and Path(p["image_path"]).exists():
             try:
                 img = mpimg.imread(p["image_path"])
-                ax_p.imshow(img, aspect="equal")
+                masked = _circular_mask(img)
+                ax_p.imshow(masked, aspect="equal")
             except Exception:
                 pass
         ax_p.axis("off")
@@ -176,9 +208,9 @@ def build_photo_audio_tree(tree_name: str,
         ax_a.set_facecolor(BG)
         attr_lines = []
         if p and p.get("image_attribution"):
-            attr_lines.append(f"img: {p['image_attribution'][:60]}")
+            attr_lines.append('img: ' + format_credit(p['image_attribution'], markdown=False))
         if a and a.get("attribution"):
-            attr_lines.append(f"aud: {a['attribution'][:60]}")
+            attr_lines.append('aud: ' + format_credit(a['attribution'], markdown=False))
         if attr_lines:
             ax_a.text(0, 0.5, "\\n".join(attr_lines),
                        color="#9ab3ab", fontsize=6, va="center",

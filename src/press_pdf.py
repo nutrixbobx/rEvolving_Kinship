@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
+from src.credits import format_credit_html
 
 # Letter page dims (points)
 PAGE_W, PAGE_H = 612, 792
@@ -169,6 +170,22 @@ def _tag_runs(text: str, registered: dict, default_font: str) -> str:
         else:
             out.append(f'<font name="{current}">{"".join(buf)}</font>')
     return "".join(out)
+
+
+
+
+def _safe_pdf_url(url: str | None) -> str:
+    """URL-encode unsafe chars before embedding the url in a Paragraph's
+    <a href="..."> tag. ReportLab is tolerant but spaces are still
+    spaces."""
+    if not url:
+        return ""
+    import urllib.parse as _u
+    if "://" in url:
+        scheme, rest = url.split("://", 1)
+        rest = _u.quote(rest, safe="/:?#=&%")
+        return f"{scheme}://{rest}"
+    return _u.quote(url, safe="/:?#=&%")
 
 
 def _stem(name: str) -> str:
@@ -491,11 +508,7 @@ def build_press_pdf(tree_name: str,
     records = _species_records(tree_name)
     if records:
         story.append(Paragraph("Kin cards", h_sec))
-        story.append(Paragraph(
-            "One row per species. Photo and audio credits ride along with "
-            "every recording — every image and every sound has the "
-            "contributor and license preserved.", h_caption))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
         for rec in records:
             block = []
             # Heading — tag runs so non-Latin scripts pick the right font
@@ -506,47 +519,61 @@ def build_press_pdf(tree_name: str,
             block.append(Paragraph(head, h_species_name))
             block.append(Paragraph(f"<i>{sci}</i>", h_sci_name))
             # Two-column: photo on left, summary + attribution on right.
-            left_cell = ""
+            # LEFT column: photo + its credit underneath it
+            left_bits = []
             if rec.get("image_path") and Path(rec["image_path"]).exists():
                 try:
-                    left_cell = Image(rec["image_path"], width=1.4*inch,
-                                        height=1.4*inch, kind="proportional")
+                    left_bits.append(Image(
+                        rec["image_path"], width=1.4*inch, height=1.4*inch,
+                        kind="proportional"))
                 except Exception:
-                    left_cell = ""
+                    pass
+            if rec.get("image_attribution") and left_bits:
+                ia = _tag_runs(format_credit_html(rec["image_attribution"]),
+                                _SCRIPT_FONTS, _BODY_FONT)
+                left_bits.append(Spacer(1, 2))
+                left_bits.append(Paragraph(ia, h_caption))
+            left_cell = left_bits or ""
+
+            # RIGHT column: summary → links → spectrogram → audio credit
             summ = rec.get("summary") or "(no summary on file)"
             if len(summ) > 600:
                 summ = summ[:600] + "…"
             summ = _tag_runs(summ, _SCRIPT_FONTS, _BODY_FONT)
             right_bits = [Paragraph(summ, h_body)]
-            if rec.get("image_attribution"):
+
+            # Links row — moved ABOVE the spectrogram per Maya
+            links = []
+            if rec.get("wikipedia"):
+                links.append(
+                    f'<a href="{_safe_pdf_url(rec["wikipedia"])}">Wikipedia</a>')
+            if rec.get("inaturalist"):
+                links.append(
+                    f'<a href="{_safe_pdf_url(rec["inaturalist"])}">iNaturalist</a>')
+            if links:
                 right_bits.append(Spacer(1, 4))
-                ia = _tag_runs(rec['image_attribution'][:120],
-                                _SCRIPT_FONTS, _BODY_FONT)
-                right_bits.append(Paragraph(f"Photo: {ia}", h_caption))
-            if rec.get("audio_attribution"):
-                aa = _tag_runs(rec['audio_attribution'][:120],
-                                _SCRIPT_FONTS, _BODY_FONT)
-                right_bits.append(Paragraph(f"Audio: {aa}", h_caption))
-            # Spectrogram thumbnail (cached on disk per audio file)
+                right_bits.append(Paragraph(" · ".join(links), h_caption))
+
+            # Spectrogram thumbnail
+            spec_embedded = False
             if rec.get("audio_path"):
                 spec_png = _render_spectrogram_thumb(rec["audio_path"])
                 if spec_png and spec_png.exists():
                     try:
-                        right_bits.append(Spacer(1, 4))
+                        right_bits.append(Spacer(1, 6))
                         right_bits.append(Image(
                             str(spec_png), width=2.6*inch, height=0.9*inch,
                             kind="proportional"))
+                        spec_embedded = True
                     except Exception as _exc:
                         print(f"spec embed failed: {_exc}")
-            links = []
-            if rec.get("wikipedia"):
-                links.append(
-                    f'<a href="{rec["wikipedia"]}">Wikipedia</a>')
-            if rec.get("inaturalist"):
-                links.append(
-                    f'<a href="{rec["inaturalist"]}">iNaturalist</a>')
-            if links:
-                right_bits.append(Paragraph(" · ".join(links), h_caption))
+
+            # Audio credit BELOW the spectrogram
+            if rec.get("audio_attribution"):
+                aa = _tag_runs(format_credit_html(rec["audio_attribution"]),
+                                _SCRIPT_FONTS, _BODY_FONT)
+                right_bits.append(Spacer(1, 2 if spec_embedded else 4))
+                right_bits.append(Paragraph(aa, h_caption))
             tbl = Table(
                 [[left_cell or "", right_bits]],
                 colWidths=[1.5*inch, (PAGE_W - 2*MARGIN) - 1.5*inch - 8],

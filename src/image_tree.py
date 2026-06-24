@@ -87,10 +87,11 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
         elif node.name:
             from src.render import _format_clade_name
             ax.plot(nx, ny, "o", color=PLAIN, ms=5, zorder=3)
+            # Match T1's amber/orange clade-label color
             ax.text(nx - 0.12, ny - 0.28,
                     _format_clade_name(node.name),
-                    color=TIP_TEXT, fontsize=7, ha="right",
-                    style="italic", alpha=0.7)
+                    color=LABEL, fontsize=7, ha="right",
+                    style="italic", alpha=0.85)
         else:
             ax.plot(nx, ny, "o", color=PLAIN, ms=4, zorder=3)
     ax.set_xlim(-0.6, max_depth + 6)

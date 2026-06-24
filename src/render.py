@@ -468,13 +468,13 @@ def _legend_band(svg_or_html: str) -> str:
         'dominant-baseline="middle">'
         '<tspan font-weight="bold">Clade</tspan> '
         '— ancestral node, divergence age not added (teal)</text>'
-        # mya footnote
-        '<text x="450" y="95.3%" fill="#9ab3ab" '
+        '</g>'
+        # mya footnote — bottom-right corner of the SVG
+        '<text x="98%" y="97%" fill="#9ab3ab" '
         'font-family="Helvetica,Arial,sans-serif" font-size="9" '
-        'font-style="italic" dominant-baseline="middle">'
+        'font-style="italic" text-anchor="end">'
         'numbers are millions of years (mya) since the last common ancestor'
         '</text>'
-        '</g>'
     )
     # Insert right before the CC footer text (which ends just before </svg>).
     # Easiest: insert just before </svg>.
