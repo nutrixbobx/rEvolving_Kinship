@@ -61,29 +61,26 @@ def _format_clade_name(raw: str | None) -> str:
 
 
 def _chain_combined_label(node, dated: set, meta: dict) -> str:
-    """Build the label for one dated clade.
+    """Combine a chain of dated clades into one single-line label using
+    arrow separators. Toyplot/toytree concatenates labels with newlines
+    so '\n' doesn't render as a line break — instead we use ' ← ' which
+    reads as 'descended from' and keeps everything on one horizontal
+    line, preventing the stacked-overlap problem in rectangular layouts.
 
-    If this clade is the INNERMOST dated clade in a single-child chain
-    of dated ancestors (i.e. it has no dated non-leaf child), walk UP
-    the chain and return all chain members' labels joined on newlines
-    (root-most first). Otherwise return "" so the label is suppressed
-    (the dot still draws).
-
-    Fixes the rectangular-layout overlap: chains like Eukaryota →
-    Eumetazoa → Amniota → Boreoeutheria all collapse to one Y in toytree's
-    rectangular layout. By combining them into one multi-line label at
-    the innermost node, we keep every age visible without any overlap."""
+    Returns the combined label ONLY for the innermost dated clade in a
+    chain (no dated non-leaf child); empty string for other chain
+    members so their labels are suppressed (dots still draw)."""
     for child in (node.children or []):
         if child.name in dated and not child.is_leaf():
-            return ""  # not innermost
+            return ""
     chain = []
     cur = node
     while cur is not None and cur.name in dated:
         info = meta.get(cur.name, {})
-        chain.append(f"{_format_clade_name(cur.name)}, {info.get('mya')}")
+        chain.append(f"{_format_clade_name(cur.name)} {info.get('mya')}")
         cur = cur.up
-    chain.reverse()
-    return "\n".join(chain)
+    # Innermost-first: 'Boreoeutheria 96 ← Amniota 312 ← Eumetazoa 600 ← Eukaryota 1500'
+    return " ← ".join(chain)
 
 
 
@@ -147,7 +144,8 @@ def _collapse_unary(newick_path, dated: set) -> str:
 def _prepare(newick_path, meta: dict, pal: dict, *,
              collapse: bool, plain_visible: bool, show_dated_labels: bool,
              show_undated_labels: bool = True,
-             show_scientific: bool = True):
+             show_scientific: bool = True,
+             layout: str = "r"):
     """Build the toytree object plus the idx-ordered style lists. The flags let
     each layout (rectangular / unrooted / circular) choose how dense to draw.
     """
@@ -176,11 +174,16 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["dated_size"]
             colors[i] = pal["dated"]
             if show_dated_labels:
-                lbl = _chain_combined_label(node, dated, meta)
-                # _chain_combined_label returns "" for non-innermost
-                # nodes in a chain, and the full chain text (one clade
-                # per line) for the innermost. No more overlap.
-                nlabels[i] = lbl
+                # Chain-combine ONLY in rectangular (where labels stack
+                # at the same Y for chains of single-child dated nodes).
+                # In unrooted/circular each clade has its own spatial
+                # position so we render labels individually.
+                if layout == "r":
+                    nlabels[i] = _chain_combined_label(node, dated, meta)
+                else:
+                    nlabels[i] = (
+                        f"{_format_clade_name(node.name)}, "
+                        f"{info.get('mya')}")
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
@@ -246,6 +249,7 @@ def _draw(newick_path, meta: dict, layout: str,
         collapse=s["collapse"], plain_visible=s["plain_visible"],
         show_dated_labels=s["show_dated_labels"],
         show_undated_labels=s.get("show_undated_labels", True),
+        layout=layout,
         show_scientific=show_scientific,
     )
     return tre.draw(

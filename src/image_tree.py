@@ -101,15 +101,31 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
 
 
 def draw_header(fig, tree_name):
-    """Small mark in the top-left, per-tree title centered. Shared with
-    spectrogram_tree so both graphics carry the same identity."""
+    """Project mark + 2-line slogan top-left, per-tree title top-center.
+    Mirrors the unrooted SVG header band so the rectangular T1 output
+    feels polished and consistent with T0/T2."""
     from src import tree_settings
     fig.text(0.02, 0.985, tree_settings.PROJECT_MARK, color=LABEL,
-             fontsize=12, weight="bold", ha="left", va="top", family="serif")
-    fig.text(0.02, 0.962, tree_settings.PROJECT_SLOGAN, color=TIP_TEXT,
-             fontsize=9, ha="left", va="top", alpha=0.65)
+             fontsize=13, weight="bold", ha="left", va="top",
+             family="serif")
+    slogan = tree_settings.PROJECT_SLOGAN
+    words = slogan.split()
+    target = len(slogan) // 2
+    running, split_at = 0, 1
+    for i, w in enumerate(words):
+        running += len(w) + 1
+        if running >= target:
+            split_at = i + 1
+            break
+    line1 = " ".join(words[:split_at])
+    line2 = " ".join(words[split_at:])
+    fig.text(0.02, 0.965, line1, color=TIP_TEXT,
+             fontsize=8, ha="left", va="top", alpha=0.62, style="italic")
+    fig.text(0.02, 0.948, line2, color=TIP_TEXT,
+             fontsize=8, ha="left", va="top", alpha=0.62, style="italic")
     fig.text(0.50, 0.985, tree_settings.title_for(tree_name),
-             color=TIP_TEXT, fontsize=14, ha="center", va="top", style="italic")
+             color=TIP_TEXT, fontsize=14, ha="center", va="top",
+             style="italic")
 
 
 

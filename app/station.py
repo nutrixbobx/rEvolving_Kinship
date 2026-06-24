@@ -712,130 +712,178 @@ if active_tab == "Dashboard":
         st.divider()
         # Bottom action row: rename + photo trees + PDF (build button is
         # at the top of the side column, no need to duplicate here).
-        build_col, rename_col = st.columns([1, 2])
+        # Artifacts take 3/4 width; rename fits in 1/4 on the right.
+        build_col, rename_col = st.columns([3, 1])
         with build_col:
+            # ═══════════════════════════════════════════════════════════
+            # Generated artifacts. Order Maya asked for: Report at top,
+            # then T1+T2 side-by-side, then Spec Blend + Range map
+            # side-by-side, then Credits at the bottom.
+            # ═══════════════════════════════════════════════════════════
             st.markdown("---")
-            st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
-            st.caption("Combined view: rectangular tree with each "
-                       "species' photo AND a small spectrogram of its "
-                       "recorded voice on the same row. Credits live "
-                       "in the third column.")
-            photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
-            if photo_audio.exists():
-                st.image(photo_audio.read_bytes())
-                st.download_button(
-                    "Download Photo-Spectral Tree (.png)",
-                    photo_audio.read_bytes(),
-                    file_name=photo_audio.name,
-                    mime="image/png",
-                    key=f"photoaudio_dl_{pick_tree}")
-            if st.button("Build / refresh Photo-Spectral Tree",
-                         key=f"photoaudio_{pick_tree}"):
-                with st.spinner("Fetching photos + audio, rendering "
-                                  "spectrograms, composing the tree."):
-                    try:
-                        from src import photo_audio_tree
-                        photo_audio_tree.build_photo_audio_tree(pick_tree)
-                        st.success("Built.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Combined tree build failed: {exc}")
 
-            st.markdown("---")
-            st.markdown("**Spectrogram Blend**")
-            st.caption("Every species' spectrogram averaged into one "
-                       "image — the ecosystem's collective voice.")
-            blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
-            if blend_png.exists():
-                st.image(blend_png.read_bytes())
-                st.download_button(
-                    "Download Spectrogram Blend (.png)",
-                    blend_png.read_bytes(),
-                    file_name=blend_png.name,
-                    mime="image/png",
-                    key=f"specblend_dl_{pick_tree}")
-            if st.button("Build / refresh Spectrogram Blend",
-                         key=f"specblend_{pick_tree}"):
-                with st.spinner("Overlaying every spectrogram..."):
-                    try:
-                        from src import spectrogram_blend
-                        spectrogram_blend.build_spectrogram_blend(pick_tree)
-                        st.success("Built.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Spectrogram Blend build failed: {exc}")
-
-            st.markdown("---")
-            st.markdown("**T2 — Unrooted Tree with Photos**")
-            st.caption("Same tree, but with a small circular photo at "
-                       "each species tip instead of in a side column.")
-            photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
-            if photo_tips.exists():
-                st.image(photo_tips.read_bytes())
-                st.download_button(
-                    "Download Unrooted Tree with Photos (.png)",
-                    photo_tips.read_bytes(),
-                    file_name=photo_tips.name,
-                    mime="image/png",
-                    key=f"phototips_dl_{pick_tree}")
-            if st.button("Build / refresh Unrooted Tree with Photos",
-                         key=f"phototips_{pick_tree}"):
-                with st.spinner("Fetching photos + drawing tip thumbnails."):
-                    try:
-                        from src import photo_tip_tree
-                        photo_tip_tree.build_photo_tip_tree(pick_tree)
-                        st.success("Built.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Photo-tip tree build failed: {exc}")
-
-            st.markdown("---")
-            st.markdown("**All credits (.txt)**")
-            st.caption("Every species' photo + audio attribution in one "
-                       "plaintext file, with license links.")
-            credits_txt = config.OUTPUT_DIR / f"{stem}_credits.txt"
-            if credits_txt.exists():
-                st.download_button(
-                    "Download credits (.txt)", credits_txt.read_bytes(),
-                    file_name=credits_txt.name, mime="text/plain",
-                    key=f"credits_dl_{pick_tree}")
-            if st.button("Build / refresh credits",
-                         key=f"credits_build_{pick_tree}"):
-                with st.spinner("Aggregating per-species credits..."):
-                    try:
-                        from src.credits import write_credits_txt
-                        write_credits_txt(pick_tree, credits_txt)
-                        st.success("Built.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Credits build failed: {exc}")
-
-            st.markdown("---")
-            st.markdown("**Personalized kinship report (PDF)**")
-            st.caption("Multi-page: unrooted layout, blurb + about the "
-                       "project, license + footprint, then one listening "
-                       "card per species with photo, summary, attributions.")
+            # ─── Personalized kinship report (TOP) ─────────────────────
+            st.markdown("### Personalized kinship report (PDF)")
+            st.caption("Five-page report: hero unrooted-with-photos, "
+                       "project info + license + footprint, photo-"
+                       "spectral tree, spectrogram blend + range map, "
+                       "credits, kin cards.")
             press_pdf_path = config.OUTPUT_DIR / f"{stem}_kinship_report.pdf"
-            if press_pdf_path.exists():
-                st.download_button(
-                    "Download kinship report (.pdf)",
-                    press_pdf_path.read_bytes(),
-                    file_name=press_pdf_path.name,
-                    mime="application/pdf",
-                    key=f"presspdf_dl_{pick_tree}")
-            if st.button("Build / refresh kinship report",
-                         key=f"presspdf_{pick_tree}"):
-                with st.spinner("Composing the kinship report. This can take a minute "
-                                  "if photos are being fetched for the "
-                                  "first time."):
-                    try:
-                        from src import press_pdf
-                        press_pdf.build_press_pdf(pick_tree)
-                        st.success("Built. Click the download button "
-                                    "above.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"PDF build failed: {exc}")
+            _rep_cols = st.columns([1, 1])
+            with _rep_cols[0]:
+                if st.button("Build / refresh kinship report",
+                             key=f"presspdf_{pick_tree}",
+                             type="primary",
+                             use_container_width=True):
+                    with st.spinner("Composing the kinship report. "
+                                      "This can take a minute if photos "
+                                      "are being fetched for the first "
+                                      "time."):
+                        try:
+                            from src import press_pdf
+                            press_pdf.build_press_pdf(pick_tree)
+                            st.success("Built. Download below.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"PDF build failed: {exc}")
+            with _rep_cols[1]:
+                if press_pdf_path.exists():
+                    st.download_button(
+                        "Download kinship report (.pdf)",
+                        press_pdf_path.read_bytes(),
+                        file_name=press_pdf_path.name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"presspdf_dl_{pick_tree}")
+
+            # ─── T1 + T2 side-by-side ─────────────────────────────────
+            st.markdown("---")
+            st.markdown("### Tree variants")
+            _tree_cols = st.columns(2)
+            with _tree_cols[0]:
+                st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
+                photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
+                if photo_audio.exists():
+                    st.image(photo_audio.read_bytes())
+                    st.download_button(
+                        "Download (.png)", photo_audio.read_bytes(),
+                        file_name=photo_audio.name, mime="image/png",
+                        use_container_width=True,
+                        key=f"photoaudio_dl_{pick_tree}")
+                if st.button("Build / refresh T1",
+                             key=f"photoaudio_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Fetching photos + audio, rendering "
+                                      "spectrograms, composing tree."):
+                        try:
+                            from src import photo_audio_tree
+                            photo_audio_tree.build_photo_audio_tree(
+                                pick_tree)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"T1 build failed: {exc}")
+            with _tree_cols[1]:
+                st.markdown("**T2 — Unrooted Tree with Photos**")
+                photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
+                if photo_tips.exists():
+                    st.image(photo_tips.read_bytes())
+                    st.download_button(
+                        "Download (.png)", photo_tips.read_bytes(),
+                        file_name=photo_tips.name, mime="image/png",
+                        use_container_width=True,
+                        key=f"phototips_dl_{pick_tree}")
+                if st.button("Build / refresh T2",
+                             key=f"phototips_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Fetching photos + drawing "
+                                      "tip thumbnails."):
+                        try:
+                            from src import photo_tip_tree
+                            photo_tip_tree.build_photo_tip_tree(pick_tree)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"T2 build failed: {exc}")
+
+            # ─── Spectrogram Blend + Range map side-by-side ───────────
+            st.markdown("---")
+            st.markdown("### Composites")
+            _comp_cols = st.columns(2)
+            with _comp_cols[0]:
+                st.markdown("**Spectrogram Blend**")
+                blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
+                if blend_png.exists():
+                    st.image(blend_png.read_bytes())
+                    st.download_button(
+                        "Download (.png)", blend_png.read_bytes(),
+                        file_name=blend_png.name, mime="image/png",
+                        use_container_width=True,
+                        key=f"specblend_dl_{pick_tree}")
+                if st.button("Build / refresh blend",
+                             key=f"specblend_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Overlaying every spectrogram..."):
+                        try:
+                            from src import spectrogram_blend
+                            spectrogram_blend.build_spectrogram_blend(
+                                pick_tree)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Blend build failed: {exc}")
+            with _comp_cols[1]:
+                st.markdown("**Range map (static)**")
+                range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
+                if range_png.exists():
+                    st.image(range_png.read_bytes())
+                    st.download_button(
+                        "Download (.png)", range_png.read_bytes(),
+                        file_name=range_png.name, mime="image/png",
+                        use_container_width=True,
+                        key=f"rangemap_dl_{pick_tree}")
+                if st.button("Build / refresh range map",
+                             key=f"rangemap_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Fetching CARTO basemap + GBIF "
+                                      "density per species. ~30s."):
+                        try:
+                            from src import range_map_static
+                            range_map_static.build_range_map(pick_tree)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Range map build failed: {exc}")
+
+            # ─── Credits at bottom ────────────────────────────────────
+            st.markdown("---")
+            st.markdown("### All credits (.txt)")
+            st.caption("Every species' photo + audio attribution, with "
+                       "license links.")
+            credits_txt = config.OUTPUT_DIR / f"{stem}_credits.txt"
+            _cred_cols = st.columns([1, 1])
+            with _cred_cols[0]:
+                if st.button("Build / refresh credits",
+                             key=f"credits_build_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Aggregating credits..."):
+                        try:
+                            from src.credits import write_credits_txt
+                            write_credits_txt(pick_tree, credits_txt)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Credits build failed: {exc}")
+            with _cred_cols[1]:
+                if credits_txt.exists():
+                    st.download_button(
+                        "Download credits (.txt)",
+                        credits_txt.read_bytes(),
+                        file_name=credits_txt.name,
+                        mime="text/plain",
+                        use_container_width=True,
+                        key=f"credits_dl_{pick_tree}")
+
         with rename_col:
             new_name = st.text_input("Rename this tree", value=pick_tree,
                                      key=f"rename_{pick_tree}")
@@ -1087,33 +1135,6 @@ if active_tab == "Dashboard":
 
         # ------- Energy + offset invitation -------------------------------
         st.divider()
-        totals = usage_log.get_totals()
-        tree_wh = usage_log.tree_total(pick_tree)
-        last = usage_log.last_event_summary()
-        st.markdown(f"#### Approximate footprint of *{pick_tree}*")
-        if tree_wh > 0:
-            st.markdown(
-                f"This tree has used about **{tree_wh} Wh** of electricity "
-                f"({usage_log.relatable(tree_wh)}) and "
-                f"**{usage_log.wh_to_water_ml(tree_wh):.0f} mL of water** "
-                f"({usage_log.water_relatable(tree_wh)}) for data-center cooling.")
-        else:
-            st.caption("This tree has not been built yet, so no measurable "
-                       "electricity or water has been used for it.")
-        if last and last.get("tree") == pick_tree:
-            st.caption(
-                f"Last build event · {last['type']} · {last['wh']} Wh "
-                f"({last['relatable']})")
-        st.markdown(usage_log.invitation(pick_tree))
-        st.markdown(
-            f'<div style="color:#9ab3ab;font-size:11px;margin-top:8px">'
-            f'Across the whole app: {totals["events"]} builds, '
-            f'about {totals["total_wh"]} Wh '
-            f'(~{totals["total_co2_g"]:.1f} g CO₂eq, '
-            f'{usage_log.wh_to_water_ml(totals["total_wh"]):.0f} mL of water).'
-            f'</div>',
-            unsafe_allow_html=True)
-
         # ------- Listen to each species (lazy: opt-in to load) ------
         st.divider()
         st.markdown("### Listen to each species")
@@ -1232,6 +1253,33 @@ if active_tab == "Dashboard":
             st.warning(f"Listen section failed: {_listen_exc}")
             if auth.is_admin():
                 st.code(traceback.format_exc(), language="python")
+
+        totals = usage_log.get_totals()
+        tree_wh = usage_log.tree_total(pick_tree)
+        last = usage_log.last_event_summary()
+        st.markdown(f"#### Approximate footprint of *{pick_tree}*")
+        if tree_wh > 0:
+            st.markdown(
+                f"This tree has used about **{tree_wh} Wh** of electricity "
+                f"({usage_log.relatable(tree_wh)}) and "
+                f"**{usage_log.wh_to_water_ml(tree_wh):.0f} mL of water** "
+                f"({usage_log.water_relatable(tree_wh)}) for data-center cooling.")
+        else:
+            st.caption("This tree has not been built yet, so no measurable "
+                       "electricity or water has been used for it.")
+        if last and last.get("tree") == pick_tree:
+            st.caption(
+                f"Last build event · {last['type']} · {last['wh']} Wh "
+                f"({last['relatable']})")
+        st.markdown(usage_log.invitation(pick_tree))
+        st.markdown(
+            f'<div style="color:#9ab3ab;font-size:11px;margin-top:8px">'
+            f'Across the whole app: {totals["events"]} builds, '
+            f'about {totals["total_wh"]} Wh '
+            f'(~{totals["total_co2_g"]:.1f} g CO₂eq, '
+            f'{usage_log.wh_to_water_ml(totals["total_wh"]):.0f} mL of water).'
+            f'</div>',
+            unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------

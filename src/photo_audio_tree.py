@@ -151,9 +151,9 @@ def build_photo_audio_tree(tree_name: str,
 
     # Layout: tree on left (50%), photo column (15%), spectrogram column
     # (28%), attribution column (rest)
-    # Tighter horizontal layout — less empty space between tree and
-    # photos. Tree shrinks to 42%; photo column starts at 44%.
-    tree_l, tree_b, tree_w, tree_h = 0.02, 0.07, 0.42, 0.88
+    # Tighter horizontal layout. Header reserves top 12% so title +
+    # slogan are clear of the tree (parity with the unrooted SVG).
+    tree_l, tree_b, tree_w, tree_h = 0.02, 0.08, 0.42, 0.80
     ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
     image_tree._draw_tree(ax_tree, tre, pos, meta, dated, max_depth, n)
 
@@ -161,9 +161,9 @@ def build_photo_audio_tree(tree_name: str,
     # use the tree's actual tip Y positions so every photo lines up
     # vertically with its tip dot.
     photo_left = 0.44
-    photo_w = 0.10
-    spec_left = photo_left + photo_w + 0.010
-    spec_w = 0.42  # widened since attribution column was removed
+    photo_w = 0.07          # smaller per Maya
+    spec_left = photo_left + photo_w + 0.012
+    spec_w = 0.45
 
     # tree axes span: figure_y(tip i) = tree_b + tree_h - (i/(n-1)) * tree_h
     # for n>=2. For n=1, center the single row.
