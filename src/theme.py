@@ -214,14 +214,22 @@ input:focus, textarea:focus, select:focus {{
 /* Primary button: warm accent for build CTAs */
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
   background: var(--kn-warm);
-  color: #3a0124;  /* deep crimson on amber for readability */
+  color: #3a0124 !important;  /* deep crimson on amber */
   border-color: var(--kn-warm);
-  font-weight: 600;
+  font-weight: 700;
+}}
+.stButton > button[kind="primary"] p,
+.stFormSubmitButton > button[kind="primary"] p {{
+  /* Streamlit wraps button text in a <p>; force the dark color there too */
+  color: #3a0124 !important;
 }}
 .stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primary"]:hover {{
   background: #dde29d;
   border-color: #dde29d;
+  color: #3a0124 !important;
 }}
+.stButton > button[kind="primary"]:hover p,
+.stFormSubmitButton > button[kind="primary"]:hover p {{ color: #3a0124 !important; }}
 .stButton > button:disabled {{
   opacity: 0.55; cursor: not-allowed;
 }}
@@ -504,6 +512,21 @@ input:focus, textarea:focus, select:focus {{
 }}
 [data-testid="stRadio"] label[aria-label="Section"] + div label > div:first-child {{
   display: none;
+}}
+
+
+
+/* Checkbox + radio glyphs: dark violet against the cream bg (was hard
+   to see in pale amber). */
+[data-testid="stCheckbox"] svg,
+[data-testid="stRadio"] svg {{
+  color: var(--kn-bg) !important;
+  fill: var(--kn-bg) !important;
+}}
+[data-testid="stCheckbox"] label > div:first-child,
+[data-testid="stRadio"] label > div:first-child {{
+  background: var(--kn-accent) !important;
+  border-color: var(--kn-bg) !important;
 }}
 
 </style>

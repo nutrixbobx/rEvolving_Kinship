@@ -473,24 +473,34 @@ if active_tab == "Dashboard":
         with side:
             # Visible build button up here so mobile users don't have to scroll
             # past the whole page to find it.
-            if st.button(f"Build / refresh  “{pick_tree}”",
-                         type="primary",
-                         key=f"build_top_{pick_tree}",
-                         use_container_width=True):
-                with st.spinner("Resolving taxonomy, building the tree, "
-                                "rendering, and sonifying. The first ever run "
-                                "also downloads the NCBI taxonomy, which takes "
-                                "a few minutes."):
-                    try:
-                        from src import pipeline
-                        pipeline.run(pick_tree)
-                        st.success("Built. Reloading.")
-                        st.rerun()
-                    except SystemExit as exc:
-                        st.error(str(exc))
-                    except Exception as exc:
-                        st.error(f"Build failed: {exc}")
-            st.markdown("&nbsp;")
+            # Row 1: Build + Download nwk side by side (Maya wants these
+            # near each other since they're related actions)
+            top_cols = st.columns([2, 1])
+            with top_cols[0]:
+                if st.button(f"Build / refresh  “{pick_tree}”",
+                             type="primary",
+                             key=f"build_top_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Resolving taxonomy, building the tree, "
+                                    "rendering, and sonifying. The first "
+                                    "ever run also downloads the NCBI "
+                                    "taxonomy (~5 min)."):
+                        try:
+                            from src import pipeline
+                            pipeline.run(pick_tree)
+                            st.success("Built. Reloading.")
+                            st.rerun()
+                        except SystemExit as exc:
+                            st.error(str(exc))
+                        except Exception as exc:
+                            st.error(f"Build failed: {exc}")
+            with top_cols[1]:
+                if nwk.exists():
+                    st.download_button(".nwk", nwk.read_bytes(),
+                                       file_name=nwk.name,
+                                       mime="text/plain",
+                                       use_container_width=True,
+                                       key=f"nwk_top_{pick_tree}")
             layout_name = st.radio("Layout", list(render_mod.LAYOUTS.keys()))
             show_sci = st.checkbox("Show scientific names", value=True)
             zoom_pct = st.slider(
@@ -502,45 +512,7 @@ if active_tab == "Dashboard":
             st.caption(f"{len(df)} species, {n_dated} dated node(s). "
                        "Legend + 'mya' explanation are inside every "
                        "exported tree. Hover any node for its details.")
-            if wav.exists():
-                st.markdown("**Hear the ecosystem chord**")
-                st.audio(wav.read_bytes(), format="audio/wav")
-            if mid.exists():
-                st.download_button("Download chord (.mid)", mid.read_bytes(),
-                                   file_name=mid.name, mime="audio/midi")
-            if nwk.exists():
-                st.download_button("Download tree (.nwk)", nwk.read_bytes(),
-                                   file_name=nwk.name, mime="text/plain")
 
-            st.markdown("**Meditation track**")
-            med_min = st.radio("Length", [1, 2, 5],
-                               format_func=lambda m: f"{m} min",
-                               horizontal=True, key=f"med_min_{pick_tree}")
-            med_secs = med_min * 60
-            med_path = config.OUTPUT_DIR / f"{stem}_meditation_{med_secs}s.wav"
-            if med_path.exists():
-                st.audio(med_path.read_bytes(), format="audio/wav")
-                st.download_button(f"Download {med_min} min meditation",
-                                   med_path.read_bytes(),
-                                   file_name=med_path.name,
-                                   mime="audio/wav",
-                                   key=f"med_dl_{pick_tree}_{med_secs}")
-            if st.button(f"Build {med_min} min meditation",
-                         key=f"med_build_{pick_tree}_{med_secs}"):
-                with st.spinner("Blending the chord and the chorus into a "
-                                f"{med_min} minute track."):
-                    try:
-                        from src import meditation
-                        res = meditation.build_meditation(pick_tree, med_secs)
-                        if res is None:
-                            st.info("Need a dated clade (the chord) to build a "
-                                    "meditation track. Rebuild this tree first.")
-                        else:
-                            st.success(f"Built {med_min} min meditation "
-                                       f"({'with chorus' if res['has_chorus'] else 'chord only, no chorus yet'}).")
-                            st.rerun()
-                    except Exception as exc:
-                        st.error(f"Build failed: {exc}")
             with st.expander("Quick look at a species", expanded=False):
                 sci_names = sorted(df["scientific_name"].dropna().unique().tolist())
                 ql = st.selectbox("Pick", [""] + sci_names,
@@ -575,26 +547,76 @@ if active_tab == "Dashboard":
                 st.success(f"Wrote {p.name}. Upload it at timetree.org, save the "
                            f"result as data/{stem}_timetree.nwk, then rebuild.")
 
-            chorus = config.OUTPUT_DIR / f"{stem}_chorus.wav"
+            # ━━━ Kinship Sonification ━━━
             st.markdown("---")
+            st.markdown("### Kinship Sonification")
+            chorus = config.OUTPUT_DIR / f"{stem}_chorus.wav"
+
+            # 1. Kinship chord (ecosystem chord)
+            st.markdown("**Kinship chord**")
+            if wav.exists():
+                st.audio(wav.read_bytes(), format="audio/wav")
+            if mid.exists():
+                st.download_button("Download chord (.mid)",
+                                    mid.read_bytes(),
+                                    file_name=mid.name,
+                                    mime="audio/midi",
+                                    key=f"chord_dl_{pick_tree}")
+
+            # 2. Animal chorus
             st.markdown("**Animal chorus**")
             if chorus.exists():
                 st.audio(chorus.read_bytes(), format="audio/wav")
-            if st.button("Build / refresh chorus", key=f"chorus_{pick_tree}"):
-                with st.spinner("Fetching recordings from Xeno-Canto + Wikipedia, and "
-                                "blending them. First run for new species "
-                                "downloads; later runs use the cache."):
+            if st.button("Build / refresh chorus",
+                         key=f"chorus_{pick_tree}"):
+                with st.spinner("Fetching recordings from Xeno-Canto + "
+                                  "Wikipedia and blending."):
                     try:
                         from src import audio_blend
                         res = audio_blend.build_chorus(pick_tree)
                         if res is None:
-                            st.info("No recordings found for any species "
-                                    "in this tree.")
+                            st.info("No recordings found.")
                         else:
-                            st.success(f"Built chorus with {len(res['voices'])} voice(s).")
+                            st.success(
+                                f"Built chorus with "
+                                f"{len(res['voices'])} voice(s).")
                             st.rerun()
                     except Exception as exc:
                         st.error(f"Chorus build failed: {exc}")
+
+            # 3. Meditation track
+            st.markdown("**Meditation track**")
+            med_min = st.radio("Length", [1, 2, 5],
+                               format_func=lambda m: f"{m} min",
+                               horizontal=True,
+                               key=f"med_min_{pick_tree}")
+            med_secs = med_min * 60
+            med_path = config.OUTPUT_DIR / f"{stem}_meditation_{med_secs}s.wav"
+            if med_path.exists():
+                st.audio(med_path.read_bytes(), format="audio/wav")
+                st.download_button(
+                    f"Download {med_min} min meditation",
+                    med_path.read_bytes(), file_name=med_path.name,
+                    mime="audio/wav",
+                    key=f"med_dl_{pick_tree}_{med_secs}")
+            if st.button(f"Build {med_min} min meditation",
+                         key=f"med_build_{pick_tree}_{med_secs}"):
+                with st.spinner(f"Blending the chord and the chorus into "
+                                  f"a {med_min} min track."):
+                    try:
+                        from src import meditation
+                        res = meditation.build_meditation(pick_tree,
+                                                            med_secs)
+                        if res is None:
+                            st.info("Need a dated clade (the chord) to "
+                                    "build a meditation track.")
+                        else:
+                            st.success(
+                                f"Built {med_min} min meditation "
+                                f"({'with chorus' if res['has_chorus'] else 'chord only'}).")
+                            st.rerun()
+                    except Exception as exc:
+                        st.error(f"Build failed: {exc}")
         with view:
             if nwk.exists() and meta:
                 html = render_mod.render_html(
@@ -663,7 +685,7 @@ if active_tab == "Dashboard":
         build_col, rename_col = st.columns([1, 2])
         with build_col:
             st.markdown("---")
-            st.markdown("**Photo-Spectral Tree** (T2, rectangular)")
+            st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
             st.caption("Combined view: rectangular tree with each "
                        "species' photo AND a small spectrogram of its "
                        "recorded voice on the same row. Credits live "
@@ -714,7 +736,7 @@ if active_tab == "Dashboard":
                         st.error(f"Spectrogram Blend build failed: {exc}")
 
             st.markdown("---")
-            st.markdown("**Unrooted Tree with Photos** (T3)")
+            st.markdown("**T2 — Unrooted Tree with Photos**")
             st.caption("Same tree, but with a small circular photo at "
                        "each species tip instead of in a side column.")
             photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
@@ -736,6 +758,27 @@ if active_tab == "Dashboard":
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Photo-tip tree build failed: {exc}")
+
+            st.markdown("---")
+            st.markdown("**All credits (.txt)**")
+            st.caption("Every species' photo + audio attribution in one "
+                       "plaintext file, with license links.")
+            credits_txt = config.OUTPUT_DIR / f"{stem}_credits.txt"
+            if credits_txt.exists():
+                st.download_button(
+                    "Download credits (.txt)", credits_txt.read_bytes(),
+                    file_name=credits_txt.name, mime="text/plain",
+                    key=f"credits_dl_{pick_tree}")
+            if st.button("Build / refresh credits",
+                         key=f"credits_build_{pick_tree}"):
+                with st.spinner("Aggregating per-species credits..."):
+                    try:
+                        from src.credits import write_credits_txt
+                        write_credits_txt(pick_tree, credits_txt)
+                        st.success("Built.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Credits build failed: {exc}")
 
             st.markdown("---")
             st.markdown("**Personalized kinship report (PDF)**")

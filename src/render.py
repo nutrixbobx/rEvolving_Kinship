@@ -77,7 +77,7 @@ _LIGHT = {
     "bg": "#f7f3ec", "leaf": "#1f8f6a", "dated": "#d27d2c",
     "plain": "#b9c4bd", "edge": "#7e988f", "tip": "#23332e",
     "label": "#a85a1f", "align": "#d4ddd6", "nodestroke": "#ffffff",
-    "w": 1150, "h": 980, "shrink": 200,
+    "w": 1200, "h": 1180, "shrink": 240,
     # plain dots stay small in the static render (no hover to worry about)
     "leaf_size": 7, "dated_size": 9, "plain_size": 4,
 }
@@ -149,7 +149,14 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["dated_size"]
             colors[i] = pal["dated"]
             if show_dated_labels:
-                nlabels[i] = f"{_format_clade_name(node.name)}, {info.get('mya')}"
+                # Alternate-offset trick: every other dated label gets a
+                # leading newline so adjacent clades don't visually stack.
+                lbl = f"{_format_clade_name(node.name)}, {info.get('mya')}"
+                # Use idx parity so the pattern is stable across renders
+                if i % 2 == 1:
+                    nlabels[i] = "\n" + lbl
+                else:
+                    nlabels[i] = lbl + "\n"
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]

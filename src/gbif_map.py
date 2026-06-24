@@ -31,13 +31,16 @@ CACHE_PATH = config.OUTPUT_DIR / "gbif_keys.json"
 
 # Six distinct GBIF heatmap styles. Each species in a tree gets one in order
 # so neighboring species read as visually different on the same map.
+# GBIF v2 styles. '-noborder' suffix is only valid for .poly variants —
+# with .point variants the API silently falls back to a default style
+# (yellow), which is what made every species look the same on the map.
 GBIF_STYLES = [
-    ("fire-noborder.point",         "#f0a24a", "fire"),
-    ("greenHeat-noborder.point",    "#46c79a", "green"),
-    ("blueHeat-noborder.point",     "#7aa6cc", "blue"),
-    ("purpleHeat-noborder.point",   "#a85a1f", "purple"),
-    ("purpleYellow-noborder.point", "#ffd97a", "yellow"),
-    ("orangeHeat-noborder.point",   "#c8651b", "orange"),
+    ("fire.point",         "#f0a24a", "fire"),
+    ("greenHeat.point",    "#46c79a", "green"),
+    ("blueHeat.point",     "#7aa6cc", "blue"),
+    ("purpleHeat.point",   "#a85a1f", "purple"),
+    ("purpleYellow.point", "#ffd97a", "yellow"),
+    ("classic.point",      "#c8651b", "classic"),
 ]
 
 

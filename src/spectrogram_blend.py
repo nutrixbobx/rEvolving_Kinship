@@ -58,12 +58,14 @@ def _spec_for_audio(audio_path: Path) -> Path | None:
 
 def build_spectrogram_blend(tree_name: str,
                               out_dir: Path | None = None,
-                              alpha: float = 0.18) -> Path:
+                              mode: str = "max") -> Path:
     """Overlay every species spectrogram in the tree onto a single image.
     Returns the path to outputs/<stem>_spectrogram_blend.png.
 
-    alpha: per-layer translucency (lower = more transparent, more layers
-    survive blending). 0.18 reads well for trees of 10-20 species."""
+    mode: 'max' (default) keeps the BRIGHTEST value at every pixel
+    across all layers — the composite reads as vivid as the brightest
+    individual spectrogram. Use 'mean' for the older washed-out look
+    (kept as opt-in for comparison)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -108,6 +110,7 @@ def build_spectrogram_blend(tree_name: str,
     # Load all spectrogram PNGs, resize to a common shape, blend
     canvas = None
     target_h, target_w = 600, 1800
+    n_layers = 0
     for sp in spec_paths:
         try:
             im = Image.open(sp).convert("RGBA").resize(
@@ -115,10 +118,17 @@ def build_spectrogram_blend(tree_name: str,
             arr = np.array(im).astype(np.float32) / 255.0
             if canvas is None:
                 canvas = np.zeros_like(arr)
-            canvas = canvas + arr * alpha
+            if mode == "max":
+                # Per-pixel maximum across all layers — vivid composite.
+                canvas = np.maximum(canvas, arr)
+            else:
+                # Legacy mean blend — washed-out average.
+                canvas = canvas + arr * (1.0 / max(len(spec_paths), 1))
+            n_layers += 1
         except Exception as exc:
             print(f"  skip {sp.name}: {exc}")
     canvas = np.clip(canvas, 0, 1)
+    print(f"  blended {n_layers} layers via {mode}")
 
     # Save
     fig, ax = plt.subplots(figsize=(14, 5), dpi=150, facecolor=BG)
