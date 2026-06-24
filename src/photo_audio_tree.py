@@ -18,7 +18,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
-from src.credits import format_credit
 
 BG = "#0e1b1a"
 EDGE = "#5f7d75"
@@ -161,10 +160,10 @@ def build_photo_audio_tree(tree_name: str,
     # don't live inline anymore — they go on a credits page in the
     # report, so we can dedicate more room to the spectrogram.
     photo_left = 0.52
-    photo_w = 0.09
-    spec_left = photo_left + photo_w + 0.008
+    photo_w = 0.10
+    spec_left = photo_left + photo_w + 0.012
     spec_w = 0.36
-    attr_left = spec_left + spec_w + 0.008
+    # attribution column dropped; spec gets the leftover width
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})
@@ -202,26 +201,26 @@ def build_photo_audio_tree(tree_name: str,
                     pass
         ax_s.axis("off")
 
-        # Attribution column
-        ax_a = fig.add_axes([attr_left, y_bottom + (row_h - h) / 2,
-                              1 - attr_left - 0.01, h])
-        ax_a.set_facecolor(BG)
-        attr_lines = []
-        if p and p.get("image_attribution"):
-            attr_lines.append('img: ' + format_credit(p['image_attribution'], markdown=False))
-        if a and a.get("attribution"):
-            attr_lines.append('aud: ' + format_credit(a['attribution'], markdown=False))
-        if attr_lines:
-            ax_a.text(0, 0.5, "\\n".join(attr_lines),
-                       color="#9ab3ab", fontsize=6, va="center",
-                       family="monospace")
-        ax_a.axis("off")
+        # Credits no longer rendered inline — they live on the
+        # dedicated page in the kinship report and in the sibling
+        # <stem>_credits.txt file written next to this image.
 
     out_path = out_dir / f"{stem}_photo_audio.png"
     fig.savefig(out_path, dpi=140, facecolor=BG, bbox_inches="tight",
                 pad_inches=0.2)
     plt.close(fig)
     print(f"wrote {out_path}")
+
+    # Sibling credits file alongside the image so every export carries
+    # its credits with it.
+    try:
+        from src.credits import write_credits_txt
+        credits_path = out_dir / f"{stem}_credits.txt"
+        write_credits_txt(tree_name, credits_path)
+        print(f"wrote {credits_path}")
+    except Exception as exc:
+        print(f"credits.txt write failed: {exc}")
+
     return out_path
 
 

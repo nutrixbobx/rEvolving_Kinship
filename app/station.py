@@ -602,7 +602,7 @@ if active_tab == "Dashboard":
                     show_scientific=show_sci, tree_name=pick_tree,
                     zoom=zoom_pct / 100.0,
                 )
-                components.html(html, height=880, scrolling=True)
+                components.html(html, height=740, scrolling=True)
 
                 # Download the current layout (SVG + PNG)
                 dl_cols = st.columns(2)

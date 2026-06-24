@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
-from src.credits import format_credit_html
+from src.credits import format_credit_html, aggregate_tree_credits
 
 # Letter page dims (points)
 PAGE_W, PAGE_H = 612, 792
@@ -504,7 +504,77 @@ def build_press_pdf(tree_name: str,
         '<font color="#a85a1f">Fractured Atlas</font></a>.', h_body))
     story.append(PageBreak())
 
-    # ---- Page 3+: kin cards (one species per row, 3-4 per page) ----
+    # ---- Page 4 (optional): Spectrogram Blend ----
+    blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
+    if not blend_png.exists():
+        try:
+            from src import spectrogram_blend
+            spectrogram_blend.build_spectrogram_blend(tree_name)
+        except Exception as exc:
+            print(f"spectrogram_blend build during PDF failed: {exc}")
+    if blend_png.exists() and blend_png.stat().st_size > 0:
+        story.append(Paragraph(
+            f"{title_text} — spectrogram blend", h_sec))
+        story.append(Paragraph(
+            "Every species' voice averaged into one image: the "
+            "ecosystem's collective spectrogram.", h_body))
+        story.append(Spacer(1, 8))
+        try:
+            max_w = (PAGE_W - 2 * MARGIN)
+            max_h = (PAGE_H - 2 * MARGIN - 100)
+            story.append(Image(str(blend_png),
+                                width=max_w, height=max_h,
+                                kind="proportional"))
+        except Exception as exc:
+            print(f"blend embed failed: {exc}")
+        story.append(PageBreak())
+
+    # ---- Page 5: Credits page (consolidated list, hyperlinked) ----
+    try:
+        cred_rows = aggregate_tree_credits(tree_name)
+    except Exception as exc:
+        print(f"aggregate_tree_credits failed: {exc}")
+        cred_rows = []
+    if cred_rows:
+        story.append(Paragraph("Credits", h_sec))
+        story.append(Paragraph(
+            "Photo and audio per species. License code links to the "
+            "Creative Commons page that defines it.", h_caption))
+        story.append(Spacer(1, 8))
+        for r in cred_rows:
+            head = r["common"] or r["species"]
+            sub = f" <i>({r['species']})</i>" if r["common"] else ""
+            story.append(Paragraph(
+                _tag_runs(f"<b>{head}</b>{sub}", _SCRIPT_FONTS, _BODY_FONT),
+                h_body))
+            if r["photo_credit_html"]:
+                story.append(Paragraph(
+                    _tag_runs(
+                        f"photo: {r['photo_credit_html']}",
+                        _SCRIPT_FONTS, _BODY_FONT),
+                    h_caption))
+            if r["audio_credit_html"]:
+                story.append(Paragraph(
+                    _tag_runs(
+                        f"audio: {r['audio_credit_html']}",
+                        _SCRIPT_FONTS, _BODY_FONT),
+                    h_caption))
+            sub_links = []
+            if r.get("wikipedia_url"):
+                sub_links.append(
+                    f'<a href="{_safe_pdf_url(r["wikipedia_url"])}">'
+                    'Wikipedia</a>')
+            if r.get("inaturalist_url"):
+                sub_links.append(
+                    f'<a href="{_safe_pdf_url(r["inaturalist_url"])}">'
+                    'iNaturalist</a>')
+            if sub_links:
+                story.append(Paragraph(
+                    " · ".join(sub_links), h_caption))
+            story.append(Spacer(1, 6))
+        story.append(PageBreak())
+
+    # ---- Page 5+: kin cards (one species per row, 3-4 per page) ----
     records = _species_records(tree_name)
     if records:
         story.append(Paragraph("Kin cards", h_sec))

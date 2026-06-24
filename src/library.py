@@ -1151,7 +1151,7 @@ def _render_manage() -> None:
 
     tabs = st.tabs([
         "Stories", "Dishes", "Names", "Cultural", "Pantheons & deities",
-        "Trees",
+        "Trees", "Clade dates",
     ])
 
     with tabs[0]:
@@ -1348,6 +1348,9 @@ def _render_manage() -> None:
                     on_delete=lambda tn=r["tree_name"]:
                         db.delete_tree(tn))
 
+    with tabs[6]:
+        _render_clade_dating()
+
 
 def _render_manage_names_table() -> None:
     """Names section uses a per-row id picker because list_all_names()
@@ -1496,4 +1499,86 @@ def _bulk_checkbox(section_key: str, row_id: str) -> None:
         key=f"_bulk_sel_{section_key}_{row_id}",
         label_visibility="collapsed",
     )
+
+
+def _render_clade_dating() -> None:
+    """Library → Manage → Clade dates.
+
+    Editors/admins set divergence_mya (millions of years since last
+    common ancestor) on any clade. Undated clades render as teal dots
+    on every tree until someone sets a date here.
+
+    Sourcing tip in the help: TimeTree of Life (timetree.org) is the
+    standard reference, but any peer-reviewed dated tree works."""
+    from src import theme as _theme
+    _theme.section_heading("Clade dates", kicker="Admin / editor")
+    st.caption(
+        "Set the last-common-ancestor age (in millions of years) for "
+        "any clade in the system. Undated clades show as teal dots; "
+        "once you set an age, they turn amber on every tree.")
+    try:
+        df = db.list_clades_for_dating()
+    except Exception as exc:
+        st.error(f"Couldn't load clades: {exc}")
+        return
+    if df.empty:
+        st.caption("No clades in the database yet. Build a tree first.")
+        return
+    undated = int(df["mya"].isna().sum())
+    st.markdown(
+        f"**{len(df)} clades** total, **{undated}** still undated.")
+
+    # Filter toggle
+    only_undated = st.checkbox(
+        "Show only undated clades", value=True, key="clade_only_undated")
+    view = df[df["mya"].isna()] if only_undated else df
+
+    for _, r in view.iterrows():
+        cols = st.columns([3, 1, 1, 1])
+        with cols[0]:
+            cn = r.get("clade_name") or "(unnamed)"
+            from src.render import _format_clade_name
+            current = r.get("mya")
+            label = f"**{_format_clade_name(cn)}**"
+            if r.get("rank"):
+                label += (f"  <span style='color:#9ab3ab;font-size:11px'>"
+                          f"{r['rank']}</span>")
+            if r.get("species_count"):
+                label += (f"  <span style='color:#9ab3ab;font-size:11px'>"
+                          f"· {int(r['species_count'])} sp.</span>")
+            st.markdown(label, unsafe_allow_html=True)
+        with cols[1]:
+            try:
+                cur_val = float(current) if current is not None else 0.0
+            except (TypeError, ValueError):
+                cur_val = 0.0
+            new_val = st.number_input(
+                "mya",
+                min_value=0.0, max_value=5000.0, step=1.0,
+                value=cur_val,
+                key=f"mya_input_{r['clade_id']}",
+                label_visibility="collapsed",
+            )
+        with cols[2]:
+            if st.button("Save", key=f"mya_save_{r['clade_id']}",
+                          use_container_width=True):
+                v = float(new_val) if new_val > 0 else None
+                try:
+                    db.set_clade_divergence_mya(r["clade_id"], v)
+                    _invalidate_all_caches()
+                    st.success("Saved. Rebuild the tree to see "
+                                "the amber dot.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+        with cols[3]:
+            if current is not None:
+                if st.button("Clear", key=f"mya_clear_{r['clade_id']}",
+                              use_container_width=True):
+                    try:
+                        db.set_clade_divergence_mya(r["clade_id"], None)
+                        _invalidate_all_caches()
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
 

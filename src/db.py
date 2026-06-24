@@ -2204,3 +2204,39 @@ def cleanup_expired_sessions() -> int:
     except Exception:
         return 0
 
+
+# ---------------------------------------------------------------------------
+# Clade dating (admin/editor contributable LCA mya)
+# ---------------------------------------------------------------------------
+def list_clades_for_dating() -> pd.DataFrame:
+    """Every clade currently linked to at least one species, with its
+    current divergence_mya. Editors/admins use this to fill in ages on
+    the undated clades that show up as teal dots on the tree."""
+    return pd.read_sql(text("""
+        SELECT c.clade_id::text AS clade_id,
+               c.name           AS clade_name,
+               c.rank,
+               c.divergence_mya AS mya,
+               c.ncbi_taxid,
+               (SELECT count(*) FROM species_clade sc
+                  WHERE sc.clade_id = c.clade_id) AS species_count
+        FROM clade c
+        WHERE EXISTS (SELECT 1 FROM species_clade sc
+                       WHERE sc.clade_id = c.clade_id)
+        ORDER BY (c.divergence_mya IS NULL) DESC,
+                 c.divergence_mya ASC NULLS LAST,
+                 c.name
+    """), get_engine())
+
+
+def set_clade_divergence_mya(clade_id: str,
+                              mya: float | None) -> int:
+    """Set (or clear, when mya is None) the divergence_mya field on one
+    clade. Returns row count (0 if not found)."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "UPDATE clade SET divergence_mya = :m WHERE clade_id = :i"
+        ), {"m": mya, "i": clade_id})
+        return int(result.rowcount or 0)
+
