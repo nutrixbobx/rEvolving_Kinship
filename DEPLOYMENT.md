@@ -147,7 +147,7 @@ When you change anything locally that you want live, commit and push:
 
 - `src/`, `app/`, `db/`, `data/` — the pipeline code and seed CSVs.
 - `requirements.txt` — needed for Streamlit Cloud to install dependencies.
-- `README.md`, `DEPLOYMENT.md` — your press kit and this guide.
+- `README.md`, `DEPLOYMENT.md` — your project documentation and this deploy guide.
 - `.streamlit/secrets.example.toml` — yes, this template is fine to commit.
 
 Never commit:

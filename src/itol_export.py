@@ -2,7 +2,7 @@
 iTOL dataset files.
 
 iTOL is a free web tool, not a Google product, so it stays as one way to show
-the tree (handy for the press kit). These functions write the three drag-and-drop
+the tree (handy for the kinship report). These functions write the three drag-and-drop
 text files. They are plain text, so they are easy to read and version.
 
   1. itol_common_names.txt   common names sitting outside each leaf

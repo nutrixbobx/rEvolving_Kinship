@@ -4,7 +4,7 @@ Tree rendering, two ways.
   - render_html: an interactive view for the dashboard, on a dark panel.
     Every node (species or clade, dated or not) is hoverable for its info.
   - render_files: a still SVG (and PNG) for the gallery projection and the
-    press kit, on a warm light background.
+    kinship report, on a warm light background.
 
 Both read the Newick written by tree.py plus the per-node metadata sidecar
 (<stem>_nodes.json).
@@ -64,7 +64,7 @@ LEAF_COLOR = "#46c79a"          # species (leaf)
 DATED_NODE_COLOR = "#f0a24a"    # clade with a divergence age
 PLAIN_NODE_COLOR = "#6f8a82"    # clade without one
 
-# Two palettes plus sizing. Dark is the dashboard; light is the press kit.
+# Two palettes plus sizing. Dark is the dashboard; light is the kinship report.
 _DARK = {
     "bg": "#0e1b1a", "leaf": LEAF_COLOR, "dated": DATED_NODE_COLOR,
     "plain": PLAIN_NODE_COLOR, "edge": "#5f7d75", "tip": "#e8f3ef",
@@ -302,7 +302,7 @@ def _hover_targets(svg_or_html: str) -> str:
 
 def _header_band(svg_or_html: str, tree_name: str | None) -> str:
     """Inject a small header band into the SVG with the project mark, slogan,
-    and per-tree title. Read at the gallery, on press kits, on the dashboard."""
+    and per-tree title. Read at the gallery, on kinship reports, on the dashboard."""
     if tree_name is None:
         return svg_or_html
     try:
@@ -526,7 +526,7 @@ def render_files(newick_path, meta: dict, out_stem: str,
                  layout: str = "r", out_dir: Path | None = None,
                  show_scientific: bool = True,
                  tree_name: str | None = None) -> Path:
-    """Save a still SVG (and PNG) on a warm light background for the press kit."""
+    """Save a still SVG (and PNG) on a warm light background for the kinship report."""
     import toyplot.svg
 
     out_dir = out_dir or config.OUTPUT_DIR

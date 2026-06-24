@@ -244,7 +244,7 @@ if active_tab == "Request station":
             "(coyote) or scientific name (Canis latrans), pick the match, and hit "
             "**Add to the tree**.\n\n"
             "**2.** Open the **Dashboard** tab, pick your tree, and click "
-            "**Build / rebuild**. The tree draws itself, the chord rings, the photos "
+            "**Build / refresh**. The tree draws itself, the chord rings, the photos "
             "fetch, and a short note appears under it.\n\n"
             "**3.** Hover the tree to read the tips, listen to each species, build a "
             "meditation track, or download the press files. The raw Newick is in "
@@ -415,7 +415,7 @@ if active_tab == "Dashboard":
     else:
         with st.expander("How to build your tree (read me first)", expanded=False):
             st.markdown(
-                "Pick a tree below, then click **Build / rebuild** on the right to "
+                "Pick a tree below, then click **Build / refresh** on the right to "
                 "compute its topology, draw it, sound the chord, fetch the photos, and "
                 "write a short note. The first build takes a minute or two. "
                 "After that, every other section comes alive: hover the tips, listen to "
@@ -455,7 +455,7 @@ if active_tab == "Dashboard":
         with side:
             # Visible build button up here so mobile users don't have to scroll
             # past the whole page to find it.
-            if st.button(f"Build / rebuild  “{pick_tree}”",
+            if st.button(f"Build / refresh  “{pick_tree}”",
                          type="primary",
                          key=f"build_top_{pick_tree}",
                          use_container_width=True):
@@ -1047,7 +1047,7 @@ if active_tab == "Dashboard":
         # Users who actually want to listen flip it on; the page renders
         # instantly otherwise.
         _listen_open = st.checkbox(
-            "Load the listening cards",
+            "Load the kin cards",
             key=f"listen_open_{pick_tree}",
             value=False,
             help="Off by default so the Dashboard stays fast. Switch on "

@@ -7,7 +7,7 @@ Layout (US Letter, portrait):
   Page 2 — short blurb about THIS tree (template or LLM-generated)
             + the About box for {r}Evolving Kinship + Shared Rivers
             + CC license, donation links, water/energy footprint
-  Page 3+ — one species "listening card" per page (or two per page when
+  Page 3+ — one species "kin card" per page (or two per page when
             they're compact): photo on the left, common+scientific name,
             short profile summary, audio attribution if a recording exists.
 
@@ -224,7 +224,7 @@ def _footprint_lines(tree_name: str) -> list[str]:
 
 
 def _species_records(tree_name: str) -> list[dict]:
-    """Per-species data for the listening cards: name, photo path, summary,
+    """Per-species data for the kin cards: name, photo path, summary,
     audio attribution. Falls back gracefully when any piece is missing."""
     from src import db
     df = db.read_tree(tree_name)
@@ -487,7 +487,7 @@ def build_press_pdf(tree_name: str,
         '<font color="#a85a1f">Fractured Atlas</font></a>.', h_body))
     story.append(PageBreak())
 
-    # ---- Page 3+: listening cards (one species per row, ~3-4 per page) ----
+    # ---- Page 3+: kin cards (one species per row, 3-4 per page) ----
     records = _species_records(tree_name)
     if records:
         story.append(Paragraph("Kin cards", h_sec))
