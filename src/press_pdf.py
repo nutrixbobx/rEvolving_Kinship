@@ -147,6 +147,37 @@ def build_press_pdf(tree_name: str,
         SimpleDocTemplate, Image, Paragraph, Spacer, PageBreak,
         KeepTogether, Table, TableStyle,
     )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    # Register a Unicode-capable font so non-Latin species names (Devanagari,
+    # Armenian, Han, Arabic, etc.) render in the PDF. Falls back to
+    # Helvetica silently if no Unicode font is on the filesystem.
+    _BASE_FONT = "Helvetica"
+    _BODY_FONT = "Helvetica"
+    _ITALIC_FONT = "Helvetica-Oblique"
+    for _fontfile in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ):
+        if Path(_fontfile).exists():
+            try:
+                pdfmetrics.registerFont(TTFont("KinshipSans", _fontfile))
+                # Look for matching italic
+                _italic = _fontfile.replace(
+                    "DejaVuSans.ttf", "DejaVuSans-Oblique.ttf")
+                if Path(_italic).exists() and _italic != _fontfile:
+                    pdfmetrics.registerFont(
+                        TTFont("KinshipSans-Italic", _italic))
+                    _ITALIC_FONT = "KinshipSans-Italic"
+                else:
+                    _ITALIC_FONT = "KinshipSans"
+                _BODY_FONT = "KinshipSans"
+                _BASE_FONT = "KinshipSans"
+                break
+            except Exception:
+                continue
 
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -155,28 +186,28 @@ def build_press_pdf(tree_name: str,
 
     styles = getSampleStyleSheet()
     h_title = ParagraphStyle(
-        "h_title", parent=styles["Title"], fontSize=22,
+        "h_title", parent=styles["Title"], fontName=_BASE_FONT, fontSize=22,
         textColor=colors.HexColor(ACCENT), spaceAfter=4, alignment=TA_CENTER,
         leading=26)
     h_slogan = ParagraphStyle(
         "h_slogan", parent=styles["Normal"], fontSize=10,
-        textColor=colors.HexColor(MUTED), fontName="Helvetica-Oblique",
+        textColor=colors.HexColor(MUTED), fontName=_ITALIC_FONT,
         spaceAfter=12, alignment=TA_CENTER, leading=13)
     h_sec = ParagraphStyle(
-        "h_sec", parent=styles["Heading2"], fontSize=14,
+        "h_sec", parent=styles["Heading2"], fontName=_BASE_FONT, fontSize=14,
         textColor=colors.HexColor(INK), spaceAfter=8, spaceBefore=10)
     h_body = ParagraphStyle(
-        "h_body", parent=styles["Normal"], fontSize=10.5,
+        "h_body", parent=styles["Normal"], fontName=_BODY_FONT, fontSize=10.5,
         textColor=colors.HexColor(INK), leading=15, alignment=TA_JUSTIFY)
     h_caption = ParagraphStyle(
-        "h_caption", parent=styles["Normal"], fontSize=8,
+        "h_caption", parent=styles["Normal"], fontName=_BODY_FONT, fontSize=8,
         textColor=colors.HexColor(MUTED), leading=11, alignment=TA_LEFT)
     h_species_name = ParagraphStyle(
-        "h_species", parent=styles["Heading3"], fontSize=13,
+        "h_species", parent=styles["Heading3"], fontName=_BASE_FONT, fontSize=13,
         textColor=colors.HexColor(INK), spaceAfter=2)
     h_sci_name = ParagraphStyle(
         "h_sci", parent=styles["Normal"], fontSize=10,
-        textColor=colors.HexColor(MUTED), fontName="Helvetica-Oblique",
+        textColor=colors.HexColor(MUTED), fontName=_ITALIC_FONT,
         spaceAfter=6)
 
     story = []
@@ -200,7 +231,27 @@ def build_press_pdf(tree_name: str,
             f"<i>Tree image unavailable: {exc}</i>", h_caption))
     story.append(PageBreak())
 
-    # ---- Page 2: blurb + about + footprint + license ----
+    # ---- Page 2 (optional): the sound kinship tree if it exists ----
+    sound_png = config.OUTPUT_DIR / f"{stem}_sound_tree.png"
+    if sound_png.exists():
+        story.append(Paragraph(
+            f"{title_text} — sound kinship", h_sec))
+        story.append(Paragraph(
+            "The same tree, with each species' actual recorded voice "
+            "shown as a spectrogram at its tip. Branch lengths read "
+            "as deep-time silences; spectrograms read as the texture of "
+            "each lineage's voice.", h_body))
+        story.append(Spacer(1, 8))
+        try:
+            max_w = (PAGE_W - 2 * MARGIN)
+            max_h = (PAGE_H - 2 * MARGIN - 120)
+            story.append(Image(str(sound_png), width=max_w, height=max_h,
+                                kind="proportional"))
+        except Exception:
+            pass
+        story.append(PageBreak())
+
+    # ---- Page 3: blurb + about + footprint + license ----
     story.append(Paragraph(title_text, h_sec))
     blurb = _tree_blurb(tree_name)
     if blurb:

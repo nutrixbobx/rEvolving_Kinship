@@ -122,15 +122,16 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
             sizes[i] = pal["dated_size"]
             colors[i] = pal["dated"]
             if show_dated_labels:
-                nlabels[i] = f"{node.name} {info.get('mya')}"
+                nlabels[i] = f"{node.name}, {info.get('mya')} mya"
         else:
             sizes[i] = pal["plain_size"] if plain_visible else 0
             colors[i] = pal["plain"]
-            # Label undated clades so the static export shows them too.
-            # Without this they're just unlabeled teal dots — invisible
-            # in press kits even though hover would say what they are.
+            # Label undated clades with just the clade name (no age
+            # suffix). The dot color (PLAIN_NODE_COLOR vs DATED_NODE_COLOR)
+            # already differentiates them from dated nodes for press
+            # exports.
             if show_dated_labels and plain_visible and node.name:
-                nlabels[i] = f"{node.name} (age not set)"
+                nlabels[i] = node.name
 
     tre = tre.set_node_data("meta", hover, default="")
 

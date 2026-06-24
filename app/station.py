@@ -589,6 +589,24 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                     show_scientific=show_sci, tree_name=pick_tree,
                 )
                 components.html(html, height=880, scrolling=True)
+                st.markdown(
+                    '<div style="color:#9ab3ab;font-size:11px;'
+                    'background:#13211f;border:1px solid #1c2e2b;'
+                    'border-radius:8px;padding:8px 12px;margin-top:-4px;'
+                    'margin-bottom:8px;line-height:1.7">'
+                    '<b style="color:#e8f3ef">Label formats</b><br>'
+                    '<b>common name</b> '
+                    '<span style="font-style:italic">(scientific name)</span>'
+                    ' &nbsp;—&nbsp; species, drawn as a green dot at a tip<br>'
+                    '<b>clade, ### mya</b>'
+                    ' &nbsp;—&nbsp; ancestral node with a divergence age '
+                    'from TimeTree, drawn in amber<br>'
+                    '<b>clade</b>'
+                    ' &nbsp;—&nbsp; ancestral node without a dated age yet, '
+                    'drawn in muted teal'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
                 # Download the current layout (SVG + PNG)
                 dl_cols = st.columns(2)
                 with dl_cols[0]:
@@ -643,23 +661,10 @@ background:{render_mod.PLAIN_NODE_COLOR}"></span> clade, no age yet</div>""",
                            "below.")
 
         st.divider()
+        # Bottom action row: rename + photo trees + PDF (build button is
+        # at the top of the side column, no need to duplicate here).
         build_col, rename_col = st.columns([1, 2])
         with build_col:
-            if st.button(f"Build / rebuild  “{pick_tree}”", type="primary"):
-                with st.spinner("Resolving taxonomy, building the tree, "
-                                "rendering, and sonifying. The first ever run "
-                                "also downloads the NCBI taxonomy, which takes "
-                                "a few minutes."):
-                    try:
-                        from src import pipeline
-                        pipeline.run(pick_tree)
-                        st.success("Built. Reloading.")
-                        st.rerun()
-                    except SystemExit as exc:
-                        st.error(str(exc))
-                    except Exception as exc:
-                        st.error(f"Build failed: {exc}")
-
             st.markdown("---")
             st.markdown("**Photo tree**")
             photo_tree = config.OUTPUT_DIR / f"{stem}_photo_tree.png"

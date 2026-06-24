@@ -111,7 +111,8 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
 
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = tree_name.strip().replace(" ", "_").lower()
+    from src.tree import _safe as _safe_stem
+    stem = _safe_stem(tree_name).lower()
 
     meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
     nwk_path = config.OUTPUT_DIR / f"{stem}_named_tree.nwk"
