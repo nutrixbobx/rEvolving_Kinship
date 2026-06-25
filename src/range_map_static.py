@@ -118,10 +118,14 @@ def _basemap_world():
 
 
 def _density_layer_world(gbif_key: int, style: str):
-    """One species density at z=2, all tiles fetched in parallel."""
+    """One species density at z=2, all tiles fetched in parallel.
+
+    Note: GBIF @1x tiles are 512×512, @0.5x are 256×256. CARTO tiles
+    are 256×256. We use @0.5x so the two overlay at 1:1 with no
+    coordinate displacement."""
     base = (
         "https://api.gbif.org/v2/map/occurrence/density/"
-        f"{ZOOM}/{{x}}/{{y}}@1x.png?taxonKey={gbif_key}&style={style}"
+        f"{ZOOM}/{{x}}/{{y}}@0.5x.png?taxonKey={gbif_key}&style={style}"
     )
     urls = [base.format(x=x, y=y)
             for x in range(N_TILES) for y in range(N_TILES)]

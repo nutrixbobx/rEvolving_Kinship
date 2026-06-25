@@ -293,10 +293,13 @@ def set_guest_user(name: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Sign-in / sign-up (no streamlit-authenticator)
 # ---------------------------------------------------------------------------
-def _do_signin(username: str, password: str) -> tuple[bool, str]:
+def _do_signin(username: str, password: str,
+                remember: bool = True) -> tuple[bool, str]:
     """Validate credentials against the contributor table.
-    Returns (success, error_msg). On success, populates session_state and
-    starts the remembered session (URL token + auth_session row)."""
+    Returns (success, error_msg). On success populates session_state.
+    remember=True writes a URL token so the session survives page
+    refreshes and tab restores for 30 days. remember=False keeps the
+    user signed in only for this browser session."""
     if not username or not password:
         return (False, "Username and password required.")
     user = db.get_user_by_username(username.strip())
@@ -305,10 +308,11 @@ def _do_signin(username: str, password: str) -> tuple[bool, str]:
     if not verify_password(password, user["password_hash"]):
         return (False, "Username or password is incorrect.")
     _set_session_user(user)
-    try:
-        _start_remembered_session(user["contributor_id"])
-    except Exception:
-        pass
+    if remember:
+        try:
+            _start_remembered_session(user["contributor_id"])
+        except Exception:
+            pass
     return (True, "")
 
 
@@ -483,14 +487,22 @@ def render_sidebar_gate() -> None:
 
 def _render_signin_form(scope: str) -> None:
     """Custom sign-in form (replaces streamlit-authenticator's login widget).
-    On success: populates session_state, writes URL token, st.rerun()s."""
+    On success: populates session_state, writes URL token (only if Stay
+    signed in is checked), st.rerun()s."""
     with st.form(f"signin_form_{scope}"):
         u = st.text_input("Username", key=f"signin_user_{scope}")
         p = st.text_input("Password", type="password",
                             key=f"signin_pw_{scope}")
+        remember = st.checkbox(
+            "Stay signed in for 30 days",
+            value=True,
+            key=f"signin_remember_{scope}",
+            help="Off = sign-out when you close the browser. "
+                 "On = a URL token keeps you signed in until you "
+                 "explicitly sign out.")
         if st.form_submit_button("Sign in", type="primary",
                                    use_container_width=True):
-            ok, msg = _do_signin(u, p)
+            ok, msg = _do_signin(u, p, remember=remember)
             if ok:
                 st.rerun()
             else:

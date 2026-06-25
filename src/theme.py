@@ -141,7 +141,9 @@ _CSS = f"""
 }}
 [data-testid="stHeader"] {{ background: rgba(58,1,36,0.92)!important; }}
 .block-container {{
-  padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1200px;
+  /* 3.5rem = below Streamlit's top chrome (hamburger + deploy button)
+     so the app title isn't chopped. */
+  padding-top: 3.5rem; padding-bottom: 3rem; max-width: 1200px;
 }}
 body, .stApp, .stMarkdown, [data-testid="stMarkdownContainer"] {{
   color: var(--kn-ink);

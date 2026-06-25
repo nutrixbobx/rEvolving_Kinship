@@ -311,10 +311,8 @@ if active_tab == "Request station":
                                 "bucket. This takes about 30 seconds."):
                             ok = setup_ncbi.ensure_taxonomy_from_url()
                         if ok:
-                            st.success(
-                                "NCBI taxonomy downloaded. Reload the "
-                                "page to activate autocomplete.")
-                            st.stop()
+                            st.success("NCBI taxonomy downloaded. Reloading.")
+                            st.rerun()
                         else:
                             st.warning(
                                 "Bucket download failed. Trying full "
@@ -327,9 +325,8 @@ if active_tab == "Request station":
                         try:
                             from ete3 import NCBITaxa
                             NCBITaxa()
-                            st.success(
-                                "NCBI taxonomy built. Reload the page "
-                                "to activate kiosk autocomplete.")
+                            st.success("NCBI taxonomy built. Reloading.")
+                            st.rerun()
                         except Exception as exc:
                             st.error(f"Build failed: {exc}")
                         st.info(
@@ -903,19 +900,67 @@ if active_tab == "Dashboard":
                 st.caption(f"This tree is curated by {_owner_label}. "
                            "Sign in as the owner to rename.")
 
-            # Admin-only ownership transfer (e.g. lock Maya's seed trees).
-            if auth.is_admin() and auth.active_contributor_id():
-                cur_owner_id = (_owner_info or {}).get("owner_id")
-                me = auth.active_contributor_id()
-                if cur_owner_id != me:
-                    if st.button("Transfer ownership to me",
-                                 key=f"transfer_{pick_tree}",
-                                 help="Lock this tree as admin-owned so only "
-                                      "admins can rename, delete, or modify it."):
-                        db.set_tree_owner(pick_tree, me)
-                        _invalidate_dashboard_caches()
-                        st.success("Ownership transferred to you.")
-                        st.rerun()
+            # Ownership transfer. Owners can hand off to any signed-in
+            # user; admins can transfer any tree (including grabbing it
+            # to themselves for moderation / seeding).
+            _me_cid = auth.active_contributor_id()
+            cur_owner_id = (_owner_info or {}).get("owner_id")
+            _can_transfer = (auth.is_admin()
+                              or (_me_cid and _me_cid == cur_owner_id))
+            if _can_transfer and _me_cid:
+                with st.expander("Transfer ownership", expanded=False):
+                    # Transfer to self (handy for admins grabbing a tree)
+                    if cur_owner_id != _me_cid:
+                        if st.button("Transfer to me",
+                                     key=f"transfer_self_{pick_tree}",
+                                     use_container_width=True):
+                            db.set_tree_owner(pick_tree, _me_cid)
+                            _invalidate_dashboard_caches()
+                            st.success("Ownership transferred to you.")
+                            st.rerun()
+                    # Transfer to any other signed-in user
+                    try:
+                        _users = db.list_signed_in_users()
+                    except Exception:
+                        _users = None
+                    if _users is not None and not _users.empty:
+                        # Drop self from the dropdown — there's a
+                        # separate button for that.
+                        _others = _users[
+                            _users["contributor_id"].astype(str)
+                            != str(_me_cid)
+                        ]
+                        if not _others.empty:
+                            _opts = list(_others["contributor_id"]
+                                          .astype(str))
+                            _names = {
+                                str(r["contributor_id"]):
+                                    (f"{r['display_name']} "
+                                     f"(@{r['username']})")
+                                for _, r in _others.iterrows()
+                            }
+                            _pick = st.selectbox(
+                                "Transfer to another signed-in user",
+                                _opts,
+                                format_func=lambda i, _n=_names:
+                                    _n.get(i, i),
+                                key=f"transfer_pick_{pick_tree}",
+                            )
+                            if st.button("Transfer",
+                                          key=f"transfer_other_{pick_tree}",
+                                          use_container_width=True):
+                                db.set_tree_owner(pick_tree, _pick)
+                                _invalidate_dashboard_caches()
+                                st.success(
+                                    f"Ownership transferred to "
+                                    f"{_names.get(_pick, _pick)}.")
+                                st.rerun()
+                        else:
+                            st.caption("No other signed-in users yet "
+                                        "to transfer to.")
+                    else:
+                        st.caption("No signed-in users available to "
+                                    "transfer to.")
 
         # ------- Edit a species (admin only) --------------------------------
         if _can_edit_this_tree:

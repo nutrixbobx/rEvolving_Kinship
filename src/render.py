@@ -61,26 +61,18 @@ def _format_clade_name(raw: str | None) -> str:
 
 
 def _chain_combined_label(node, dated: set, meta: dict) -> str:
-    """Combine a chain of dated clades into one single-line label using
-    arrow separators. Toyplot/toytree concatenates labels with newlines
-    so '\n' doesn't render as a line break — instead we use ' ← ' which
-    reads as 'descended from' and keeps everything on one horizontal
-    line, preventing the stacked-overlap problem in rectangular layouts.
+    """In rectangular layouts, label ONLY the innermost dated clade per
+    single-child chain. Other chain members stay as amber dots without
+    text — keeps the layout readable. Innermost = no dated non-leaf
+    child.
 
-    Returns the combined label ONLY for the innermost dated clade in a
-    chain (no dated non-leaf child); empty string for other chain
-    members so their labels are suppressed (dots still draw)."""
+    Ancestry info still available via the Unrooted layout (T0/T2),
+    which has room to label every clade individually."""
     for child in (node.children or []):
         if child.name in dated and not child.is_leaf():
-            return ""
-    chain = []
-    cur = node
-    while cur is not None and cur.name in dated:
-        info = meta.get(cur.name, {})
-        chain.append(f"{_format_clade_name(cur.name)} {info.get('mya')}")
-        cur = cur.up
-    # Innermost-first: 'Boreoeutheria 96 ← Amniota 312 ← Eumetazoa 600 ← Eukaryota 1500'
-    return " ← ".join(chain)
+            return ""  # not innermost — suppress
+    info = meta.get(node.name, {})
+    return f"{_format_clade_name(node.name)}, {info.get('mya')}"
 
 
 
