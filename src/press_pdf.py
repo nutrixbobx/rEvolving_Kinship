@@ -530,31 +530,31 @@ def build_press_pdf(tree_name: str,
 
         # Range map on the SAME page as the spectrogram blend (below it,
         # no PageBreak) so we don't leave 30%-empty pages.
-        try:
-            from src import range_map_static
-            range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
-            if not range_png.exists():
-                try:
-                    range_map_static.build_range_map(tree_name)
-                except Exception as exc:
-                    print(f"range_map build during PDF failed: {exc}")
-            if range_png.exists() and range_png.stat().st_size > 0:
-                story.append(Spacer(1, 12))
-                story.append(Paragraph(
-                    "Range map — every species' GBIF occurrence density "
-                    "on a world basemap.", h_caption))
-                story.append(Spacer(1, 4))
-                try:
-                    rw = (PAGE_W - 2 * MARGIN)
-                    rh = rw * 0.55   # roughly the basemap aspect
-                    story.append(Image(str(range_png),
-                                         width=rw, height=rh,
-                                         kind="proportional"))
-                except Exception as exc:
-                    print(f"range_map embed failed: {exc}")
-        except Exception as exc:
-            print(f"range_map page failed: {exc}")
-        story.append(PageBreak())
+##      try:
+##            from src import range_map_static
+##            range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
+##            if not range_png.exists():
+##                try:
+##                    range_map_static.build_range_map(tree_name)
+##                except Exception as exc:
+##                    print(f"range_map build during PDF failed: {exc}")
+##            if range_png.exists() and range_png.stat().st_size > 0:
+##                story.append(Spacer(1, 12))
+##                story.append(Paragraph(
+##                    "Range map — every species' GBIF occurrence density "
+##                    "on a world basemap.", h_caption))
+##                story.append(Spacer(1, 4))
+##                try:
+##                    rw = (PAGE_W - 2 * MARGIN)
+##                    rh = rw * 0.55   # roughly the basemap aspect
+##                    story.append(Image(str(range_png),
+##                                         width=rw, height=rh,
+##                                         kind="proportional"))
+##                except Exception as exc:
+##                    print(f"range_map embed failed: {exc}")
+##        except Exception as exc:
+##            print(f"range_map page failed: {exc}")
+##        story.append(PageBreak())
 
     # ---- Credits page (consolidated list, hyperlinked) ----
     try:
