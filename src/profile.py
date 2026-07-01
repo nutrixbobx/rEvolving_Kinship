@@ -159,6 +159,12 @@ def render() -> None:
                 "profile.")
         return
 
+    # Guest path: no editable profile, but the door to becoming a full
+    # user is right here.
+    if auth.is_guest():
+        _render_guest_landing()
+        return
+
     u = auth.current_user()
     cid = u.get("contributor_id")
     if not cid:
@@ -928,7 +934,7 @@ def _render_follow_button(target_contributor_id: str) -> None:
     No-op when you're looking at your own profile or you haven't named
     yourself."""
     me_cid = auth.active_contributor_id()
-    if not me_cid or me_cid == target_contributor_id:
+    if not me_cid or me_cid == target_contributor_id or auth.is_guest():
         return
     following = db.is_following(me_cid, target_contributor_id)
     label = "Unfollow" if following else "Follow"
@@ -1032,6 +1038,63 @@ def _render_favorites_tab(cid: str) -> None:
                 except Exception:
                     pass
                 st.rerun()
+
+
+def _render_guest_landing() -> None:
+    """Guest view of Profile: welcome + upgrade form. No edit fields,
+    no activity feed, no admin sections."""
+    u = auth.current_user()
+    theme.section_heading(u.get("name") or "Guest", kicker="Guest")
+    st.markdown(
+        "You're browsing as a guest. You can view every tree, listen "
+        "to species, build kinship reports, and read every community "
+        "contribution. To add species, names, stories, dishes, or "
+        "notes, upgrade to a full account with an access code from "
+        "Maya.")
+    st.divider()
+    _render_guest_upgrade_form()
+
+
+def _render_guest_upgrade_form() -> None:
+    """Turn a guest session into a signed-in account. Uses same access
+    code + fields as the public sign-up form on the auth gate."""
+    st.markdown("### Become a full contributor")
+    st.caption(
+        "Adds a signed-in profile with avatar, bio, and write access. "
+        "Ask Maya for the current access code.")
+    with st.form("guest_upgrade_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            gu_user = st.text_input("Username",
+                                     key="gu_upgrade_user")
+            gu_email = st.text_input("Email (optional)",
+                                      key="gu_upgrade_email")
+        with col2:
+            gu_dn = st.text_input("Display name",
+                                   value=auth.current_user().get("name") or "",
+                                   key="gu_upgrade_dn")
+            gu_ac = st.text_input("Access code",
+                                   key="gu_upgrade_code")
+        gu_pw = st.text_input("Password", type="password",
+                                key="gu_upgrade_pw")
+        gu_pw2 = st.text_input("Confirm password", type="password",
+                                 key="gu_upgrade_pw2")
+        if st.form_submit_button("Upgrade to full account",
+                                   type="primary",
+                                   use_container_width=True):
+            if gu_pw != gu_pw2:
+                st.error("Passwords don't match.")
+            elif len(gu_pw) < 6:
+                st.error("Password must be at least 6 characters.")
+            else:
+                ok, msg = auth.upgrade_guest_to_full(
+                    gu_user, gu_dn, gu_email, gu_pw, gu_ac)
+                if ok:
+                    st.success("Upgraded. Reloading with your new "
+                                "account...")
+                    st.rerun()
+                else:
+                    st.error(msg)
 
 
 def _render_theme_picker(contributor_id: str) -> None:

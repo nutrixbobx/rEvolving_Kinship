@@ -31,16 +31,17 @@ CACHE_PATH = config.OUTPUT_DIR / "gbif_keys.json"
 
 # Six distinct GBIF heatmap styles. Each species in a tree gets one in order
 # so neighboring species read as visually different on the same map.
-# GBIF v2 styles. '-noborder' suffix is only valid for .poly variants —
-# with .point variants the API silently falls back to a default style
-# (yellow), which is what made every species look the same on the map.
+# GBIF v2 solid-color .point styles: each renders every occurrence as
+# a fixed-color dot (no gradient), so the legend swatch is literally
+# the color you see on the map. We rotated to these so the palette
+# matches perfectly.
 GBIF_STYLES = [
-    ("fire.point",         "#f0a24a", "fire"),
-    ("greenHeat.point",    "#46c79a", "green"),
-    ("blueHeat.point",     "#7aa6cc", "blue"),
-    ("purpleHeat.point",   "#a85a1f", "purple"),
-    ("purpleYellow.point", "#ffd97a", "yellow"),
-    ("classic.point",      "#c8651b", "classic"),
+    ("red.point",     "#ed1c24", "red"),
+    ("green.point",   "#22b14c", "green"),
+    ("blue.point",    "#00a2e8", "blue"),
+    ("purple.point",  "#a349a4", "purple"),
+    ("orange.point",  "#ff7f27", "orange"),
+    ("yellow.point",  "#f4e409", "yellow"),
 ]
 
 
@@ -157,6 +158,13 @@ def build_map_html(species_list: list[dict], height: int = 620) -> str:
   }}
   .leaflet-control-layers-overlays label {{
     display:block; padding:3px 0; color:#e8f3ef;
+    display:flex; align-items:center; gap:6px;
+  }}
+  /* Bigger, more visible swatches next to each toggle */
+  .leaflet-control-layers-overlays .swatch {{
+    display:inline-block; width:12px; height:12px; border-radius:50%;
+    box-shadow:0 0 0 1px rgba(255,255,255,0.25);
+    flex-shrink:0;
   }}
   .leaflet-control-attribution {{
     background:rgba(14,27,26,0.7)!important; color:#9ab3ab!important;
@@ -202,31 +210,16 @@ species.forEach(function(s) {{
   var lbl = s.common_name
     ? s.common_name + ' (<em>' + s.scientific_name + '</em>)'
     : '<em>' + s.scientific_name + '</em>';
-  overlays[lbl] = layer;
+  // Include a colored swatch inside the checkbox label so the same
+  // panel serves as both toggle AND legend. No separate legend control
+  // needed.
+  var swatch = '<span class="swatch" style="background:' + s.color + '"></span>';
+  overlays[swatch + lbl] = layer;
 }});
 
 L.control.layers(null, overlays, {{
   collapsed: false, position: 'topright'
 }}).addTo(map);
-
-var legend = L.control({{ position: 'bottomleft' }});
-legend.onAdd = function() {{
-  var div = L.DomUtil.create('div', 'legend');
-  var rows = species.map(function(s) {{
-    var name = s.common_name ? s.common_name : s.scientific_name;
-    return '<div><span class="swatch" style="background:' + s.color
-      + '"></span>' + name
-      + ' <span style="color:#9ab3ab;font-size:10px">'
-      + '(' + s.color_name + ' heat)</span></div>';
-  }}).join('');
-  div.innerHTML = '<div class="legend-title">'
-    + species.length + ' species mapped</div>'
-    + rows
-    + '<div style="margin-top:8px;color:#9ab3ab;font-size:10px;'
-    + 'font-style:italic">data: GBIF occurrence records</div>';
-  return div;
-}};
-legend.addTo(map);
 </script>
 </body>
 </html>

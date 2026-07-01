@@ -82,6 +82,13 @@ _verified_db_init()
 # of Dashboard / Library / Profile blocks.
 theme.inject_css(st.session_state.get("user_theme"))
 
+# One-time NCBI taxonomy download. If it isn't on disk yet, this
+# takes over the whole page with a fun-fact loading card and reruns
+# every few seconds until the file is there.
+from src import loading  # noqa: E402
+if loading.render_loading_gate_if_needed():
+    st.stop()
+
 # Pre-init cookie manager + try restore before anything else renders.
 # CookieManager's component reads from the browser asynchronously, so the
 # very first script run after a page load gets an empty cookie dict.
@@ -175,7 +182,7 @@ def _fav_toggle_for_tree(tree_name: str) -> None:
     """Render a ⭐/☆ favorite toggle for the currently-picked tree. Visible
     to any named user. No-op when not named."""
     cid = auth.active_contributor_id()
-    if not cid:
+    if not cid or auth.is_guest():
         return
     tree_id = db.get_tree_id(tree_name)
     if not tree_id:
@@ -319,58 +326,11 @@ if active_tab == "Request station":
         else choice
     )
 
+    # NCBI taxonomy is guaranteed to be ready here (loading gate at
+    # the top of the file blocks the app until taxa.sqlite lands),
+    # so `ready` is effectively always True. Keeping the variable for
+    # the downstream `if ready and len(query) >= 2` search path.
     ready = ts.is_ready()
-    if not ready:
-        st.warning(
-            "The NCBI taxonomy database is not built on this server yet, so "
-            "live search and validation are off. Build it once below "
-            "(takes about five minutes; after that, kiosk autocomplete "
-            "works instantly). You can also add names without validation "
-            "and they will resolve on the next run."
-        )
-        with st.expander("Build NCBI taxonomy on this server", expanded=False):
-            st.caption(
-                "This downloads about 80 MB from NCBI and builds the local "
-                "taxonomy SQLite (~600 MB). One-time setup. On Streamlit "
-                "Cloud the build persists until the container restarts.")
-            _ncbi_panel = st.empty()  # Reusable slot: status replaces button
-            if _ncbi_panel.button("Start NCBI build", type="primary",
-                                    key="build_ncbi"):
-                # Step 1: if NCBI_TAXA_URL is set, try the fast URL
-                # download first (~30 seconds). Status overwrites the
-                # button so the screen doesn't stack greyed-out copies.
-                from src import setup_ncbi
-                ncbi_url = os.environ.get("NCBI_TAXA_URL")
-                if ncbi_url:
-                    with _ncbi_panel.container():
-                        with st.spinner(
-                                "Downloading NCBI taxonomy from your "
-                                "bucket. This takes about 30 seconds."):
-                            ok = setup_ncbi.ensure_taxonomy_from_url()
-                        if ok:
-                            st.success("NCBI taxonomy downloaded. Reloading.")
-                            st.rerun()
-                        else:
-                            st.warning(
-                                "Bucket download failed. Trying full "
-                                "NCBI build (~five minutes).")
-                # Step 2: full ete3 build from NCBI FTP (slow path).
-                with _ncbi_panel.container():
-                    with st.spinner(
-                            "Building NCBI taxonomy from scratch. Do "
-                            "not close this tab. ~five minutes."):
-                        try:
-                            from ete3 import NCBITaxa
-                            NCBITaxa()
-                            st.success("NCBI taxonomy built. Reloading.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Build failed: {exc}")
-                        st.info(
-                            "Upload taxdump.tar.gz or a pre-built "
-                            "taxa.sqlite.gz to your Supabase Storage and set "
-                            "NCBI_TAXA_URL in your Streamlit secrets to "
-                            "point at it. See DEPLOYMENT.md for the steps.")
 
     st.markdown("**Search** a common or scientific name")
     query = st.text_input(
@@ -400,7 +360,12 @@ if active_tab == "Request station":
              "a memory, where it was spotted, anything.",
     )
 
-    if st.button("Add to the tree", type="primary"):
+    _guest_lock = not auth.can_write()
+    if _guest_lock:
+        st.info("Guests can search + browse but can't add species to a "
+                 "tree. Head to your Profile to upgrade with an access "
+                 "code, then come back here.")
+    if st.button("Add to the tree", type="primary", disabled=_guest_lock):
         if not tree_name.strip():
             st.warning("Name the tree first.")
         elif not pick:
@@ -1109,7 +1074,7 @@ if active_tab == "Dashboard":
                     st.rerun()
 
         # ------- Add a name (gated by sub-nav) -----------------------------
-        if _sub == "Customize" and auth.is_named() and label_by_sci:
+        if _sub == "Customize" and auth.can_write() and label_by_sci:
             with st.expander("Add a name in another language"):
                 st.caption("Save a name in another language or category "
                             "for any species in this tree. Same effect as "
@@ -1346,7 +1311,7 @@ if active_tab == "Dashboard":
                                     is_admin=auth.is_admin())
                                 st.rerun()
 
-                    if auth.is_named():
+                    if auth.can_write():
                         with st.form(
                                 key=f"cnote_form_{pick_tree}_{_pick_clade}",
                                 clear_on_submit=True):

@@ -151,13 +151,19 @@ def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: s
         "you save them; reads are cached for about ninety seconds."
     )
 
-    is_named = _auth.is_named()
+    can_write = _auth.can_write()
     is_editor_or_admin = _auth.is_editor_or_admin()
+    is_guest = _auth.is_guest()
 
     if is_editor_or_admin:
         browse, add, manage = st.tabs(["Browse", "Add", "Manage"])
-    else:
+    elif can_write:
         browse, add = st.tabs(["Browse", "Add"])
+        manage = None
+    else:
+        # Guests + not-yet-named: no Add tab surfaces at all.
+        browse, = st.tabs(["Browse"])
+        add = None
         manage = None
 
     with browse:
@@ -166,12 +172,18 @@ def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: s
                                      can_edit_contribution,
                                      is_editor_or_admin)
         _render_browse()
-    with add:
-        if is_named:
+    if add is not None:
+        with add:
             _render_admin_entry(is_editor_or_admin=is_editor_or_admin)
+    else:
+        # No Add tab — offer the upgrade path instead.
+        if is_guest:
+            st.info("Guests can browse the library but can't add "
+                     "entries. Head to your Profile to upgrade with "
+                     "an access code, then come back here to add.")
         else:
-            st.info("Give yourself a name (or sign in) from the sidebar "
-                    "to start adding to the library.")
+            st.info("Give yourself a name in the sidebar, then sign "
+                     "up with an access code to add to the library.")
     if manage is not None:
         with manage:
             _render_manage()

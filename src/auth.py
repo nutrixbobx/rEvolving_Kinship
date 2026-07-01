@@ -113,6 +113,24 @@ def is_named() -> bool:
     return bool(current_user().get("name"))
 
 
+def is_guest() -> bool:
+    """True when the current session has a name but no signed-in
+    account (guest contributor). Read-only for guests: they can view
+    and trigger composite builds, but cannot add/edit/delete."""
+    u = current_user()
+    return bool(u.get("name")) and not u.get("username")
+
+
+def can_write() -> bool:
+    """Guests read-only; signed-in users can write."""
+    return is_signed_in()
+
+
+# Access code required to make a full account. Simple shared secret
+# for the invite-lite flow. If Maya wants to rotate, change it here.
+ACCESS_CODE = "666"
+
+
 def active_contributor_id() -> str | None:
     return current_user().get("contributor_id")
 
@@ -325,10 +343,14 @@ def _do_signin(username: str, password: str,
 
 
 def _do_signup(username: str, display_name: str, email: str,
-                password: str, password_confirm: str) -> tuple[bool, str]:
+                password: str, password_confirm: str,
+                access_code: str) -> tuple[bool, str]:
     username = (username or "").strip()
     display_name = (display_name or "").strip()
     email = (email or "").strip() or None
+    if (access_code or "").strip() != ACCESS_CODE:
+        return (False, "Access code doesn't match. Ask Maya for the "
+                       "current code.")
     if not username or not display_name or not password:
         return (False, "Username, display name, and password are required.")
     if " " in username:
@@ -347,9 +369,35 @@ def _do_signup(username: str, display_name: str, email: str,
             email=email,
             role="visitor",
         )
+        # Auto-sign-in after successful sign-up. Same code path as
+        # _do_signin.
+        try:
+            user = db.get_user_by_username(username)
+            if user:
+                _set_session_user(user)
+                _start_remembered_session(user["contributor_id"])
+        except Exception:
+            pass
         return (True, "")
     except Exception as exc:
         return (False, f"Sign up failed: {exc}")
+
+
+def upgrade_guest_to_full(username: str, display_name: str,
+                           email: str, password: str,
+                           access_code: str) -> tuple[bool, str]:
+    """Turn a guest session into a signed-in account. Creates the
+    account with the given credentials, then signs it in in place.
+    Guest history is not carried over — guests attribute contributions
+    by name only, and we don't track guest contributor_id across
+    sessions."""
+    if (access_code or "").strip() != ACCESS_CODE:
+        return (False, "Access code doesn't match.")
+    if not is_guest():
+        return (False, "Only guests can upgrade this way.")
+    ok, msg = _do_signup(username, display_name, email,
+                          password, password, access_code)
+    return (ok, msg)
 
 
 def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
@@ -536,15 +584,33 @@ def _render_signin_form(scope: str) -> None:
 
 
 def _render_signup_form(scope: str) -> None:
-    """Invite-only: public sign-up is disabled. Admin creates accounts
-    from Profile → Team. Anyone can still enter as a named guest via
-    the third door on the gate."""
-    st.info(
-        "Accounts are invite-only. To get a signed-in profile with "
-        "avatar, bio, and follow/favorite features, ask Maya to add "
-        "you (maya@shared-rivers.org). In the meantime you can enter "
-        "as a **guest** using the third option above — your name "
-        "still attributes any contributions.")
+    """Public sign-up gated by an access code. Anyone with the code
+    can create a full account and start contributing right away."""
+    with st.form(f"signup_form_{scope}"):
+        st.caption(
+            "Ask Maya for the current access code, then fill this in. "
+            "Access grants a full profile with avatar, bio, and the "
+            "ability to add species names, stories, dishes, cultural "
+            "connections, and notes.")
+        su_u = st.text_input("Username",
+                              key=f"signup_user_{scope}")
+        su_dn = st.text_input("Display name",
+                               key=f"signup_dn_{scope}")
+        su_em = st.text_input("Email (optional, for password reset)",
+                               key=f"signup_em_{scope}")
+        su_p = st.text_input("Password", type="password",
+                              key=f"signup_p_{scope}")
+        su_p2 = st.text_input("Confirm password", type="password",
+                               key=f"signup_p2_{scope}")
+        su_ac = st.text_input("Access code",
+                               key=f"signup_ac_{scope}")
+        if st.form_submit_button("Create account", type="primary",
+                                   use_container_width=True):
+            ok, msg = _do_signup(su_u, su_dn, su_em, su_p, su_p2, su_ac)
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
 
 
 def _render_guest_form(scope: str) -> None:

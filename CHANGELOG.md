@@ -42,6 +42,33 @@ tree, drawn on one Leaflet panel.
 follow + favorite, change-password. Admins additionally see Team
 (promote users to editor) and Password resets.
 
+## Access-code sign-up + guest upgrade
+
+Public sign-up is back but gated by a shared access code. Anyone with
+the code from Maya can create a full account from the auth screen or
+convert a guest session into a full account from Profile.
+
+Guests can view every tree, listen to species, build kinship reports,
+and read every community contribution. Guests cannot add species,
+names, stories, dishes, notes, or clade notes, and cannot follow or
+favorite. Any write panel a guest sees points back at Profile to
+upgrade.
+
+## Range map palette
+
+Switched GBIF layers to the solid-color .point styles (red, green,
+blue, purple, orange, yellow) so the swatch in the legend is exactly
+the color you see on the map. The species legend now lives inside
+the layer toggle panel (top-right), with a colored dot next to each
+name, so the same panel serves as both legend and on/off switch.
+
+## NCBI auto-load screen
+
+Dropped the manual "Build NCBI on this server" expander. On first
+visit, the app takes over the screen with a loading card that fetches
+taxa.sqlite in the background. Rotating fun facts about biology and
+water rotate every few seconds while it downloads.
+
 ## Dashboard sub-nav
 
 The Dashboard body switches between four sections via a small radio
