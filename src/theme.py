@@ -39,14 +39,82 @@ PALETTE = {
     "donate":     "#ffd97a",  # bright donate links pop without clashing
 }
 
-def inject_css() -> None:
+# Alternative palettes users can pick in Profile. Each has the same
+# keys as PALETTE so the CSS override just re-declares the vars.
+THEMES: dict[str, dict[str, str]] = {
+    "crimson_amber": PALETTE,  # default
+    "river_sea": {
+        "bg":       "#0d2b3a",   # deep water blue
+        "bg_alt":   "#123647",
+        "ink":      "#eaf4f5",
+        "muted":    "#9fb9c1",
+        "rule":     "#1e4a5c",
+        "accent":   "#f2b06e",   # warm sand
+        "warm":     "#f2b06e",
+        "primary":  "#7fc6b5",   # sea foam
+        "danger":   "#e07b6a",
+        "donate":   "#ffd97a",
+    },
+    "warm_forest": {
+        "bg":       "#1e2b1a",   # deep moss
+        "bg_alt":   "#26361f",
+        "ink":      "#f2ecda",
+        "muted":    "#b9c1a6",
+        "rule":     "#374a2c",
+        "accent":   "#d9b465",   # warm ochre
+        "warm":     "#d9b465",
+        "primary":  "#a3c17f",
+        "danger":   "#d97a4a",
+        "donate":   "#ffd97a",
+    },
+}
+
+THEME_LABELS = {
+    "crimson_amber": "Crimson & amber (default)",
+    "river_sea":     "River sea",
+    "warm_forest":   "Warm forest",
+}
+
+
+def _theme_override_css(theme: str) -> str:
+    """Return a small :root block that reassigns the CSS variables
+    for the given theme. Injected *after* the base CSS so it wins by
+    document order."""
+    pal = THEMES.get(theme)
+    if not pal or theme == "crimson_amber":
+        return ""
+    return (
+        "<style>:root{"
+        f"--kn-bg:{pal['bg']};"
+        f"--kn-bg-alt:{pal['bg_alt']};"
+        f"--kn-ink:{pal['ink']};"
+        f"--kn-muted:{pal['muted']};"
+        f"--kn-rule:{pal['rule']};"
+        f"--kn-accent:{pal['accent']};"
+        f"--kn-warm:{pal['warm']};"
+        f"--kn-primary:{pal['primary']};"
+        f"--kn-danger:{pal['danger']};"
+        f"--kn-donate:{pal['donate']};"
+        "}"
+        # Also override the page-bg selectors that use hard-coded hex
+        '[data-testid="stAppViewContainer"],.stApp{background:' + pal['bg'] + '!important;}'
+        '[data-testid="stHeader"]{background:' + pal['bg'] + '!important;}' +
+        "</style>"
+    )
+
+def inject_css(theme: str | None = None) -> None:
     """Apply the theme CSS on every script run. We INTENTIONALLY do not
     guard with session_state: Streamlit re-renders the page from scratch
     on every rerun, so the <style> markdown element only sticks around
     when we re-emit it each time. Without re-emission, all custom CSS
     (palette, title sizes, footer styling) vanishes after the first
-    click and the page falls back to Streamlit's defaults."""
+    click and the page falls back to Streamlit's defaults.
+
+    theme: optional theme name from THEMES. Applied as a variable
+    override *after* the base CSS so it wins."""
     st.markdown(_CSS, unsafe_allow_html=True)
+    if theme and theme != "crimson_amber":
+        st.markdown(_theme_override_css(theme), unsafe_allow_html=True)
 
 
 def render_footer(slogan: str = "") -> None:

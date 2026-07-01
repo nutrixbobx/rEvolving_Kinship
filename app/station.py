@@ -76,8 +76,11 @@ def _verified_db_init():
 
 _verified_db_init()
 
-# Apply the unified theme on every load.
-theme.inject_css()
+# Apply the unified theme on every load. If the signed-in user has
+# a saved theme pick (loaded further down after auth), we override
+# the palette variables — see the second inject_css call at the top
+# of Dashboard / Library / Profile blocks.
+theme.inject_css(st.session_state.get("user_theme"))
 
 # Pre-init cookie manager + try restore before anything else renders.
 # CookieManager's component reads from the browser asynchronously, so the
@@ -256,6 +259,40 @@ active_tab = st.radio(
 # Request station (the kiosk)
 # ---------------------------------------------------------------------------
 if active_tab == "Request station":
+    with st.expander("About the technology", expanded=False):
+        st.markdown(
+            "**Where the data comes from**\n\n"
+            "- **Species names and the tree topology** come from the "
+            "[NCBI Taxonomy](https://www.ncbi.nlm.nih.gov/taxonomy), "
+            "the same database biologists rely on daily. When you type "
+            "*coyote*, the search hits a local copy of NCBI's tree.\n"
+            "- **Divergence ages** (the numbers on the amber clade "
+            "nodes) come from [TimeTree of Life]"
+            "(https://timetree.org), a curated chronology of when "
+            "lineages split.\n"
+            "- **Species photos** come from "
+            "[iNaturalist](https://www.inaturalist.org), filtered to "
+            "Creative Commons licenses only.\n"
+            "- **Species recordings** come from "
+            "[Xeno-canto](https://xeno-canto.org) (all CC-licensed by "
+            "platform policy) and "
+            "[Wikimedia Commons](https://commons.wikimedia.org).\n"
+            "- **Range maps** come from "
+            "[GBIF](https://www.gbif.org) occurrence density tiles.\n\n"
+            "**What runs the app**\n\n"
+            "- Python + [Streamlit](https://streamlit.io) for the "
+            "browser interface.\n"
+            "- [Supabase](https://supabase.com) Postgres for the "
+            "community database (contributions, accounts, ownership).\n"
+            "- The kinship tree drawing uses "
+            "[toytree](https://toytree.readthedocs.io) and "
+            "matplotlib.\n"
+            "- The kinship chord + audio blending use "
+            "[librosa](https://librosa.org) + SciPy.\n\n"
+            "**Everything is open**. The pipeline is released under "
+            "CC BY-SA. Take it, remix it, stand up your own waterway "
+            "or foodway or ecology piece.")
+
     with st.expander("How this works (read me first)", expanded=False):
         st.markdown(
             "**1.** Name one or more species you feel kin to. Search by common name "
@@ -707,17 +744,29 @@ if active_tab == "Dashboard":
                            "below.")
 
         st.divider()
+
+        # Sub-nav for the sections below the tree. Keeps the scroll
+        # short and lets users focus on one cluster at a time.
+        # Radio (not st.tabs) so the choice persists via session_state
+        # across reruns.
+        _DASH_SUB = ["Outputs", "Customize", "Listen", "Footprint"]
+        _sub = st.radio(
+            "Dashboard section", _DASH_SUB,
+            key=f"dash_sub_tab_{pick_tree}",
+            horizontal=True, label_visibility="collapsed")
+
         # Bottom action row: rename + photo trees + PDF (build button is
         # at the top of the side column, no need to duplicate here).
         # Artifacts take 3/4 width; rename fits in 1/4 on the right.
         build_col, rename_col = st.columns([3, 1])
         with build_col:
+            if _sub != "Outputs":
+                st.empty()  # placeholder — Outputs section is gated below
             # ═══════════════════════════════════════════════════════════
-            # Generated artifacts. Order Maya asked for: Report at top,
-            # then T1+T2 side-by-side, then Spec Blend + Range map
-            # side-by-side, then Credits at the bottom.
+            # Generated artifacts (gated by sub-nav)
             # ═══════════════════════════════════════════════════════════
-            st.markdown("---")
+            if _sub == "Outputs":
+              st.markdown("---")
 
             # ─── Personalized kinship report (TOP) ─────────────────────
             st.markdown("### Personalized kinship report (PDF)")
@@ -852,6 +901,35 @@ if active_tab == "Dashboard":
                         except Exception as exc:
                             st.error(f"Range map build failed: {exc}")
 
+            # ─── Blank outline (printable) ────────────────────────────
+            st.markdown("**Blank outline map**")
+            st.caption("Coastlines only, no heatmap. Print and sketch "
+                       "your own observations, migrations, stories.")
+            _bmap_cols = st.columns([1, 1])
+            blank_png = config.OUTPUT_DIR / f"{stem}_range_blank.png"
+            with _bmap_cols[0]:
+                if blank_png.exists():
+                    st.image(blank_png.read_bytes())
+                    st.download_button(
+                        "Download blank map (.png)",
+                        blank_png.read_bytes(),
+                        file_name=blank_png.name, mime="image/png",
+                        use_container_width=True,
+                        key=f"blankmap_dl_{pick_tree}")
+            with _bmap_cols[1]:
+                if st.button("Build blank outline map",
+                             key=f"blankmap_{pick_tree}",
+                             use_container_width=True):
+                    with st.spinner("Fetching coastlines. ~5s."):
+                        try:
+                            from src import range_map_static
+                            range_map_static.build_blank_outline_map(
+                                pick_tree)
+                            st.success("Built.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Blank map build failed: {exc}")
+
             # ─── Credits at bottom ────────────────────────────────────
             st.markdown("---")
             st.markdown("### All credits (.txt)")
@@ -962,8 +1040,10 @@ if active_tab == "Dashboard":
                         st.caption("No signed-in users available to "
                                     "transfer to.")
 
-        # ------- Edit a species (admin only) --------------------------------
-        if _can_edit_this_tree:
+        # ------- Customize block (gated by sub-nav) ------------------------
+        if _sub == "Customize":
+         # ------- Edit a species (admin only) -------------------------------
+         if _can_edit_this_tree:
           with st.expander("Edit a species in this tree"):
             label_by_sci = {
                 r["scientific_name"]: (
@@ -1028,8 +1108,8 @@ if active_tab == "Dashboard":
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
-        # ------- Add a name (any signed-in user / guest) --------------------
-        if auth.is_named() and label_by_sci:
+        # ------- Add a name (gated by sub-nav) -----------------------------
+        if _sub == "Customize" and auth.is_named() and label_by_sci:
             with st.expander("Add a name in another language"):
                 st.caption("Save a name in another language or category "
                             "for any species in this tree. Same effect as "
@@ -1116,8 +1196,8 @@ if active_tab == "Dashboard":
                                     "made it preferred.")
                                 st.rerun()
 
-        # ------- Per-tree common-name picker --------------------------------
-        if _can_edit_this_tree:
+        # ------- Per-tree common-name picker (gated by sub-nav) ------------
+        if _sub == "Customize" and _can_edit_this_tree:
             with st.expander("Choose how each species is named in this tree"):
                 st.caption(
                     "Pick a different name for any species in this tree "
@@ -1156,7 +1236,149 @@ if active_tab == "Dashboard":
                                             "label updates in the render.")
                                 st.rerun()
 
-        if _can_edit_this_tree:
+        # ------- Clade Browser + notes (gated by sub-nav) ----------------
+        # Pick a clade in this tree, see its representative species photo,
+        # its divergence age, and its species. Signed-in users can leave
+        # a note attached to the clade (surfaces here and in the Library).
+        if _sub == "Customize" and meta:
+            with st.expander("Clade browser — photo, age, notes"):
+                _clades = sorted(
+                    (n for n, v in meta.items()
+                     if not v.get("is_leaf") and n),
+                    key=lambda n: (
+                        # dated clades first (with age), then alphabetical
+                        0 if meta[n].get("mya") is not None else 1,
+                        (meta[n].get("mya") or 1e9),
+                        n))
+                if not _clades:
+                    st.caption("No named clades in this tree yet.")
+                else:
+                    _pick_clade = st.selectbox(
+                        "Clade",
+                        _clades,
+                        format_func=lambda n: (
+                            f"{n} — {meta[n].get('mya')} MYA"
+                            if meta[n].get("mya") is not None
+                            else n),
+                        key=f"clade_browser_pick_{pick_tree}")
+                    _cinfo = meta.get(_pick_clade, {})
+                    _cage = _cinfo.get("mya")
+                    _crank = _cinfo.get("rank")
+                    st.caption(
+                        f"Rank: {_crank or '—'} · Divergence: "
+                        f"{f'{_cage} MYA' if _cage is not None else 'age not set'}")
+
+                    # Find representative species: first leaf descendant
+                    # in the newick that has a scientific_name.
+                    _rep_photo_url = None
+                    _rep_common = None
+                    _rep_sci = None
+                    _species_under: list[str] = []
+                    try:
+                        from ete3 import Tree as _Tree
+                        _tt = _Tree(Path(nwk).read_text(), format=1)
+                        _nodes = _tt.search_nodes(name=_pick_clade)
+                        if _nodes:
+                            _leaves = _nodes[0].get_leaves()
+                            for _lf in _leaves:
+                                _lm = meta.get(_lf.name, {})
+                                _sci = _lm.get("scientific_name")
+                                if _sci:
+                                    _species_under.append(
+                                        _lm.get("common_name") or _sci)
+                                    if _rep_photo_url is None:
+                                        from src import species_profile
+                                        _prof = species_profile.find_profile(
+                                            _sci, _lm.get("common_name"))
+                                        if _prof and _prof.get("image_url"):
+                                            _rep_photo_url = _prof["image_url"]
+                                            _rep_common = _lm.get("common_name")
+                                            _rep_sci = _sci
+                    except Exception as _exc:
+                        st.caption(f"Couldn't read tree file: {_exc}")
+
+                    _photo_col, _species_col = st.columns([1, 2])
+                    with _photo_col:
+                        if _rep_photo_url:
+                            st.image(_rep_photo_url, width=180)
+                            _cap = (f"{_rep_common} ({_rep_sci})"
+                                    if _rep_common else _rep_sci)
+                            st.caption(f"Representative: {_cap}")
+                        else:
+                            st.caption("No representative photo available.")
+                    with _species_col:
+                        st.caption(f"{len(_species_under)} species under "
+                                    f"this clade:")
+                        st.markdown(
+                            "\n".join(f"- {s}"
+                                        for s in _species_under[:20])
+                            or "_(none)_")
+                        if len(_species_under) > 20:
+                            st.caption(f"...and {len(_species_under)-20} more.")
+
+                    # Notes: list existing + add form
+                    st.markdown("---")
+                    st.markdown("**Notes**")
+                    _notes = db.list_clade_notes(_pick_clade,
+                                                  tree_name=pick_tree)
+                    if not _notes:
+                        st.caption("No notes yet. Add one below.")
+                    for _n in _notes[:12]:
+                        _who = _n.get("display_name") or _n.get(
+                            "username") or "Someone"
+                        _when = _n.get("created_at")
+                        _when_s = _when.strftime("%Y-%m-%d") if _when else ""
+                        _scope = ("this tree" if _n.get("tree_name")
+                                  else "global")
+                        st.markdown(f"> {_n['body']}")
+                        _cap_line = f"— {_who}, {_when_s} · {_scope}"
+                        _del_col = st.columns([5, 1])
+                        _del_col[0].caption(_cap_line)
+                        _own_id = _n.get("contributor_id")
+                        _me_id = auth.active_contributor_id()
+                        if (_me_id and (_me_id == _own_id
+                                         or auth.is_admin())):
+                            if _del_col[1].button(
+                                    "delete",
+                                    key=f"cnote_del_{_n['clade_note_id']}"):
+                                db.delete_clade_note(
+                                    _n["clade_note_id"], _me_id,
+                                    is_admin=auth.is_admin())
+                                st.rerun()
+
+                    if auth.is_named():
+                        with st.form(
+                                key=f"cnote_form_{pick_tree}_{_pick_clade}",
+                                clear_on_submit=True):
+                            _body = st.text_area(
+                                "Your note about this clade",
+                                placeholder="A memory, a story, a name, "
+                                             "why this clade matters to you...",
+                                height=80)
+                            _scope_pick = st.radio(
+                                "Where does this note belong?",
+                                ["This tree only", "All trees (global)"],
+                                horizontal=True, index=0,
+                                key=f"cnote_scope_{pick_tree}_{_pick_clade}")
+                            if st.form_submit_button("Save note",
+                                                       type="primary"):
+                                _tn = (pick_tree
+                                        if _scope_pick.startswith("This")
+                                        else None)
+                                _nid = db.add_clade_note(
+                                    _pick_clade, _body,
+                                    auth.active_contributor_id(),
+                                    tree_name=_tn)
+                                if _nid:
+                                    st.success("Note saved.")
+                                    st.rerun()
+                                else:
+                                    st.warning(
+                                        "Couldn't save — the clade_note "
+                                        "table may not be provisioned yet. "
+                                        "See db/clade_note_migration.sql.")
+
+        if _sub == "Customize" and _can_edit_this_tree:
           with st.expander("Remove species, or delete this tree"):
             to_remove = st.multiselect(
                 "Species to remove from this tree",
@@ -1180,9 +1402,10 @@ if active_tab == "Dashboard":
 
         # ------- Energy + offset invitation -------------------------------
         st.divider()
-        # ------- Listen to each species (lazy: opt-in to load) ------
-        st.divider()
-        st.markdown("### Listen to each species")
+        # ------- Listen to each species (gated by sub-nav) --------
+        if _sub == "Listen":
+          st.divider()
+          st.markdown("### Listen to each species")
         # The per-species profile + audio + player_html lookups are the
         # slowest part of the Dashboard, so we hide them behind a checkbox.
         # Users who actually want to listen flip it on; the page renders

@@ -266,6 +266,125 @@ def set_user_role(contributor_id: str, role: str) -> None:
         )
 
 
+def set_user_theme(contributor_id: str, theme: str | None) -> None:
+    """Save the user's theme choice. Silently no-ops if the theme
+    column doesn't exist yet (migration not applied)."""
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE contributor SET theme = :t "
+                     "WHERE contributor_id = :i"),
+                {"t": theme, "i": contributor_id},
+            )
+    except Exception as exc:
+        # UndefinedColumn if migration hasn't run — safe to swallow
+        if "theme" in str(exc).lower():
+            return
+        raise
+
+
+def add_clade_note(clade_name: str, body: str,
+                   contributor_id: str | None,
+                   tree_name: str | None = None) -> str | None:
+    """Save a note attached to a clade. Returns the new id, or None if
+    the table isn't provisioned yet."""
+    if not clade_name or not body or not body.strip():
+        return None
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("INSERT INTO clade_note "
+                     "(clade_name, body, contributor_id, tree_name) "
+                     "VALUES (:c, :b, :u, :t) "
+                     "RETURNING clade_note_id"),
+                {"c": clade_name.strip(),
+                 "b": body.strip(),
+                 "u": contributor_id,
+                 "t": tree_name},
+            ).fetchone()
+        return str(row[0]) if row else None
+    except Exception as exc:
+        if "clade_note" in str(exc).lower():
+            return None
+        raise
+
+
+def list_clade_notes(clade_name: str,
+                     tree_name: str | None = None) -> list[dict]:
+    """Notes for a clade. If tree_name given, include tree-specific AND
+    global notes; otherwise only globals."""
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            if tree_name:
+                q = ("SELECT n.clade_note_id, n.body, n.tree_name, "
+                     "       n.created_at, c.display_name, c.username, "
+                     "       c.contributor_id "
+                     "FROM clade_note n "
+                     "LEFT JOIN contributor c "
+                     "  ON c.contributor_id = n.contributor_id "
+                     "WHERE n.clade_name = :cn "
+                     "  AND (n.tree_name IS NULL OR n.tree_name = :tn) "
+                     "ORDER BY n.created_at DESC")
+                params = {"cn": clade_name, "tn": tree_name}
+            else:
+                q = ("SELECT n.clade_note_id, n.body, n.tree_name, "
+                     "       n.created_at, c.display_name, c.username, "
+                     "       c.contributor_id "
+                     "FROM clade_note n "
+                     "LEFT JOIN contributor c "
+                     "  ON c.contributor_id = n.contributor_id "
+                     "WHERE n.clade_name = :cn "
+                     "ORDER BY n.created_at DESC")
+                params = {"cn": clade_name}
+            rows = conn.execute(text(q), params).fetchall()
+        return [dict(r._mapping) for r in rows]
+    except Exception:
+        return []
+
+
+def delete_clade_note(clade_note_id: str,
+                      by_contributor_id: str,
+                      is_admin: bool = False) -> bool:
+    """Delete a note. Owner or admin only. Returns True on success."""
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            if is_admin:
+                r = conn.execute(
+                    text("DELETE FROM clade_note "
+                         "WHERE clade_note_id = :i RETURNING 1"),
+                    {"i": clade_note_id}).fetchone()
+            else:
+                r = conn.execute(
+                    text("DELETE FROM clade_note "
+                         "WHERE clade_note_id = :i "
+                         "  AND contributor_id = :u RETURNING 1"),
+                    {"i": clade_note_id, "u": by_contributor_id}
+                ).fetchone()
+        return bool(r)
+    except Exception:
+        return False
+
+
+def get_user_theme(contributor_id: str) -> str | None:
+    """Read the user's theme choice. Returns None if column missing
+    or user has no preference."""
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT theme FROM contributor "
+                     "WHERE contributor_id = :i"),
+                {"i": contributor_id},
+            ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def update_user_profile(contributor_id: str,
                         display_name: str | None = None,
                         bio: str | None = None,

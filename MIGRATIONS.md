@@ -22,6 +22,8 @@ into the **Supabase SQL Editor** and run, in this order:
 | 8 | `db/fk_indexes_migration.sql`                | Adds 11 indexes on foreign-key columns that were missing them (joins on contributor_id, deity_id, etc.). Speeds up Profile + Library queries.   |
 | 9 | `db/view_security_invoker_migration.sql`     | Flips public views from SECURITY DEFINER to INVOKER. Silences the Supabase linter and is the right posture before turning RLS on.                                   |
 | 10| `db/backfill_attribution_to_maya.sql`         | Data-only: reassigns every existing row (trees, stories, dishes, names, cultural ties) to Maya admin.         |
+| 11| `db/theme_migration.sql`                      | Adds `theme` column on `contributor` for per-user palette skins. Tolerant of the column being absent (feature just falls back to default). |
+| 12| `db/clade_note_migration.sql`                 | Adds `clade_note` table so signed-in users can attach short notes to a named clade in the Clade Browser. Notes can be per-tree or global. |
 
 ## Verification after each run
 

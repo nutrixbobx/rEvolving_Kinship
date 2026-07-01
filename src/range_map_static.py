@@ -55,12 +55,17 @@ TILE_TIMEOUT = 10
 
 def _fetch(url: str) -> tuple[str, bytes | None]:
     """Fetch one tile, return (url, bytes-or-None). Wraps exceptions so
-    the executor doesn't choke on a single failing tile."""
+    the executor doesn't choke on a single failing tile. Logs failures
+    with the URL so we can see why a composite might come out empty."""
     try:
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=TILE_TIMEOUT) as r:
-            return (url, r.read())
-    except Exception:
+            data = r.read()
+            if not data:
+                print(f"  tile empty: {url}")
+            return (url, data)
+    except Exception as exc:
+        print(f"  tile FETCH FAIL ({exc.__class__.__name__}): {url}")
         return (url, None)
 
 
@@ -242,8 +247,93 @@ def build_range_map(tree_name: str,
     return out_path
 
 
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Blank outline map for user drawing (no GBIF layers, no place names)
+# ────────────────────────────────────────────────────────────────────────
+
+CARTO_BLANK_TEMPLATE = (
+    "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"
+)
+
+
+def _basemap_blank_world():
+    """CARTO light-no-labels basemap at z=2 — coastlines + muted land
+    on a pale background, no place names. Meant for printing + sketching."""
+    urls = [
+        CARTO_BLANK_TEMPLATE.format(z=ZOOM, x=x, y=y)
+        for x in range(N_TILES) for y in range(N_TILES)
+    ]
+    print(f"  fetching {len(urls)} blank basemap tiles (z={ZOOM})...")
+    tiles = _fetch_many(urls)
+    return _composite_tiles(
+        tiles,
+        CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
+        N_TILES,
+        bg=(250, 246, 238, 255),  # warm off-white paper
+    )
+
+
+def build_blank_outline_map(tree_name: str,
+                            out_dir: Path | None = None) -> Path:
+    """Render a printable blank outline map: coastlines only, no
+    heatmaps, no labels, with a header naming the tree and space
+    beneath for handwritten notes.
+
+    Users can print this and sketch their own species observations,
+    migration paths, family stories, whatever grows from the tree.
+    Saved as outputs/<stem>_range_blank.png."""
+    from PIL import Image, ImageDraw, ImageFont
+    from src.tree import _safe as _safe_stem
+    out_dir = out_dir or config.OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = _safe_stem(tree_name).lower()
+
+    world = _basemap_blank_world()
+
+    # Header strip + note-taking gutter at the bottom
+    title_h = 60
+    gutter_h = 140  # blank space for notes
+    total_h = title_h + CANVAS_H + gutter_h
+    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
+    draw = ImageDraw.Draw(final)
+    try:
+        title_font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        sub_font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
+    except Exception:
+        title_font = ImageFont.load_default()
+        sub_font = ImageFont.load_default()
+    draw.text((16, 12),
+              f"Blank map — {tree_name}",
+              fill=(60, 40, 40, 255), font=title_font)
+    draw.text((16, 40),
+              "coastlines only. sketch your species, migrations, "
+              "family paths, stories.",
+              fill=(120, 100, 100, 255), font=sub_font)
+
+    final.paste(world, (0, title_h), world)
+
+    # Ruled notes gutter (light pencil lines)
+    gy0 = title_h + CANVAS_H + 20
+    for row in range(4):
+        y = gy0 + row * 28
+        draw.line([(20, y), (CANVAS_W - 20, y)],
+                  fill=(200, 190, 180, 255), width=1)
+
+    out_path = out_dir / f"{stem}_range_blank.png"
+    final.convert("RGB").save(out_path, "PNG")
+    print(f"wrote {out_path}")
+    return out_path
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: python -m src.range_map_static '<tree name>'")
+        print("usage: python -m src.range_map_static [--blank] '<tree name>'")
         sys.exit(1)
-    print(build_range_map(sys.argv[1]))
+    if sys.argv[1] == "--blank":
+        print(build_blank_outline_map(sys.argv[2]))
+    else:
+        print(build_range_map(sys.argv[1]))

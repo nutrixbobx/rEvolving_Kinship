@@ -209,11 +209,15 @@ def render() -> None:
     st.divider()
     _render_edit_form(u, cid)
     st.divider()
+    _render_theme_picker(cid)
+    st.divider()
     _render_activity(cid)
 
     if auth.is_admin():
         st.divider()
         _render_admin_team()
+        st.divider()
+        _render_admin_invite_form()
         st.divider()
         _render_admin_pending_resets()
         st.divider()
@@ -1028,4 +1032,100 @@ def _render_favorites_tab(cid: str) -> None:
                 except Exception:
                     pass
                 st.rerun()
+
+
+def _render_theme_picker(contributor_id: str) -> None:
+    """Let the user pick a color palette for the whole app.
+    Change writes to contributor.theme + rebuilds session cache."""
+    from src import theme as _theme
+    st.markdown("### Color palette")
+    st.caption("Pick a theme skin. Applies to every page as you browse.")
+    current = st.session_state.get("user_theme") or "crimson_amber"
+    labels = _theme.THEME_LABELS
+    keys = list(labels.keys())
+    try:
+        idx = keys.index(current)
+    except ValueError:
+        idx = 0
+    pick = st.radio(
+        "Theme", keys,
+        format_func=lambda k: labels.get(k, k),
+        index=idx, horizontal=True,
+        key="profile_theme_pick",
+        label_visibility="collapsed")
+    if pick != current:
+        try:
+            db.set_user_theme(contributor_id, pick)
+            st.session_state["user_theme"] = pick
+            st.success(f"Theme set to {labels.get(pick, pick)}.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Could not save theme: {exc}")
+
+
+def _render_admin_invite_form() -> None:
+    """Admin-only: invite a new signed-in account. Since public signup
+    is disabled, this is the only path to create real accounts (guests
+    can still enter by name)."""
+    theme.section_heading("Invite a new account", kicker="Admin")
+    st.caption(
+        "Creates a full signed-in account. The new user can sign in "
+        "immediately with the password you set; on first login they'll "
+        "be prompted to change it.")
+    with st.form("admin_invite_form"):
+        new_user = st.text_input("Username", help="No spaces.")
+        new_name = st.text_input("Display name")
+        new_email = st.text_input("Email (optional)")
+        new_role = st.selectbox(
+            "Role",
+            ["visitor", "editor", "admin"],
+            index=0,
+            help="visitor = default. editor = can edit anyone's "
+                 "contributions. admin = full access.")
+        new_pw = st.text_input(
+            "Initial password", type="password",
+            help="At least 6 characters. User can change it after first "
+                 "login from their Profile tab.")
+        if st.form_submit_button("Create account", type="primary",
+                                   use_container_width=True):
+            un = (new_user or "").strip()
+            nm = (new_name or "").strip()
+            if not un or not nm or not new_pw or len(new_pw) < 6:
+                st.warning("Username, display name, and 6+ char password "
+                            "are required.")
+                return
+            if " " in un:
+                st.warning("Username can't contain spaces.")
+                return
+            try:
+                if db.get_user_by_username(un):
+                    st.warning("That username is taken.")
+                    return
+                db.create_signed_in_user(
+                    username=un, password_hash=auth.hash_password(new_pw),
+                    display_name=nm,
+                    email=(new_email or "").strip() or None,
+                    role=new_role,
+                )
+                # Force password change on first login
+                try:
+                    row = db.get_user_by_username(un)
+                    if row:
+                        engine = db.get_engine()
+                        from sqlalchemy import text as _t
+                        with engine.begin() as c:
+                            c.execute(_t(
+                                "UPDATE contributor SET "
+                                "must_change_password = true "
+                                "WHERE contributor_id = :i"
+                            ), {"i": row["contributor_id"]})
+                except Exception:
+                    pass
+                _cached_all_users.clear()
+                st.success(
+                    f"Account created for {nm} (@{un}, {new_role}). "
+                    "Share their username + password so they can sign in.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Create failed: {exc}")
 

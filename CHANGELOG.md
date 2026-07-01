@@ -42,6 +42,41 @@ tree, drawn on one Leaflet panel.
 follow + favorite, change-password. Admins additionally see Team
 (promote users to editor) and Password resets.
 
+## Dashboard sub-nav
+
+The Dashboard body switches between four sections via a small radio
+under the tree: Outputs, Customize, Listen, Footprint. The tree and
+its build controls stay visible above the radio so you always have
+context. Pick lands via session_state so it survives reruns.
+
+## Clade browser + notes
+
+Under Customize, pick any named clade in the current tree and see:
+a representative species photo (the first CC-licensed image among its
+descendants), its divergence age, and up to twenty species under it.
+Signed-in users can attach a short note to any clade, scoped to just
+this tree or global across trees. Notes are surfaced right there
+under the clade in the browser.
+
+## Blank outline map
+
+Next to the composite range map is a "Build blank outline map" button.
+Same CARTO coastlines, no GBIF density, on warm paper stock with lined
+notes gutter underneath. Print it and sketch your own observations,
+migrations, or family stories.
+
+## Theme skins
+
+Profile now has a Color palette picker. Two alternate themes ship with
+the app (River sea, Warm forest) alongside the default Crimson & amber.
+Choice persists on `contributor.theme` and applies across every page.
+
+## Invite-only accounts
+
+Public sign-up is gone. Only admins can create new accounts, via a
+form on their Profile. New users get a role (visitor / editor / admin)
+and a forced-password-change flag on first sign-in.
+
 ## Auth + roles
 
   - **admin** (Maya + anyone she promotes): can edit anything

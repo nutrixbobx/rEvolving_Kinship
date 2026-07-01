@@ -188,6 +188,14 @@ def _set_session_user(user_row: dict) -> None:
         "avatar_url": user_row.get("avatar_url"),
     }
     st.session_state["is_admin"] = (user_row.get("role") == "admin")
+    # Cache the user's theme pick so inject_css can apply it on
+    # subsequent reruns without another DB hit.
+    cid = user_row.get("contributor_id")
+    if cid:
+        try:
+            st.session_state["user_theme"] = db.get_user_theme(cid)
+        except Exception:
+            st.session_state["user_theme"] = None
 
 
 def _start_remembered_session(contributor_id: str) -> None:
@@ -528,26 +536,15 @@ def _render_signin_form(scope: str) -> None:
 
 
 def _render_signup_form(scope: str) -> None:
-    with st.form(f"signup_form_{scope}"):
-        new_user = st.text_input("Username", key=f"su_user_{scope}",
-                                   help="No spaces.")
-        new_name = st.text_input("Display name", key=f"su_name_{scope}")
-        new_email = st.text_input("Email (optional)",
-                                    key=f"su_email_{scope}")
-        new_pw = st.text_input("Password", type="password",
-                                 key=f"su_pw_{scope}")
-        new_pw2 = st.text_input("Confirm password", type="password",
-                                  key=f"su_pw2_{scope}")
-        if st.form_submit_button("Create account", type="primary",
-                                   use_container_width=True):
-            ok, msg = _do_signup(new_user, new_name, new_email,
-                                  new_pw, new_pw2)
-            if ok:
-                st.success(
-                    f"Account created for {new_name}. Switch to "
-                    "**Sign in** to enter.")
-            else:
-                st.error(msg)
+    """Invite-only: public sign-up is disabled. Admin creates accounts
+    from Profile → Team. Anyone can still enter as a named guest via
+    the third door on the gate."""
+    st.info(
+        "Accounts are invite-only. To get a signed-in profile with "
+        "avatar, bio, and follow/favorite features, ask Maya to add "
+        "you (maya@shared-rivers.org). In the meantime you can enter "
+        "as a **guest** using the third option above — your name "
+        "still attributes any contributions.")
 
 
 def _render_guest_form(scope: str) -> None:
