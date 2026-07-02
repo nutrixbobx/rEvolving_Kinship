@@ -530,80 +530,36 @@ def build_press_pdf(tree_name: str,
         except Exception as exc:
             print(f"blend embed failed: {exc}")
 
-        # Range map on the SAME page as the spectrogram blend (below it,
-        # no PageBreak) so we don't leave 30%-empty pages.
-##      try:
-##            from src import range_map_static
-##            range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
-##            if not range_png.exists():
-##                try:
-##                    range_map_static.build_range_map(tree_name)
-##                except Exception as exc:
-##                    print(f"range_map build during PDF failed: {exc}")
-##            if range_png.exists() and range_png.stat().st_size > 0:
-##                story.append(Spacer(1, 12))
-##                story.append(Paragraph(
-##                    "Range map — every species' GBIF occurrence density "
-##                    "on a world basemap.", h_caption))
-##                story.append(Spacer(1, 4))
-##                try:
-##                    rw = (PAGE_W - 2 * MARGIN)
-##                    rh = rw * 0.55   # roughly the basemap aspect
-##                    story.append(Image(str(range_png),
-##                                         width=rw, height=rh,
-##                                         kind="proportional"))
-##                except Exception as exc:
-##                    print(f"range_map embed failed: {exc}")
-##        except Exception as exc:
-##            print(f"range_map page failed: {exc}")
-##        story.append(PageBreak())
-
-    # ---- Credits page (consolidated list, hyperlinked) ----
+    # ---- Range map (its own page after the spec blend) ----
     try:
-        cred_rows = aggregate_tree_credits(tree_name)
-    except Exception as exc:
-        print(f"aggregate_tree_credits failed: {exc}")
-        cred_rows = []
-    if cred_rows:
-        story.append(Paragraph("Credits", h_sec))
-        story.append(Paragraph(
-            "Photo and audio per species. License code links to the "
-            "Creative Commons page that defines it.", h_caption))
-        story.append(Spacer(1, 8))
-        for r in cred_rows:
-            head = r["common"] or r["species"]
-            sub = f" <i>({r['species']})</i>" if r["common"] else ""
+        from src import range_map_static
+        range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
+        if not range_png.exists():
+            try:
+                range_map_static.build_range_map(tree_name)
+            except Exception as exc:
+                print(f"range_map build during PDF failed: {exc}")
+        if range_png.exists() and range_png.stat().st_size > 0:
+            story.append(PageBreak())
             story.append(Paragraph(
-                _tag_runs(f"<b>{head}</b>{sub}", _SCRIPT_FONTS, _BODY_FONT),
-                h_body))
-            if r["photo_credit_html"]:
-                story.append(Paragraph(
-                    _tag_runs(
-                        f"photo: {r['photo_credit_html']}",
-                        _SCRIPT_FONTS, _BODY_FONT),
-                    h_caption))
-            if r["audio_credit_html"]:
-                story.append(Paragraph(
-                    _tag_runs(
-                        f"audio: {r['audio_credit_html']}",
-                        _SCRIPT_FONTS, _BODY_FONT),
-                    h_caption))
-            sub_links = []
-            if r.get("wikipedia_url"):
-                sub_links.append(
-                    f'<a href="{_safe_pdf_url(r["wikipedia_url"])}">'
-                    'Wikipedia</a>')
-            if r.get("inaturalist_url"):
-                sub_links.append(
-                    f'<a href="{_safe_pdf_url(r["inaturalist_url"])}">'
-                    'iNaturalist</a>')
-            if sub_links:
-                story.append(Paragraph(
-                    " · ".join(sub_links), h_caption))
-            story.append(Spacer(1, 6))
-        # No PageBreak — let kin cards flow on the same page if credits
-        # didn't fill it (avoids the 30%-empty-page issue Maya noted).
-        story.append(Spacer(1, 16))
+                f"{title_text}, range map", h_sec))
+            story.append(Paragraph(
+                "Every species' GBIF occurrence density on the same "
+                "basemap the interactive tab uses. Colors match the "
+                "legend, and the whole thing sits above cropped "
+                "Antarctica so the visual weight goes to the actual "
+                "ranges.", h_body))
+            story.append(Spacer(1, 8))
+            try:
+                rw = (PAGE_W - 2 * MARGIN)
+                rh = rw * 0.9    # crop-aware aspect (world + legend)
+                story.append(Image(str(range_png),
+                                     width=rw, height=rh,
+                                     kind="proportional"))
+            except Exception as exc:
+                print(f"range_map embed failed: {exc}")
+    except Exception as exc:
+        print(f"range_map page failed: {exc}")
 
     # ---- Kin cards (one species per row, 3-4 per page) ----
     records = _species_records(tree_name)
@@ -698,6 +654,54 @@ def build_press_pdf(tree_name: str,
         author="Maya (Shared Rivers)",
         subject="Personalized kinship report",
     )
+    # ---- Credits page — LAST page of the PDF (Maya's ask). Every
+    # photo + audio attribution consolidated with hyperlinked license.
+    try:
+        cred_rows = aggregate_tree_credits(tree_name)
+    except Exception as exc:
+        print(f"aggregate_tree_credits failed: {exc}")
+        cred_rows = []
+    if cred_rows:
+        story.append(PageBreak())
+        story.append(Paragraph("Credits", h_sec))
+        story.append(Paragraph(
+            "Photo and audio per species. License code links to the "
+            "Creative Commons page that defines it.", h_caption))
+        story.append(Spacer(1, 8))
+        for r in cred_rows:
+            head = r["common"] or r["species"]
+            sub = f" <i>({r['species']})</i>" if r["common"] else ""
+            story.append(Paragraph(
+                _tag_runs(f"<b>{head}</b>{sub}",
+                           _SCRIPT_FONTS, _BODY_FONT),
+                h_body))
+            if r["photo_credit_html"]:
+                story.append(Paragraph(
+                    _tag_runs(
+                        f"photo: {r['photo_credit_html']}",
+                        _SCRIPT_FONTS, _BODY_FONT),
+                    h_caption))
+            if r["audio_credit_html"]:
+                story.append(Paragraph(
+                    _tag_runs(
+                        f"audio: {r['audio_credit_html']}",
+                        _SCRIPT_FONTS, _BODY_FONT),
+                    h_caption))
+            sub_links = []
+            if r.get("wikipedia_url"):
+                sub_links.append(
+                    f'<a href="{_safe_pdf_url(r["wikipedia_url"])}">'
+                    'Wikipedia</a>')
+            if r.get("inaturalist_url"):
+                sub_links.append(
+                    f'<a href="{_safe_pdf_url(r["inaturalist_url"])}">'
+                    'iNaturalist</a>')
+            if sub_links:
+                story.append(Paragraph(
+                    " · ".join(sub_links), h_caption))
+            story.append(Spacer(1, 6))
+
+
     doc.build(story)
     return out_path
 
