@@ -118,7 +118,7 @@ def _hover_text(label: str, info: dict) -> str:
     return ", ".join(parts)
 
 
-def _resolve_newick_path(newick_path, use_scaled: bool = True):
+def _resolve_newick_path(newick_path, use_scaled: bool = False):
     """Given a `<stem>_named_tree.nwk` path, prefer the MYA-scaled
     sibling `<stem>_scaled_tree.nwk` when it exists AND use_scaled
     is True. Falls back to the plain topology newick otherwise."""
@@ -151,7 +151,7 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
              show_undated_labels: bool = True,
              show_scientific: bool = True,
              layout: str = "r",
-             use_scaled: bool = True):
+             use_scaled: bool = False):
     """Build the toytree object plus the idx-ordered style lists. The flags let
     each layout (rectangular / unrooted / circular) choose how dense to draw.
     """
