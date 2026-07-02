@@ -1534,32 +1534,36 @@ if active_tab == "Dashboard":
             if auth.is_admin():
                 st.code(traceback.format_exc(), language="python")
 
-        totals = usage_log.get_totals()
-        tree_wh = usage_log.tree_total(pick_tree)
-        last = usage_log.last_event_summary()
-        st.markdown(f"#### Approximate footprint of *{pick_tree}*")
-        if tree_wh > 0:
+        # ------- Footprint (gated by sub-nav) ------------------------------
+        if _sub == "Footprint":
+            totals = usage_log.get_totals()
+            tree_wh = usage_log.tree_total(pick_tree)
+            last = usage_log.last_event_summary()
+            st.markdown(f"#### Approximate footprint of *{pick_tree}*")
+            if tree_wh > 0:
+                st.markdown(
+                    f"This tree has used about **{tree_wh} Wh** of "
+                    f"electricity ({usage_log.relatable(tree_wh)}) and "
+                    f"**{usage_log.wh_to_water_ml(tree_wh):.0f} mL of "
+                    f"water** ({usage_log.water_relatable(tree_wh)}) "
+                    f"for data-center cooling.")
+            else:
+                st.caption("This tree has not been built yet, so no "
+                            "measurable electricity or water has been "
+                            "used for it.")
+            if last and last.get("tree") == pick_tree:
+                st.caption(
+                    f"Last build event · {last['type']} · "
+                    f"{last['wh']} Wh ({last['relatable']})")
+            st.markdown(usage_log.invitation(pick_tree))
             st.markdown(
-                f"This tree has used about **{tree_wh} Wh** of electricity "
-                f"({usage_log.relatable(tree_wh)}) and "
-                f"**{usage_log.wh_to_water_ml(tree_wh):.0f} mL of water** "
-                f"({usage_log.water_relatable(tree_wh)}) for data-center cooling.")
-        else:
-            st.caption("This tree has not been built yet, so no measurable "
-                       "electricity or water has been used for it.")
-        if last and last.get("tree") == pick_tree:
-            st.caption(
-                f"Last build event · {last['type']} · {last['wh']} Wh "
-                f"({last['relatable']})")
-        st.markdown(usage_log.invitation(pick_tree))
-        st.markdown(
-            f'<div style="color:#9ab3ab;font-size:11px;margin-top:8px">'
-            f'Across the whole app: {totals["events"]} builds, '
-            f'about {totals["total_wh"]} Wh '
-            f'(~{totals["total_co2_g"]:.1f} g CO₂eq, '
-            f'{usage_log.wh_to_water_ml(totals["total_wh"]):.0f} mL of water).'
-            f'</div>',
-            unsafe_allow_html=True)
+                f'<div style="color:#9ab3ab;font-size:11px;margin-top:8px">'
+                f'Across the whole app: {totals["events"]} builds, '
+                f'about {totals["total_wh"]} Wh '
+                f'(~{totals["total_co2_g"]:.1f} g CO₂eq, '
+                f'{usage_log.wh_to_water_ml(totals["total_wh"]):.0f} mL of water).'
+                f'</div>',
+                unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------

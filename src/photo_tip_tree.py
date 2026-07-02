@@ -223,7 +223,6 @@ def build_photo_tip_tree(tree_name: str,
             import re as _re
             # Positioning: y coords in percent of SVG height. Rows sit
             # in a 6-percent band just above the CC footer at 99.2%.
-            n_rows = len(shown)
             top_y = 93.5
             row_pct = 0.9
             credit_svg = '<g pointer-events="none">'
