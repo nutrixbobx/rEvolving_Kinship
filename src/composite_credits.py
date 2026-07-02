@@ -8,7 +8,6 @@ so the tone matches everywhere.
 """
 
 from __future__ import annotations
-from pathlib import Path
 
 
 def collect_credits(tree_name: str) -> list[str]:

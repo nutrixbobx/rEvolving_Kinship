@@ -6,7 +6,7 @@ taxonomy database (the authoritative source, downloaded once by ete3) for the
 matching TaxID and writes it back to the warehouse. Nothing is invented, and
 anything that cannot be matched is reported so a human can look at it.
 
-    python -m src.enrich "Goat Farm - Proctor Creek"
+    python -m src.enrich "<Your Tree Name>"
 """
 
 from __future__ import annotations

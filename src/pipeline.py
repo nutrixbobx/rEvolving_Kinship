@@ -1,7 +1,7 @@
 """
 Run the whole pipeline for one tree, end to end.
 
-    python -m src.pipeline "Goat Farm - Proctor Creek"
+    python -m src.pipeline "<Your Tree Name>"
 
 Steps, in order:
   1. enrich + build the named tree (Newick)        -> outputs/*_named_tree.nwk

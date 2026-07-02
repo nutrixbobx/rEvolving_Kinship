@@ -8,7 +8,7 @@ dated tree, which is a reliable way to get real numbers.
 The flow is two steps:
 
   1. Export the species list for a tree:
-         python -m src.timetree export "Goat Farm - Proctor Creek"
+         python -m src.timetree export "<Your Tree Name>"
      Upload that file at timetree.org under "Load a List of Species", then save
      the dated tree it returns as  data/<stem>_timetree.nwk
 

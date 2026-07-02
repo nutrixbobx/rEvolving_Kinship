@@ -48,7 +48,6 @@ def _compute_ages(t, meta: dict) -> dict[int, float]:
     """Return {node_idx: age_in_mya}. Leaves at 0. Dated internals from
     meta. Undated internals interpolated between nearest dated ancestor
     and nearest dated descendant."""
-    from ete3 import Tree as _Tree  # noqa: F401
     ages: dict[int, float] = {}
     for node in t.traverse():
         idx = id(node)

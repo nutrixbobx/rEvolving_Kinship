@@ -8,7 +8,7 @@ internal clades) with its scientific name, and write a Newick file.
 This is the same idea as the old Colab step, just reading from our own
 warehouse instead of a Google Sheet, and running anywhere Python runs.
 
-    python -m src.tree "Goat Farm - Proctor Creek"
+    python -m src.tree "<Your Tree Name>"
 """
 
 from __future__ import annotations

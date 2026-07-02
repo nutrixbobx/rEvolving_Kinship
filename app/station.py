@@ -1311,8 +1311,8 @@ if active_tab == "Dashboard":
                                     db.set_clade_divergence_mya(
                                         _clade_db_id, to_save)
                                     st.success(
-                                        f"Saved. Rebuild the tree so "
-                                        f"branches rescale to the new age.")
+                                        "Saved. Rebuild the tree so "
+                                        "branches rescale to the new age.")
                                     st.rerun()
                         else:
                             st.caption("(This clade isn't in the "

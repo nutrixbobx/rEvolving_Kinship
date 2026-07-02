@@ -573,7 +573,8 @@ def add_species_name(species_id: str, name_text: str,
                      is_preferred: bool = False,
                      contributor_id: str | None = None,
                      region_code: str | None = None,
-                     script: str | None = None) -> None:
+                     script: str | None = None,
+                     notes: str | None = None) -> None:
     if not name_text or not name_text.strip():
         return
     name_text = name_text.strip()

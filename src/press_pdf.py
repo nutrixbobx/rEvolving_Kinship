@@ -480,9 +480,8 @@ def build_press_pdf(tree_name: str,
         "ecologists, and educators around the idea that waterways are "
         "not borders or resources but living connectors. It convenes "
         "events that braid art, ecology, music, gastronomy, and "
-        "education into one room. This particular piece has traveled "
-        "to several venues, most recently SITE in The Goat Farm, "
-        "Atlanta.", h_body))
+        "education into one room. This piece has traveled to several "
+        "venues.", h_body))
 
     fp = _footprint_lines(tree_name)
     if fp:

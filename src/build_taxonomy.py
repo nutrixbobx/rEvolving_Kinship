@@ -42,7 +42,7 @@ def main() -> None:
         NCBITaxa()
 
     print("\ndone. the database is ready. run the pipeline normally now:")
-    print('  python -m src.pipeline "Goat Farm - Proctor Creek"')
+    print('  python -m src.pipeline "<Your Tree Name>"')
 
 
 if __name__ == "__main__":
