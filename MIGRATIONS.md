@@ -24,6 +24,7 @@ into the **Supabase SQL Editor** and run, in this order:
 | 10| `db/backfill_attribution_to_maya.sql`         | Data-only: reassigns every existing row (trees, stories, dishes, names, cultural ties) to Maya admin.         |
 | 11| `db/theme_migration.sql`                      | Adds `theme` column on `contributor` for per-user palette skins. Tolerant of the column being absent (feature just falls back to default). |
 | 12| `db/clade_note_migration.sql`                 | Adds `clade_note` table so signed-in users can attach short notes to a named clade in the Clade Browser. Notes can be per-tree or global. |
+| 13| `db/name_notes_migration.sql`                 | Adds `notes TEXT` column on `species_name` so contributors can attach context to a name (meaning, origin, when it is used). |
 
 ## Verification after each run
 

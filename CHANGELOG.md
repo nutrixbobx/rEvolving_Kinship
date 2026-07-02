@@ -42,6 +42,24 @@ tree, drawn on one Leaflet panel.
 follow + favorite, change-password. Admins additionally see Team
 (promote users to editor) and Password resets.
 
+## Session G: launch prep
+
+Sub-nav gates fixed so Outputs/Customize/Listen/Footprint actually
+filter what shows. Static range map now shares the blank outline
+aesthetic (light coastlines on warm paper) with GBIF density
+overlays and species legend layered on top. French Marigold now
+reads correctly in kinship cards; a wider fix heals any species
+whose iNat wikipedia_summary is degenerate (falls back to
+Wikipedia's real extract, caches the fix). Rank field dropped from
+every user-facing view. Name additions now carry an optional Notes
+field. Region field became a multi-tag picker across the app with
+free-text Other. Photo sizing in T1 + T2 scales with tip count so
+sparse trees show big thumbs and dense trees stay tidy. Every
+composite image now carries a small right-aligned credit strip at
+the bottom. Range map species names are clickable and open a quick-
+look species card. Interactive tree hover images now cover clade
+nodes too (representative descendant photo).
+
 ## MYA-scaled branch lengths
 
 Every tree now writes a sibling `<stem>_scaled_tree.nwk` alongside the

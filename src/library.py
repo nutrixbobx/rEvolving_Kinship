@@ -385,6 +385,11 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
             is_pref = st.checkbox(
                 "Make this the preferred name for this species + language",
                 value=False)
+            name_notes = st.text_area(
+                "Notes (optional)",
+                placeholder="Where this name comes from, what it "
+                             "means, when it is used...",
+                height=68)
             if st.form_submit_button("Save name", type="primary"):
                 if sp_id and (name_text or "").strip():
                     db.add_species_name(
@@ -394,7 +399,8 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
                         is_preferred=is_pref,
                         contributor_id=contributor_id,
                         region_code=region,
-                        script=script_name if non_latin else None)
+                        script=script_name if non_latin else None,
+                        notes=(name_notes or "").strip() or None)
                     _saved(f"Saved {name_text!r} ({lang}/{cat}).")
                 else:
                     st.warning("Need a species and a non-empty name.")

@@ -145,6 +145,12 @@ def build_spectrogram_blend(tree_name: str,
         "every species' spectrogram averaged with low alpha — "
         "the ecosystem's collective voice",
         ha="center", color="#9ab3ab", fontsize=9, style="italic")
+    try:
+        from src import composite_credits
+        composite_credits.draw_matplotlib_credit_strip(
+            fig, tree_name, text_color="#9ab3ab")
+    except Exception as _exc:
+        print(f"credit footer failed (non-fatal): {_exc}")
     out_path = out_dir / f"{stem}_spectrogram_blend.png"
     fig.savefig(out_path, dpi=150, facecolor=BG,
                  bbox_inches="tight", pad_inches=0.2)

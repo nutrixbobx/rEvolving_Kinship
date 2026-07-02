@@ -111,8 +111,6 @@ def _hover_text(label: str, info: dict) -> str:
         return f"{common} ({sci})" if common else sci
     clade = info.get("scientific_name") or label.replace("_", " ") or "node"
     parts = [clade]
-    if info.get("rank"):
-        parts.append(info["rank"])
     parts.append(f"{info['mya']} MYA" if info.get("mya") is not None
                  else "age not set")
     return ", ".join(parts)
@@ -391,32 +389,60 @@ def _header_band(svg_or_html: str, tree_name: str | None) -> str:
 
 
 
-def _build_image_map(meta: dict) -> dict:
-    """Map each tip's common name and scientific name to its image URL,
-    drawing on the species_profile disk cache. Returns a JSON-safe dict."""
+def _build_image_map(meta: dict, newick_path=None) -> dict:
+    """Map each tip's + each clade's common/scientific name to its
+    image URL (from species_profile disk cache). Clade nodes get the
+    photo of a representative leaf descendant so hover works there
+    too. Returns a JSON-safe dict."""
     try:
         from src import species_profile
     except Exception:
         return {}
     out = {}
+    tip_urls_by_sci: dict[str, str] = {}
     for tip_name, info in meta.items():
         if not info.get("is_leaf"):
             continue
         sci = info.get("scientific_name") or tip_name.replace("_", " ")
         common = info.get("common_name")
         try:
-            p = species_profile.find_profile(sci, common)
+            prof = species_profile.find_profile(sci, common)
         except Exception:
-            p = None
-        if not p:
+            prof = None
+        if not prof:
             continue
-        url = p.get("image_url")
+        url = prof.get("image_url")
         if not url:
             continue
         if common:
             out[common] = url
         out[sci] = url
         out[tip_name.replace("_", " ")] = url
+        tip_urls_by_sci[sci] = url
+
+    # Register clade → representative photo. We need the tree to know
+    # which leaves descend from which clade; parse the newick once.
+    if newick_path:
+        try:
+            from ete3 import Tree as _Tree
+            _tt = _Tree(Path(newick_path).read_text(), format=1)
+            for node in _tt.traverse():
+                if node.is_leaf() or not node.name:
+                    continue
+                for lf in node.get_leaves():
+                    lm = meta.get(lf.name, {})
+                    lf_sci = lm.get("scientific_name")
+                    if lf_sci and lf_sci in tip_urls_by_sci:
+                        # Register under both raw clade name and
+                        # formatted (title-case, underscore-stripped)
+                        # form so hover matches whatever the label says.
+                        display = _format_clade_name(node.name)
+                        out[node.name] = tip_urls_by_sci[lf_sci]
+                        out[display] = tip_urls_by_sci[lf_sci]
+                        out[node.name.replace("_", " ")] = tip_urls_by_sci[lf_sci]
+                        break
+        except Exception as _exc:
+            print(f"  clade image map failed (non-fatal): {_exc}")
     return out
 
 
@@ -551,7 +577,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _bg_rect(html, bg)
     html = _hover_targets(html)
     html = _header_band(html, tree_name)
-    html = _hover_image_overlay(html, _build_image_map(meta))
+    html = _hover_image_overlay(
+        html, _build_image_map(meta, newick_path=newick_path))
     html = _legend_band(html)
     html = _cc_footer(html)
     return (

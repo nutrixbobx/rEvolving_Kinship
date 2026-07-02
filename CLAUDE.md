@@ -81,6 +81,34 @@ Session E (guest lockdown + map polish + NCBI auto-load):
     Manual "Build NCBI" expander removed. Admin re-download panel
     stays on the Dashboard as a corruption escape hatch.
 
+Session G (launch prep, 2026-07-01):
+  - Sub-nav gates fixed (were bleeding through in Session E).
+  - Static range map switched to blank-outline visual family
+    (light coastlines + GBIF density + species legend).
+  - `species_profile._is_useful_summary` heals cached "..." summaries
+    on next visit by re-pulling Wikipedia. Fixes Tagetes patula and
+    any other iNat-degenerate case.
+  - Rank field no longer surfaces anywhere in views. DB still stores it.
+  - `species_name.notes` column via `db/name_notes_migration.sql`.
+    Add-name forms in Library + Dashboard carry a Notes textarea.
+  - Region field is now `i18n.render_region_multi_picker` +
+    `region_codes_to_str`/`region_str_to_codes` helpers. Stored as
+    comma-separated string in the existing `region_code` TEXT column,
+    so no schema change.
+  - Dynamic photo sizing: T1 (`src/photo_audio_tree.py`) and T2
+    (`src/photo_tip_tree.py`) both scale photo size inversely with
+    tip count.
+  - `src/composite_credits.py` provides `draw_pil_credit_strip` +
+    `draw_matplotlib_credit_strip` for the bottom-right footer on
+    T1, spec blend, and static range map.
+  - Range map species link: layer control labels wrap the species
+    name in `<a href="?species=...">`. Station.py's Range map tab
+    reads that param and renders a species quick-look card.
+  - Clade hover images: `render._build_image_map` accepts
+    `newick_path=`, walks descendants for each internal node, and
+    registers the clade name → first leaf's photo. Overlay JS is
+    unchanged and picks these up automatically.
+
 Session F (optimization + UX masterization, 2026-07-01):
   - MYA-scaled branch lengths: `src/scale_tree.py` writes a sibling
     `<stem>_scaled_tree.nwk` with log10(1+mya) branch lengths derived

@@ -149,12 +149,15 @@ def build_photo_audio_tree(tree_name: str,
     image_tree.draw_header(fig, tree_name)
     image_tree._draw_legend(fig)
 
-    # Layout: tree (35%), photo (7%), spec (39%), clade legend column
-    # on the far right (10%). Header reserves top 12% so title + slogan
-    # are clear of the tree (parity with the unrooted SVG). The clade
-    # legend absorbs the previous overlap zone so clade labels no longer
-    # collide with each other on the tree axis.
-    tree_l, tree_b, tree_w, tree_h = 0.02, 0.08, 0.37, 0.80
+    # Layout scales photo width inversely with tip count so sparse
+    # trees show big photos and dense trees stay tidy. Legend column
+    # on the far right stays fixed.
+    #   n <= 5 -> photo_w = 0.11 (max)
+    #   n >= 20 -> photo_w = 0.06 (min)
+    # Linearly interpolated between.
+    tree_l, tree_b, tree_h = 0.02, 0.08, 0.80
+    photo_w = max(0.06, min(0.11, 0.11 - 0.005 * max(n - 5, 0)))
+    tree_w = 0.37 - (photo_w - 0.07) * 0.5  # tree gives back some space
     ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
     clade_entries = image_tree._draw_tree(
         ax_tree, tre, pos, meta, dated, max_depth, n)
@@ -166,10 +169,9 @@ def build_photo_audio_tree(tree_name: str,
     # Photo + spec columns. No equal-row-height heuristic — instead we
     # use the tree's actual tip Y positions so every photo lines up
     # vertically with its tip dot.
-    photo_left = 0.40
-    photo_w = 0.07
+    photo_left = tree_l + tree_w + 0.01
     spec_left = photo_left + photo_w + 0.012
-    spec_w = 0.395
+    spec_w = 0.895 - spec_left - 0.005
 
     # tree axes span: figure_y(tip i) = tree_b + tree_h - (i/(n-1)) * tree_h
     # for n>=2. For n=1, center the single row.
@@ -179,7 +181,9 @@ def build_photo_audio_tree(tree_name: str,
         return tree_b + tree_h - (i / (n - 1)) * tree_h
     # Row height in figure coords: half the spacing between two tips
     row_pitch_fig = tree_h / max(n - 1, 1)
-    h = min(row_pitch_fig * 0.85, 0.07)  # cap so very tall trees don't crash
+    # Cap scales with photo_w so wide photos are also tall (roughly square).
+    _photo_h_cap = photo_w * 1.6
+    h = min(row_pitch_fig * 0.85, _photo_h_cap)
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})
@@ -219,6 +223,13 @@ def build_photo_audio_tree(tree_name: str,
         # dedicated page in the kinship report and in the sibling
         # <stem>_credits.txt file written next to this image.
 
+    # Minimal credits footer at the bottom-right so every export
+    # carries its per-species attributions inline.
+    try:
+        from src import composite_credits
+        composite_credits.draw_matplotlib_credit_strip(fig, tree_name)
+    except Exception as _exc:
+        print(f"credit footer failed (non-fatal): {_exc}")
     out_path = out_dir / f"{stem}_photo_audio.png"
     fig.savefig(out_path, dpi=140, facecolor=BG, bbox_inches="tight",
                 pad_inches=0.2)

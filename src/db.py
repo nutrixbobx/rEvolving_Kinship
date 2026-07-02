@@ -606,10 +606,13 @@ def add_species_name(species_id: str, name_text: str,
                               region_code  = COALESCE(EXCLUDED.region_code,
                                                        species_name.region_code),
                               script       = COALESCE(EXCLUDED.script,
-                                                       species_name.script)
+                                                       species_name.script),
+                              notes        = COALESCE(EXCLUDED.notes,
+                                                       species_name.notes)
             """), {"s": species_id, "n": name_text, "l": language,
                    "c": category, "r": region_code, "src": source,
-                   "p": is_preferred, "by": contributor_id, "sc": script})
+                   "p": is_preferred, "by": contributor_id, "sc": script,
+                   "nt": (notes or None)})
         except Exception:
             conn.execute(text("""
                 INSERT INTO species_name

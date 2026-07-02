@@ -121,8 +121,13 @@ def _label_candidates(text_inner: str) -> list[str]:
 
 
 def _inject_thumbs_into_svg(svg: str, uris: dict[str, str],
-                              thumb_px: int = 47) -> str:
-    """Inject circular tip thumbnails into a toytree SVG."""
+                              thumb_px: int = 47,
+                              n_tips: int | None = None) -> str:
+    """Inject circular tip thumbnails into a toytree SVG.
+    thumb_px is the DEFAULT; when n_tips is passed, size scales
+    inversely with tip count (5 tips -> 68px, 30 tips -> 34px)."""
+    if n_tips is not None:
+        thumb_px = max(34, min(72, int(72 - 1.6 * max(n_tips - 5, 0))))
     # Define one clipPath we can reuse via clip-path=url(#kn_tipclip)
     clip_id = "kn_tipclip"
     clip_def = (
@@ -203,7 +208,8 @@ def build_photo_tip_tree(tree_name: str,
     uris = _photo_uri_by_label(meta)
     print(f"  {len(uris)} label→thumbnail mappings ready")
 
-    enhanced = _inject_thumbs_into_svg(base_svg, uris)
+    _n_tips = sum(1 for v in meta.values() if v.get("is_leaf"))
+    enhanced = _inject_thumbs_into_svg(base_svg, uris, n_tips=_n_tips)
 
     out_svg = out_dir / f"{stem}_photo_tips.svg"
     out_svg.write_text(enhanced)

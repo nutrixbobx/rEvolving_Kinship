@@ -108,17 +108,20 @@ def _composite_tiles(tile_bytes: dict[str, bytes],
 
 
 def _basemap_world():
-    """Build the CARTO dark basemap at z=2 (4x4 tiles)."""
+    """Build the CARTO light-nolabels basemap at z=2 (4x4 tiles). Same
+    coastline aesthetic as the blank outline map, so the composite +
+    the blank outline read as one visual family."""
     urls = [
-        CARTO_TEMPLATE.format(z=ZOOM, x=x, y=y)
+        CARTO_BLANK_TEMPLATE.format(z=ZOOM, x=x, y=y)
         for x in range(N_TILES) for y in range(N_TILES)
     ]
-    print(f"  fetching {len(urls)} basemap tiles (z={ZOOM})...")
+    print(f"  fetching {len(urls)} light basemap tiles (z={ZOOM})...")
     tiles = _fetch_many(urls)
     return _composite_tiles(
         tiles,
-        CARTO_TEMPLATE.replace("{z}", str(ZOOM)),
+        CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
         N_TILES,
+        bg=(250, 246, 238, 255),   # warm off-white paper
     )
 
 
@@ -139,7 +142,8 @@ def _density_layer_world(gbif_key: int, style: str):
 
 
 def _species_legend_strip(mapped: list[dict], width: int):
-    """Color-swatch + label per species (one row each)."""
+    """Color-swatch + species label per row. Rendered on warm paper
+    so it matches the blank outline aesthetic."""
     from PIL import Image, ImageDraw, ImageFont
     n = len(mapped)
     if n == 0:
@@ -147,7 +151,7 @@ def _species_legend_strip(mapped: list[dict], width: int):
     row_h = 22
     pad = 12
     height = n * row_h + 2 * pad
-    strip = Image.new("RGB", (width, height), (14, 27, 26))
+    strip = Image.new("RGB", (width, height), (250, 246, 238))
     draw = ImageDraw.Draw(strip)
     try:
         font = ImageFont.truetype(
@@ -156,14 +160,15 @@ def _species_legend_strip(mapped: list[dict], width: int):
         font = ImageFont.load_default()
     for i, sp in enumerate(mapped):
         y = pad + i * row_h + row_h // 2
-        color = sp.get("color", "#ffd97a")
+        color = sp.get("color", "#ff2a1a")
         col = tuple(int(color.lstrip("#")[j:j+2], 16) for j in (0, 2, 4))
-        draw.ellipse((pad, y - 7, pad + 14, y + 7), fill=col)
+        draw.ellipse((pad, y - 7, pad + 14, y + 7), fill=col,
+                     outline=(90, 70, 70))
         common = sp.get("common_name")
         sci = sp.get("scientific_name", "")
         lab = f"{common} ({sci})" if common else sci
         draw.text((pad + 24, y - 8), lab,
-                  fill=(232, 243, 239), font=font)
+                  fill=(60, 40, 40), font=font)
     return strip
 
 
@@ -207,39 +212,48 @@ def build_range_map(tree_name: str,
         layer = _density_layer_world(sp["gbif_key"], sp["style"])
         world = Image.alpha_composite(world, layer)
 
-    # 2. Legend strip
+    # 2. Legend strip (matches blank-outline aesthetic)
     legend = _species_legend_strip(mapped, width=CANVAS_W)
     legend_h = legend.size[1] if legend else 0
 
-    # 3. Layout: title + world + legend.
-    # Quadrants intentionally dropped from the default fast build; the
-    # live Range map tab in the app gives interactive zoom. We can add
-    # quadrants back as opt-in later if needed.
-    title_h = 56
+    # 3. Layout: title + world + legend on warm off-white paper so
+    # this reads as the same visual family as the blank outline map.
+    title_h = 60
     pad = 12
     total_h = title_h + CANVAS_H + pad + legend_h
-    final = Image.new("RGBA", (CANVAS_W, total_h), (14, 27, 26, 255))
+    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
     draw = ImageDraw.Draw(final)
     try:
         title_font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
         sub_font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except Exception:
         title_font = ImageFont.load_default()
         sub_font = ImageFont.load_default()
     draw.text((16, 12),
-              f"Range map — {tree_name}",
-              fill=(232, 243, 239, 255), font=title_font)
-    draw.text((16, 38),
-              f"{len(mapped)} species on GBIF · density overlays on dark basemap",
-              fill=(154, 179, 171, 255), font=sub_font)
+              f"Range map, {tree_name}",
+              fill=(60, 40, 40, 255), font=title_font)
+    draw.text((16, 40),
+              f"{len(mapped)} species on GBIF, density overlays on "
+              "the same coastlines you can sketch on.",
+              fill=(120, 100, 100, 255), font=sub_font)
 
     y = title_h
     final.paste(world, (0, y), world)
     y += CANVAS_H + pad
     if legend:
         final.paste(legend, (0, y))
+
+    # Credit footer (PIL variant): tiny bottom-right strip.
+    try:
+        from src import composite_credits
+        final = composite_credits.draw_pil_credit_strip(
+            final, tree_name,
+            text_color=(90, 70, 70),
+            bg_color=(250, 246, 238))
+    except Exception as _exc:
+        print(f"credit footer failed (non-fatal): {_exc}")
 
     out_path = out_dir / f"{stem}_range_map.png"
     final.convert("RGB").save(out_path, "PNG")
@@ -323,6 +337,8 @@ def build_blank_outline_map(tree_name: str,
         draw.line([(20, y), (CANVAS_W - 20, y)],
                   fill=(200, 190, 180, 255), width=1)
 
+    # Blank outline map skips the per-species credit strip since it
+    # has no species data. Just CARTO + OSM attributions in the header.
     out_path = out_dir / f"{stem}_range_blank.png"
     final.convert("RGB").save(out_path, "PNG")
     print(f"wrote {out_path}")

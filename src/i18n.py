@@ -447,6 +447,70 @@ def render_region_picker(label: str, key: str,
     return country_label.split(" — ", 1)[0].strip()
 
 
+
+def render_region_multi_picker(label: str, key: str,
+                                initial_codes: list[str] | None = None
+                                ) -> list[str]:
+    """Multi-tag region picker. Users pick any number of regions
+    across every macro-region, and can add freetext 'Other' entries.
+    Returns a list of ISO codes + custom strings.
+
+    Persistence layer stores as comma-separated in region_code so the
+    DB column stays a single TEXT field (no schema change)."""
+    import streamlit as st
+
+    # Flatten regions into one big list of (code, "code — name (macro)")
+    options: list[tuple[str, str]] = []
+    for macro, items in REGIONS_BY_MACRO.items():
+        for code, name in items:
+            options.append((code, f"{code}, {name} ({macro})"))
+    # Extend with any initial codes that aren't in our list (Other
+    # freetext entries from previous sessions).
+    initial_codes = initial_codes or []
+    known_codes = {c for c, _ in options}
+    for code in initial_codes:
+        if code and code not in known_codes:
+            options.append((code, f"{code} (custom)"))
+
+    labels = [lbl for _, lbl in options]
+    code_by_label = {lbl: c for c, lbl in options}
+    default_labels = [lbl for c, lbl in options if c in (initial_codes or [])]
+
+    picked_labels = st.multiselect(
+        label,
+        labels,
+        default=default_labels,
+        key=f"{key}_multi",
+        help="Pick as many regions as apply. Use the Other box below "
+              "for anywhere not on the list.")
+    picked = [code_by_label[lbl] for lbl in picked_labels]
+
+    other = st.text_input(
+        "Other (comma-separated)",
+        key=f"{key}_multi_other",
+        placeholder="US-GA, MX-OAX, custom-tag",
+        help="Add any regions not on the list, comma separated.")
+    if other:
+        for tok in other.split(","):
+            tok = tok.strip().upper()
+            if tok and tok not in picked:
+                picked.append(tok)
+    return picked
+
+
+def region_codes_to_str(codes: list[str] | None) -> str | None:
+    """List -> comma-separated string for DB storage."""
+    if not codes:
+        return None
+    return ",".join(c for c in codes if c)
+
+
+def region_str_to_codes(s: str | None) -> list[str]:
+    """DB string -> list. Empty -> [].""" 
+    if not s:
+        return []
+    return [c.strip() for c in s.split(",") if c.strip()]
+
 # ---------------------------------------------------------------------------
 # Script picker (basic click-to-compose keyboard for non-Latin scripts)
 # ---------------------------------------------------------------------------

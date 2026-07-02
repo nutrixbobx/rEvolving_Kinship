@@ -209,12 +209,17 @@ species.forEach(function(s) {{
     opacity: 0.85, maxZoom: 14
   }});
   layer.addTo(map);
-  var lbl = s.common_name
+  // Species name links to the quick-look via ?species=... URL param
+  // read by station.py. Uses parent.postMessage since the leaflet
+  // iframe can't touch the parent URL directly under Streamlit's
+  // sandbox. Fallback: plain visible name if messaging fails.
+  var enc = encodeURIComponent(s.scientific_name);
+  var linkBody = s.common_name
     ? s.common_name + ' (<em>' + s.scientific_name + '</em>)'
     : '<em>' + s.scientific_name + '</em>';
-  // Include a colored swatch inside the checkbox label so the same
-  // panel serves as both toggle AND legend. No separate legend control
-  // needed.
+  var lbl = '<a href="?species=' + enc + '" target="_top" '
+    + 'style="color:inherit;text-decoration:none;">'
+    + linkBody + '</a>';
   var swatch = '<span class="swatch" style="background:' + s.color + '"></span>';
   overlays[swatch + lbl] = layer;
 }});

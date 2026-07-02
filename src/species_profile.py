@@ -36,6 +36,16 @@ def _get(url: str, timeout: int = 20) -> bytes:
         urllib.request.Request(url, headers=UA), timeout=timeout).read()
 
 
+def _is_useful_summary(s: str | None) -> bool:
+    """True when the string carries actual content, not just an ellipsis
+    or empty tokens. Guards against iNat's occasional 'wikipedia_summary
+    = "..."' responses like the Tagetes patula case."""
+    if not s:
+        return False
+    stripped = re.sub(r"[.\s\u2026]+", "", str(s))
+    return len(stripped) >= 15
+
+
 def _strip_html(text: str) -> str:
     if not text:
         return ""
@@ -166,6 +176,21 @@ def find_profile(scientific_name: str, common_name: str | None = None,
             profile = json.loads(cache_path.read_text())
         except Exception:
             profile = {}
+        # Heal previously-cached "..." summaries by re-pulling Wikipedia.
+        if profile and not _is_useful_summary(profile.get("summary")):
+            wiki_title = (profile.get("common_name")
+                           or profile.get("scientific_name"))
+            fresh = _wiki_summary(wiki_title) if wiki_title else None
+            if fresh and _is_useful_summary(fresh.get("extract")):
+                profile["summary"] = _strip_html(fresh["extract"])
+                if not profile.get("wikipedia_url"):
+                    profile["wikipedia_url"] = (
+                        (fresh.get("content_urls") or {})
+                        .get("desktop", {}).get("page"))
+                try:
+                    cache_path.write_text(json.dumps(profile, indent=2))
+                except Exception:
+                    pass
 
     if not profile:
         inat = None
@@ -200,9 +225,12 @@ def find_profile(scientific_name: str, common_name: str | None = None,
                 "image_url": photo.get("medium_url") or photo.get("square_url"),
                 "image_attribution": photo.get("attribution"),
                 "image_license": photo.get("license_code"),
-                "summary": _strip_html(
-                    inat.get("wikipedia_summary")
-                    or (wiki or {}).get("extract", "")),
+                "summary": (
+                    _strip_html(inat.get("wikipedia_summary"))
+                    if _is_useful_summary(_strip_html(
+                        inat.get("wikipedia_summary")))
+                    else _strip_html((wiki or {}).get("extract", ""))
+                ),
                 "wikipedia_url": (inat.get("wikipedia_url")
                                   or (wiki or {}).get("content_urls", {})
                                   .get("desktop", {}).get("page")),

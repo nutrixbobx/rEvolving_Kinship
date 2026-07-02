@@ -780,197 +780,196 @@ if active_tab == "Dashboard":
             # ═══════════════════════════════════════════════════════════
             if _sub == "Outputs":
               st.markdown("---")
+              # ─── Personalized kinship report (TOP) ───────────────────
+              st.markdown("### Personalized kinship report (PDF)")
+              st.caption("Five-page report: hero unrooted-with-photos, "
+                         "project info + license + footprint, photo-"
+                         "spectral tree, spectrogram blend + range map, "
+                         "credits, kin cards.")
+              press_pdf_path = config.OUTPUT_DIR / f"{stem}_kinship_report.pdf"
+              _rep_cols = st.columns([1, 1])
+              with _rep_cols[0]:
+                  if st.button("Build / refresh kinship report",
+                               key=f"presspdf_{pick_tree}",
+                               type="primary",
+                               use_container_width=True):
+                      with st.spinner("Composing the kinship report. "
+                                        "This can take a minute if photos "
+                                        "are being fetched for the first "
+                                        "time."):
+                          try:
+                              from src import press_pdf
+                              press_pdf.build_press_pdf(pick_tree)
+                              st.success("Built. Download below.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"PDF build failed: {exc}")
+              with _rep_cols[1]:
+                  if press_pdf_path.exists():
+                      st.download_button(
+                          "Download kinship report (.pdf)",
+                          press_pdf_path.read_bytes(),
+                          file_name=press_pdf_path.name,
+                          mime="application/pdf",
+                          use_container_width=True,
+                          key=f"presspdf_dl_{pick_tree}")
 
-            # ─── Personalized kinship report (TOP) ─────────────────────
-            st.markdown("### Personalized kinship report (PDF)")
-            st.caption("Five-page report: hero unrooted-with-photos, "
-                       "project info + license + footprint, photo-"
-                       "spectral tree, spectrogram blend + range map, "
-                       "credits, kin cards.")
-            press_pdf_path = config.OUTPUT_DIR / f"{stem}_kinship_report.pdf"
-            _rep_cols = st.columns([1, 1])
-            with _rep_cols[0]:
-                if st.button("Build / refresh kinship report",
-                             key=f"presspdf_{pick_tree}",
-                             type="primary",
-                             use_container_width=True):
-                    with st.spinner("Composing the kinship report. "
-                                      "This can take a minute if photos "
-                                      "are being fetched for the first "
-                                      "time."):
-                        try:
-                            from src import press_pdf
-                            press_pdf.build_press_pdf(pick_tree)
-                            st.success("Built. Download below.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"PDF build failed: {exc}")
-            with _rep_cols[1]:
-                if press_pdf_path.exists():
-                    st.download_button(
-                        "Download kinship report (.pdf)",
-                        press_pdf_path.read_bytes(),
-                        file_name=press_pdf_path.name,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key=f"presspdf_dl_{pick_tree}")
+              # ─── T1 + T2 side-by-side ─────────────────────────────────
+              st.markdown("---")
+              st.markdown("### Tree variants")
+              _tree_cols = st.columns(2)
+              with _tree_cols[0]:
+                  st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
+                  photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
+                  if photo_audio.exists():
+                      st.image(photo_audio.read_bytes())
+                      st.download_button(
+                          "Download (.png)", photo_audio.read_bytes(),
+                          file_name=photo_audio.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"photoaudio_dl_{pick_tree}")
+                  if st.button("Build / refresh T1",
+                               key=f"photoaudio_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Fetching photos + audio, rendering "
+                                        "spectrograms, composing tree."):
+                          try:
+                              from src import photo_audio_tree
+                              photo_audio_tree.build_photo_audio_tree(
+                                  pick_tree)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"T1 build failed: {exc}")
+              with _tree_cols[1]:
+                  st.markdown("**T2 — Unrooted Tree with Photos**")
+                  photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
+                  if photo_tips.exists():
+                      st.image(photo_tips.read_bytes())
+                      st.download_button(
+                          "Download (.png)", photo_tips.read_bytes(),
+                          file_name=photo_tips.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"phototips_dl_{pick_tree}")
+                  if st.button("Build / refresh T2",
+                               key=f"phototips_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Fetching photos + drawing "
+                                        "tip thumbnails."):
+                          try:
+                              from src import photo_tip_tree
+                              photo_tip_tree.build_photo_tip_tree(pick_tree)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"T2 build failed: {exc}")
 
-            # ─── T1 + T2 side-by-side ─────────────────────────────────
-            st.markdown("---")
-            st.markdown("### Tree variants")
-            _tree_cols = st.columns(2)
-            with _tree_cols[0]:
-                st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
-                photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
-                if photo_audio.exists():
-                    st.image(photo_audio.read_bytes())
-                    st.download_button(
-                        "Download (.png)", photo_audio.read_bytes(),
-                        file_name=photo_audio.name, mime="image/png",
-                        use_container_width=True,
-                        key=f"photoaudio_dl_{pick_tree}")
-                if st.button("Build / refresh T1",
-                             key=f"photoaudio_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Fetching photos + audio, rendering "
-                                      "spectrograms, composing tree."):
-                        try:
-                            from src import photo_audio_tree
-                            photo_audio_tree.build_photo_audio_tree(
-                                pick_tree)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"T1 build failed: {exc}")
-            with _tree_cols[1]:
-                st.markdown("**T2 — Unrooted Tree with Photos**")
-                photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
-                if photo_tips.exists():
-                    st.image(photo_tips.read_bytes())
-                    st.download_button(
-                        "Download (.png)", photo_tips.read_bytes(),
-                        file_name=photo_tips.name, mime="image/png",
-                        use_container_width=True,
-                        key=f"phototips_dl_{pick_tree}")
-                if st.button("Build / refresh T2",
-                             key=f"phototips_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Fetching photos + drawing "
-                                      "tip thumbnails."):
-                        try:
-                            from src import photo_tip_tree
-                            photo_tip_tree.build_photo_tip_tree(pick_tree)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"T2 build failed: {exc}")
+              # ─── Spectrogram Blend + Range map side-by-side ───────────
+              st.markdown("---")
+              st.markdown("### Composites")
+              _comp_cols = st.columns(2)
+              with _comp_cols[0]:
+                  st.markdown("**Spectrogram Blend**")
+                  blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
+                  if blend_png.exists():
+                      st.image(blend_png.read_bytes())
+                      st.download_button(
+                          "Download (.png)", blend_png.read_bytes(),
+                          file_name=blend_png.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"specblend_dl_{pick_tree}")
+                  if st.button("Build / refresh blend",
+                               key=f"specblend_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Overlaying every spectrogram..."):
+                          try:
+                              from src import spectrogram_blend
+                              spectrogram_blend.build_spectrogram_blend(
+                                  pick_tree)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"Blend build failed: {exc}")
+              with _comp_cols[1]:
+                  st.markdown("**Range map (static)**")
+                  range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
+                  if range_png.exists():
+                      st.image(range_png.read_bytes())
+                      st.download_button(
+                          "Download (.png)", range_png.read_bytes(),
+                          file_name=range_png.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"rangemap_dl_{pick_tree}")
+                  if st.button("Build / refresh range map",
+                               key=f"rangemap_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Fetching CARTO basemap + GBIF "
+                                        "density per species. ~30s."):
+                          try:
+                              from src import range_map_static
+                              range_map_static.build_range_map(pick_tree)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"Range map build failed: {exc}")
 
-            # ─── Spectrogram Blend + Range map side-by-side ───────────
-            st.markdown("---")
-            st.markdown("### Composites")
-            _comp_cols = st.columns(2)
-            with _comp_cols[0]:
-                st.markdown("**Spectrogram Blend**")
-                blend_png = config.OUTPUT_DIR / f"{stem}_spectrogram_blend.png"
-                if blend_png.exists():
-                    st.image(blend_png.read_bytes())
-                    st.download_button(
-                        "Download (.png)", blend_png.read_bytes(),
-                        file_name=blend_png.name, mime="image/png",
-                        use_container_width=True,
-                        key=f"specblend_dl_{pick_tree}")
-                if st.button("Build / refresh blend",
-                             key=f"specblend_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Overlaying every spectrogram..."):
-                        try:
-                            from src import spectrogram_blend
-                            spectrogram_blend.build_spectrogram_blend(
-                                pick_tree)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Blend build failed: {exc}")
-            with _comp_cols[1]:
-                st.markdown("**Range map (static)**")
-                range_png = config.OUTPUT_DIR / f"{stem}_range_map.png"
-                if range_png.exists():
-                    st.image(range_png.read_bytes())
-                    st.download_button(
-                        "Download (.png)", range_png.read_bytes(),
-                        file_name=range_png.name, mime="image/png",
-                        use_container_width=True,
-                        key=f"rangemap_dl_{pick_tree}")
-                if st.button("Build / refresh range map",
-                             key=f"rangemap_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Fetching CARTO basemap + GBIF "
-                                      "density per species. ~30s."):
-                        try:
-                            from src import range_map_static
-                            range_map_static.build_range_map(pick_tree)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Range map build failed: {exc}")
+              # ─── Blank outline (printable) ────────────────────────────
+              st.markdown("**Blank outline map**")
+              st.caption("Coastlines only, no heatmap. Print and sketch "
+                         "your own observations, migrations, stories.")
+              _bmap_cols = st.columns([1, 1])
+              blank_png = config.OUTPUT_DIR / f"{stem}_range_blank.png"
+              with _bmap_cols[0]:
+                  if blank_png.exists():
+                      st.image(blank_png.read_bytes())
+                      st.download_button(
+                          "Download blank map (.png)",
+                          blank_png.read_bytes(),
+                          file_name=blank_png.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"blankmap_dl_{pick_tree}")
+              with _bmap_cols[1]:
+                  if st.button("Build blank outline map",
+                               key=f"blankmap_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Fetching coastlines. ~5s."):
+                          try:
+                              from src import range_map_static
+                              range_map_static.build_blank_outline_map(
+                                  pick_tree)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"Blank map build failed: {exc}")
 
-            # ─── Blank outline (printable) ────────────────────────────
-            st.markdown("**Blank outline map**")
-            st.caption("Coastlines only, no heatmap. Print and sketch "
-                       "your own observations, migrations, stories.")
-            _bmap_cols = st.columns([1, 1])
-            blank_png = config.OUTPUT_DIR / f"{stem}_range_blank.png"
-            with _bmap_cols[0]:
-                if blank_png.exists():
-                    st.image(blank_png.read_bytes())
-                    st.download_button(
-                        "Download blank map (.png)",
-                        blank_png.read_bytes(),
-                        file_name=blank_png.name, mime="image/png",
-                        use_container_width=True,
-                        key=f"blankmap_dl_{pick_tree}")
-            with _bmap_cols[1]:
-                if st.button("Build blank outline map",
-                             key=f"blankmap_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Fetching coastlines. ~5s."):
-                        try:
-                            from src import range_map_static
-                            range_map_static.build_blank_outline_map(
-                                pick_tree)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Blank map build failed: {exc}")
-
-            # ─── Credits at bottom ────────────────────────────────────
-            st.markdown("---")
-            st.markdown("### All credits (.txt)")
-            st.caption("Every species' photo + audio attribution, with "
-                       "license links.")
-            credits_txt = config.OUTPUT_DIR / f"{stem}_credits.txt"
-            _cred_cols = st.columns([1, 1])
-            with _cred_cols[0]:
-                if st.button("Build / refresh credits",
-                             key=f"credits_build_{pick_tree}",
-                             use_container_width=True):
-                    with st.spinner("Aggregating credits..."):
-                        try:
-                            from src.credits import write_credits_txt
-                            write_credits_txt(pick_tree, credits_txt)
-                            st.success("Built.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(f"Credits build failed: {exc}")
-            with _cred_cols[1]:
-                if credits_txt.exists():
-                    st.download_button(
-                        "Download credits (.txt)",
-                        credits_txt.read_bytes(),
-                        file_name=credits_txt.name,
-                        mime="text/plain",
-                        use_container_width=True,
-                        key=f"credits_dl_{pick_tree}")
+              # ─── Credits at bottom ────────────────────────────────────
+              st.markdown("---")
+              st.markdown("### All credits (.txt)")
+              st.caption("Every species' photo + audio attribution, with "
+                         "license links.")
+              credits_txt = config.OUTPUT_DIR / f"{stem}_credits.txt"
+              _cred_cols = st.columns([1, 1])
+              with _cred_cols[0]:
+                  if st.button("Build / refresh credits",
+                               key=f"credits_build_{pick_tree}",
+                               use_container_width=True):
+                      with st.spinner("Aggregating credits..."):
+                          try:
+                              from src.credits import write_credits_txt
+                              write_credits_txt(pick_tree, credits_txt)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"Credits build failed: {exc}")
+              with _cred_cols[1]:
+                  if credits_txt.exists():
+                      st.download_button(
+                          "Download credits (.txt)",
+                          credits_txt.read_bytes(),
+                          file_name=credits_txt.name,
+                          mime="text/plain",
+                          use_container_width=True,
+                          key=f"credits_dl_{pick_tree}")
 
         with rename_col:
             new_name = st.text_input("Rename this tree", value=pick_tree,
@@ -1138,9 +1137,10 @@ if active_tab == "Dashboard":
                     "Language",
                     key=f"dash_addname_lang_{pick_tree}",
                     initial_code="ENG")
-                _region = i18n.render_region_picker(
-                    "Region (optional)",
-                    key=f"dash_addname_region_{pick_tree}")
+                _region = i18n.region_codes_to_str(
+                    i18n.render_region_multi_picker(
+                        "Region tags (optional, multiple)",
+                        key=f"dash_addname_region_{pick_tree}"))
                 _non_latin = st.checkbox(
                     "Script (non-Latin)",
                     key=f"dash_addname_script_flag_{pick_tree}",
@@ -1172,6 +1172,12 @@ if active_tab == "Dashboard":
                         "(species, language, category)",
                         value=False,
                         key=f"dash_addname_pref_{pick_tree}")
+                    _name_notes = st.text_area(
+                        "Notes (optional)",
+                        placeholder="Where this name comes from, "
+                                     "what it means, when it is used...",
+                        height=68,
+                        key=f"dash_addname_notes_{pick_tree}")
                     if st.form_submit_button("Save name", type="primary",
                                               use_container_width=True):
                         if not (_name_text or "").strip():
@@ -1195,7 +1201,9 @@ if active_tab == "Dashboard":
                                     contributor_id=
                                         auth.active_contributor_id(),
                                     region_code=_region,
-                                    script=_script_name if _non_latin else None)
+                                    script=(_script_name
+                                             if _non_latin else None),
+                                    notes=(_name_notes or "").strip() or None)
                                 _invalidate_dashboard_caches()
                                 try:
                                     from src import library as _lib
@@ -1276,9 +1284,8 @@ if active_tab == "Dashboard":
                         key=f"clade_browser_pick_{pick_tree}")
                     _cinfo = meta.get(_pick_clade, {})
                     _cage = _cinfo.get("mya")
-                    _crank = _cinfo.get("rank")
                     st.caption(
-                        f"Rank: {_crank or '—'} · Divergence: "
+                        f"Divergence: "
                         f"{f'{_cage} MYA' if _cage is not None else 'age not set'}")
 
                     # Editors/admins can fill in a missing divergence
@@ -1588,6 +1595,48 @@ if active_tab == "Dashboard":
 # Range map tab. Interactive species range map via GBIF.
 # ---------------------------------------------------------------------------
 if active_tab == "Range map":
+    # Quick-look: if the URL has ?species=..., show a species card at
+    # the top of the Range map tab. Users land here by clicking a
+    # species name in the map's layer control.
+    _picked_species_qp = st.query_params.get("species")
+    if _picked_species_qp:
+        _sci = (
+            _picked_species_qp[0]
+            if isinstance(_picked_species_qp, list)
+            else _picked_species_qp)
+        try:
+            from src import species_profile as _sp
+            _prof = _sp.find_profile(_sci, None)
+        except Exception:
+            _prof = None
+        if _prof:
+            _card_cols = st.columns([1, 3])
+            with _card_cols[0]:
+                if _prof.get("image_url"):
+                    st.image(_prof["image_url"])
+            with _card_cols[1]:
+                _cn = _prof.get("common_name")
+                st.markdown(
+                    f"### {_cn} *({_sci})*" if _cn else f"### *{_sci}*")
+                _summ = _prof.get("summary") or ""
+                if _summ:
+                    st.write(_summ[:600] + ("..." if len(_summ) > 600 else ""))
+                _links = []
+                if _prof.get("wikipedia_url"):
+                    _links.append(f"[Wikipedia]({_prof['wikipedia_url']})")
+                if _prof.get("inaturalist_url"):
+                    _links.append(
+                        f"[iNaturalist]({_prof['inaturalist_url']})")
+                if _links:
+                    st.caption(" · ".join(_links))
+                if st.button("Back to the map",
+                              key="clear_species_qp"):
+                    del st.query_params["species"]
+                    st.rerun()
+            st.markdown("---")
+        else:
+            st.caption(f"No profile found for {_sci}.")
+
     theme.section_heading("Where these kin live", kicker="Range map")
     st.markdown(
         "Occurrence density for each species in your tree, drawn from "
