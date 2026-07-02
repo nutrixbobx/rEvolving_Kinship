@@ -624,76 +624,7 @@ if active_tab == "Dashboard":
                 st.success(f"Wrote {p.name}. Upload it at timetree.org, save the "
                            f"result as data/{stem}_timetree.nwk, then rebuild.")
 
-            # ━━━ Kinship Sonification ━━━
-            st.markdown("---")
-            st.markdown("### Kinship Sonification")
-            chorus = config.OUTPUT_DIR / f"{stem}_chorus.wav"
 
-            # 1. Kinship chord (ecosystem chord)
-            st.markdown("**Kinship chord**")
-            if wav.exists():
-                st.audio(wav.read_bytes(), format="audio/wav")
-            if mid.exists():
-                st.download_button("Download chord (.mid)",
-                                    mid.read_bytes(),
-                                    file_name=mid.name,
-                                    mime="audio/midi",
-                                    key=f"chord_dl_{pick_tree}")
-
-            # 2. Animal chorus
-            st.markdown("**Animal chorus**")
-            if chorus.exists():
-                st.audio(chorus.read_bytes(), format="audio/wav")
-            if st.button("Build / refresh chorus",
-                         key=f"chorus_{pick_tree}"):
-                with st.spinner("Fetching recordings from Xeno-Canto + "
-                                  "Wikipedia and blending."):
-                    try:
-                        from src import audio_blend
-                        res = audio_blend.build_chorus(pick_tree)
-                        if res is None:
-                            st.info("No recordings found.")
-                        else:
-                            st.success(
-                                f"Built chorus with "
-                                f"{len(res['voices'])} voice(s).")
-                            st.rerun()
-                    except Exception as exc:
-                        st.error(f"Chorus build failed: {exc}")
-
-            # 3. Meditation track
-            st.markdown("**Meditation track**")
-            med_min = st.radio("Length", [1, 2, 5],
-                               format_func=lambda m: f"{m} min",
-                               horizontal=True,
-                               key=f"med_min_{pick_tree}")
-            med_secs = med_min * 60
-            med_path = config.OUTPUT_DIR / f"{stem}_meditation_{med_secs}s.wav"
-            if med_path.exists():
-                st.audio(med_path.read_bytes(), format="audio/wav")
-                st.download_button(
-                    f"Download {med_min} min meditation",
-                    med_path.read_bytes(), file_name=med_path.name,
-                    mime="audio/wav",
-                    key=f"med_dl_{pick_tree}_{med_secs}")
-            if st.button(f"Build {med_min} min meditation",
-                         key=f"med_build_{pick_tree}_{med_secs}"):
-                with st.spinner(f"Blending the chord and the chorus into "
-                                  f"a {med_min} min track."):
-                    try:
-                        from src import meditation
-                        res = meditation.build_meditation(pick_tree,
-                                                            med_secs)
-                        if res is None:
-                            st.info("Need a dated clade (the chord) to "
-                                    "build a meditation track.")
-                        else:
-                            st.success(
-                                f"Built {med_min} min meditation "
-                                f"({'with chorus' if res['has_chorus'] else 'chord only'}).")
-                            st.rerun()
-                    except Exception as exc:
-                        st.error(f"Build failed: {exc}")
         with view:
             if nwk.exists() and meta:
                 html = render_mod.render_html(
@@ -912,6 +843,20 @@ if active_tab == "Dashboard":
                               st.rerun()
                           except Exception as exc:
                               st.error(f"Range map build failed: {exc}")
+
+              # ─── Load kin cards (mirror of Listen sub-tab button) ───
+              _kin_flag_key = f"kin_cards_loaded_{pick_tree}"
+              if not st.session_state.get(_kin_flag_key):
+                  st.markdown("---")
+                  if st.button("Load kin cards",
+                                type="secondary",
+                                key=f"outputs_load_kins_{pick_tree}",
+                                use_container_width=True,
+                                help="Fetches photos + summaries + "
+                                      "audio for every species. Switch "
+                                      "to the Listen sub-tab afterward."):
+                      st.session_state[_kin_flag_key] = True
+                      st.rerun()
 
               # ─── Credits at bottom ────────────────────────────────────
               st.markdown("---")
@@ -1417,18 +1362,97 @@ if active_tab == "Dashboard":
         # ------- Listen to each species (gated by sub-nav) --------
         if _sub == "Listen":
           st.divider()
+          # ━━━ Kinship Sonification (moved from side column) ━━━
+          st.markdown("### Kinship Sonification")
+          chorus = config.OUTPUT_DIR / f"{stem}_chorus.wav"
+          _snd_cols = st.columns(3)
+          with _snd_cols[0]:
+              st.markdown("**Kinship chord**")
+              if wav.exists():
+                  st.audio(wav.read_bytes(), format="audio/wav")
+              if mid.exists():
+                  st.download_button("Download chord (.mid)",
+                                      mid.read_bytes(),
+                                      file_name=mid.name,
+                                      mime="audio/midi",
+                                      key=f"chord_dl_{pick_tree}")
+          with _snd_cols[1]:
+              st.markdown("**Animal chorus**")
+              if chorus.exists():
+                  st.audio(chorus.read_bytes(), format="audio/wav")
+              if st.button("Build / refresh chorus",
+                            key=f"chorus_{pick_tree}",
+                            use_container_width=True):
+                  with loading.spinner_with_tip(
+                          "Fetching recordings from Xeno-Canto + "
+                          "Wikipedia and blending."):
+                      try:
+                          from src import audio_blend
+                          res = audio_blend.build_chorus(pick_tree)
+                          if res is None:
+                              st.info("No recordings found.")
+                          else:
+                              st.success(
+                                  f"Built chorus with "
+                                  f"{len(res['voices'])} voice(s).")
+                              st.rerun()
+                      except Exception as exc:
+                          st.error(f"Chorus build failed: {exc}")
+          with _snd_cols[2]:
+              st.markdown("**Meditation track**")
+              med_min = st.radio("Length", [1, 2, 5],
+                                  format_func=lambda m: f"{m} min",
+                                  horizontal=True,
+                                  key=f"med_min_{pick_tree}")
+              med_secs = med_min * 60
+              med_path = config.OUTPUT_DIR / f"{stem}_meditation_{med_secs}s.wav"
+              if med_path.exists():
+                  st.audio(med_path.read_bytes(), format="audio/wav")
+                  st.download_button(
+                      f"Download {med_min} min meditation",
+                      med_path.read_bytes(), file_name=med_path.name,
+                      mime="audio/wav",
+                      key=f"med_dl_{pick_tree}_{med_secs}")
+              if st.button(f"Build {med_min} min meditation",
+                            key=f"med_build_{pick_tree}_{med_secs}",
+                            use_container_width=True):
+                  with loading.spinner_with_tip(
+                          f"Blending the chord and the chorus into "
+                          f"a {med_min} min track."):
+                      try:
+                          from src import meditation
+                          res = meditation.build_meditation(pick_tree,
+                                                              med_secs)
+                          if res is None:
+                              st.info("Need a dated clade (the chord) "
+                                       "to build a meditation track.")
+                          else:
+                              st.success(
+                                  f"Built {med_min} min meditation "
+                                  f"({'with chorus' if res['has_chorus'] else 'chord only'}).")
+                              st.rerun()
+                      except Exception as exc:
+                          st.error(f"Build failed: {exc}")
+
+          st.markdown("---")
           st.markdown("### Listen to each species")
-        # The per-species profile + audio + player_html lookups are the
-        # slowest part of the Dashboard, so we hide them behind a checkbox.
-        # Users who actually want to listen flip it on; the page renders
-        # instantly otherwise.
-        _listen_open = st.checkbox(
-            "Load the kin cards",
-            key=f"listen_open_{pick_tree}",
-            value=False,
-            help="Off by default so the Dashboard stays fast. Switch on "
-                 "to fetch photos, summaries, and play audio for each "
-                 "species in this tree.")
+        # Kin cards used to hide behind a checkbox. Now a friendlier
+        # 'Load kin cards' button that flips a session-state flag,
+        # visible in both Listen (here) and Outputs (via helper).
+        _kin_flag_key = f"kin_cards_loaded_{pick_tree}"
+        if _sub == "Listen":
+            if not st.session_state.get(_kin_flag_key):
+                if st.button("Load kin cards",
+                              type="primary",
+                              key=f"listen_load_kins_{pick_tree}",
+                              use_container_width=True,
+                              help="Fetches photos, summaries, and "
+                                    "audio for every species. Kept "
+                                    "behind a click so the Dashboard "
+                                    "loads instantly."):
+                    st.session_state[_kin_flag_key] = True
+                    st.rerun()
+        _listen_open = bool(st.session_state.get(_kin_flag_key))
         try:
             if _listen_open and nwk.exists() and meta:
                 with st.expander("Listen to each species", expanded=True):

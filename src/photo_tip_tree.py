@@ -211,36 +211,93 @@ def build_photo_tip_tree(tree_name: str,
     _n_tips = sum(1 for v in meta.values() if v.get("is_leaf"))
     enhanced = _inject_thumbs_into_svg(base_svg, uris, n_tips=_n_tips)
 
-    # Credit strip: right-aligned minimal footer with per-species
-    # attributions, tucked above the CC footer.
+    # ────────────────────────────────────────────────────────────────
+    # Dynamic bottom stack: nothing here is allowed to overlap.
+    # Order from bottom -> up:
+    #   1. CC copyright footer (already at y=99.2%, injected by render)
+    #   2. Credits strip (N rows)
+    #   3. mya footnote (1 row)
+    #   4. Legend (3 rows)
+    # Each layer reserves a Y band based on the layers below it.
+    # ────────────────────────────────────────────────────────────────
+    import re as _re
+    row_pct = 1.1              # per-row height as % of SVG
+    padding_pct = 0.8          # gap between layers
+    cc_top = 98.4              # top edge of CC footer
     try:
         from src import composite_credits
-        lines = composite_credits.collect_credits(tree_name)
-        if lines:
-            shown = lines[:5]
-            if len(lines) > 5:
-                shown.append(f"+{len(lines) - 5} more, see credits.txt")
-            import re as _re
-            # Positioning: y coords in percent of SVG height. Rows sit
-            # in a 6-percent band just above the CC footer at 99.2%.
-            top_y = 93.5
-            row_pct = 0.9
-            credit_svg = '<g pointer-events="none">'
-            for i, ln in enumerate(shown):
-                y_pct = top_y + i * row_pct
-                safe = (ln.replace("&", "&amp;")
-                          .replace("<", "&lt;")
-                          .replace(">", "&gt;"))
-                credit_svg += (
-                    f'<text x="99%" y="{y_pct}%" fill="#e8f3ef" '
-                    f'font-family="Helvetica,Arial,sans-serif" '
-                    f'font-size="7" text-anchor="end" '
-                    f'font-style="italic" opacity="0.75">{safe}</text>')
-            credit_svg += "</g>"
-            enhanced = _re.sub(r"(</svg>)", credit_svg + r"\1",
-                                enhanced, count=1)
+        credit_lines = composite_credits.collect_credits(tree_name)
+        if credit_lines and len(credit_lines) > 5:
+            credit_shown = credit_lines[:5] + [
+                f"+{len(credit_lines) - 5} more, see credits.txt"]
+        else:
+            credit_shown = credit_lines
     except Exception as _exc:
-        print(f"T2 credit strip failed (non-fatal): {_exc}")
+        print(f"T2 credit gather failed (non-fatal): {_exc}")
+        credit_shown = []
+
+    # Compute Y bands (from bottom up)
+    n_credit = len(credit_shown)
+    credit_bottom = cc_top - padding_pct
+    credit_top = credit_bottom - n_credit * row_pct
+    mya_y = credit_top - padding_pct
+    legend_top = mya_y - padding_pct - 3 * row_pct
+    # Row centers for the 3 legend rows (from top to bottom):
+    legend_ys = [legend_top + i * row_pct + row_pct * 0.5
+                  for i in range(3)]
+
+    # Nuke the legend + mya that _legend_band baked in at hard-coded
+    # positions — we re-render them at computed positions.
+    enhanced = _re.sub(r'<g class="kinship-legend"[^>]*>.*?</g>',
+                       '', enhanced, count=1, flags=_re.DOTALL)
+    enhanced = _re.sub(
+        r'<text[^>]*text-anchor="end"[^>]*>numbers are millions[^<]*</text>',
+        '', enhanced, count=1)
+
+    stacked = '<g class="kn-bottom-stack" pointer-events="none">'
+    # 1) Credit rows (top to bottom in their band)
+    for i, ln in enumerate(credit_shown):
+        safe = (str(ln).replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;"))
+        y = credit_top + i * row_pct + row_pct * 0.5
+        stacked += (
+            f'<text x="99%" y="{y:.2f}%" fill="#e8f3ef" '
+            f'font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="7" text-anchor="end" '
+            f'font-style="italic" opacity="0.75">{safe}</text>')
+    # 2) mya footnote (single line, above credits)
+    stacked += (
+        f'<text x="98.5%" y="{mya_y:.2f}%" fill="#9ab3ab" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+        f'font-style="italic" text-anchor="end">'
+        f'numbers are millions of years (mya) since the last common ancestor'
+        f'</text>')
+    # 3) Legend (3 rows, right-anchored)
+    legend_rows = [
+        ("Common Name", "(Scientific name)", "green tip",
+         "— a species", "#46c79a", 5),
+        ("Clade, ###", None, "amber",
+         "— ancestral node with a known divergence age",
+         "#f0a24a", 6.5),
+        ("Clade", None, "teal",
+         "— ancestral node, divergence age not added",
+         "#6f8a82", 4),
+    ]
+    for (bold_lbl, italic_lbl, _, rest, color, r), y in zip(
+            legend_rows, legend_ys):
+        parts = f'<tspan font-weight="bold">{bold_lbl}</tspan>'
+        if italic_lbl:
+            parts += f' <tspan font-style="italic">{italic_lbl}</tspan>'
+        parts += f' {rest}'
+        stacked += (
+            f'<text x="97%" y="{y:.2f}%" fill="#5e6f68" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+            f'dominant-baseline="middle" text-anchor="end">{parts}</text>'
+            f'<circle cx="98.5%" cy="{y:.2f}%" r="{r}" fill="{color}"/>')
+    stacked += '</g>'
+
+    enhanced = _re.sub(r"(</svg>)", stacked + r"\1", enhanced, count=1)
 
     out_svg = out_dir / f"{stem}_photo_tips.svg"
     out_svg.write_text(enhanced)

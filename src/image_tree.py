@@ -206,9 +206,14 @@ def draw_header(fig, tree_name):
 
 
 def _draw_legend(fig):
-    """Bottom-RIGHT legend for T1: dots on the far right with labels
-    ending just to their left. Padding added between rows."""
-    legend_ax = fig.add_axes([0.45, 0.005, 0.52, 0.048])
+    """Bottom-RIGHT legend for T1. Stacks upward from bottom:
+    row 0 (bottom-most): credit strip (added by composite_credits)
+    row 1: mya footnote
+    row 2: legend rows (3)
+    Nothing collides because each layer has its own reserved y band."""
+    # Legend axes sit ABOVE the credit strip zone (which uses y<0.04)
+    # so they can never collide.
+    legend_ax = fig.add_axes([0.45, 0.048, 0.52, 0.048])
     legend_ax.set_facecolor("#13211f")
     legend_ax.axis("off")
     rows = [
@@ -232,8 +237,9 @@ def _draw_legend(fig):
         legend_ax.scatter(
             [0.985], [y], s=size**2, c=color,
             zorder=3, transform=legend_ax.transAxes)
+    # mya footnote — sits between the legend and the credit strip.
     fig.text(
-        0.98, 0.005,
+        0.98, 0.038,
         "numbers are millions of years (mya) since the last common ancestor",
         color="#9ab3ab", fontsize=7, ha="right", va="bottom",
         style="italic")

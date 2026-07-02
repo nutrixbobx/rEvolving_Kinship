@@ -654,9 +654,6 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _hover_image_overlay(
         html, _build_image_map(meta, newick_path=newick_path))
     html = _legend_band(html)
-    # Right-margin numbered clade footnote panel (replaces overlapping
-    # inline clade labels for unrooted layouts).
-    html = _clade_footnote_panel(html, meta, newick_path)
     html = _cc_footer(html)
     return (
         f'<div style="background:{bg};border-radius:10px;padding:10px;'
@@ -685,9 +682,6 @@ def render_files(newick_path, meta: dict, out_stem: str,
     svg = _hover_targets(svg)
     svg = _header_band(svg, tree_name)
     svg = _legend_band(svg)
-    # Right-margin numbered clade footnote panel (same pattern as T1
-    # rectangular): replaces stacked inline clade text.
-    svg = _clade_footnote_panel(svg, meta, newick_path)
     svg = _cc_footer(svg)
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")
