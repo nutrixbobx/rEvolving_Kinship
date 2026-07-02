@@ -149,15 +149,23 @@ def build_photo_audio_tree(tree_name: str,
     image_tree.draw_header(fig, tree_name)
     image_tree._draw_legend(fig)
 
-    # Layout scales photo width inversely with tip count so sparse
-    # trees show big photos and dense trees stay tidy. Legend column
-    # on the far right stays fixed.
-    #   n <= 5 -> photo_w = 0.11 (max)
-    #   n >= 20 -> photo_w = 0.06 (min)
-    # Linearly interpolated between.
+    # Detect whether any species in the tree has an audio recording.
+    # When none do, the spec column becomes dead space, so we drop it
+    # entirely and reallocate that width to the tree + photos.
+    has_any_audio = any(
+        rows[tip].get("audio") and rows[tip]["audio"].get("path")
+        for tip in tips)
+
     tree_l, tree_b, tree_h = 0.02, 0.08, 0.80
-    photo_w = max(0.06, min(0.11, 0.11 - 0.005 * max(n - 5, 0)))
-    tree_w = 0.37 - (photo_w - 0.07) * 0.5  # tree gives back some space
+    # Photo width scales inversely with tip count (sparse -> big).
+    # When there's no spec column, photos can be bigger since they get
+    # all the space that used to belong to spec.
+    if has_any_audio:
+        photo_w = max(0.06, min(0.11, 0.11 - 0.005 * max(n - 5, 0)))
+        tree_w = 0.37 - (photo_w - 0.07) * 0.5
+    else:
+        photo_w = max(0.12, min(0.22, 0.22 - 0.008 * max(n - 5, 0)))
+        tree_w = 0.42 - (photo_w - 0.13) * 0.4
     ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
     clade_entries = image_tree._draw_tree(
         ax_tree, tre, pos, meta, dated, max_depth, n)
@@ -170,8 +178,13 @@ def build_photo_audio_tree(tree_name: str,
     # use the tree's actual tip Y positions so every photo lines up
     # vertically with its tip dot.
     photo_left = tree_l + tree_w + 0.01
-    spec_left = photo_left + photo_w + 0.012
-    spec_w = 0.895 - spec_left - 0.005
+    if has_any_audio:
+        spec_left = photo_left + photo_w + 0.012
+        spec_w = 0.895 - spec_left - 0.005
+    else:
+        # No spec column at all
+        spec_left = 0.0
+        spec_w = 0.0
 
     # tree axes span: figure_y(tip i) = tree_b + tree_h - (i/(n-1)) * tree_h
     # for n>=2. For n=1, center the single row.
@@ -205,19 +218,20 @@ def build_photo_audio_tree(tree_name: str,
                 pass
         ax_p.axis("off")
 
-        # Spectrogram strip — same y as photo (same row)
-        ax_s = fig.add_axes([spec_left, y_bottom, spec_w, h])
-        ax_s.set_facecolor(BG)
-        a = rows[tip].get("audio")
-        if a and a.get("path"):
-            spec = _spec_png(Path(a["path"]))
-            if spec and spec.exists():
-                try:
-                    sp_img = mpimg.imread(spec)
-                    ax_s.imshow(sp_img, aspect="auto")
-                except Exception:
-                    pass
-        ax_s.axis("off")
+        # Spectrogram strip — only if the tree has any audio at all
+        if has_any_audio and spec_w > 0:
+            ax_s = fig.add_axes([spec_left, y_bottom, spec_w, h])
+            ax_s.set_facecolor(BG)
+            a = rows[tip].get("audio")
+            if a and a.get("path"):
+                spec = _spec_png(Path(a["path"]))
+                if spec and spec.exists():
+                    try:
+                        sp_img = mpimg.imread(spec)
+                        ax_s.imshow(sp_img, aspect="auto")
+                    except Exception:
+                        pass
+            ax_s.axis("off")
 
         # Credits no longer rendered inline — they live on the
         # dedicated page in the kinship report and in the sibling

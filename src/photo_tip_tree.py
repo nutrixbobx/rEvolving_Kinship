@@ -211,6 +211,36 @@ def build_photo_tip_tree(tree_name: str,
     _n_tips = sum(1 for v in meta.values() if v.get("is_leaf"))
     enhanced = _inject_thumbs_into_svg(base_svg, uris, n_tips=_n_tips)
 
+    # Credit strip: right-aligned minimal footer with per-species
+    # attributions, injected just above the CC footer line.
+    try:
+        from src import composite_credits
+        lines = composite_credits.collect_credits(tree_name)
+        if lines:
+            shown = lines[:6]
+            if len(lines) > 6:
+                shown.append(f"+{len(lines) - 6} more, see credits.txt")
+            import re as _re
+            # Build a stacked <text> block anchored bottom-right
+            row_h = 10
+            base_y = 96.5  # % — sits above the CC footer at 99.2%
+            credit_svg = "<g pointer-events='none'>"
+            for i, ln in enumerate(shown):
+                y = base_y - (len(shown) - 1 - i) * (row_h * 0.006 * 100)
+                # Escape XML special chars
+                safe = (ln.replace("&","&amp;").replace("<","&lt;")
+                         .replace(">","&gt;"))
+                credit_svg += (
+                    f'<text x="99%" y="{y}%" fill="#5a4646" '
+                    f'font-family="Helvetica,Arial,sans-serif" '
+                    f'font-size="6" text-anchor="end" '
+                    f'font-style="italic" opacity="0.85">{safe}</text>')
+            credit_svg += "</g>"
+            enhanced = _re.sub(r"(</svg>)", credit_svg + r"\1",
+                                enhanced, count=1)
+    except Exception as _exc:
+        print(f"T2 credit strip failed (non-fatal): {_exc}")
+
     out_svg = out_dir / f"{stem}_photo_tips.svg"
     out_svg.write_text(enhanced)
     print(f"wrote {out_svg}")

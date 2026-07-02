@@ -913,35 +913,6 @@ if active_tab == "Dashboard":
                           except Exception as exc:
                               st.error(f"Range map build failed: {exc}")
 
-              # ─── Blank outline (printable) ────────────────────────────
-              st.markdown("**Blank outline map**")
-              st.caption("Coastlines only, no heatmap. Print and sketch "
-                         "your own observations, migrations, stories.")
-              _bmap_cols = st.columns([1, 1])
-              blank_png = config.OUTPUT_DIR / f"{stem}_range_blank.png"
-              with _bmap_cols[0]:
-                  if blank_png.exists():
-                      st.image(blank_png.read_bytes())
-                      st.download_button(
-                          "Download blank map (.png)",
-                          blank_png.read_bytes(),
-                          file_name=blank_png.name, mime="image/png",
-                          use_container_width=True,
-                          key=f"blankmap_dl_{pick_tree}")
-              with _bmap_cols[1]:
-                  if st.button("Build blank outline map",
-                               key=f"blankmap_{pick_tree}",
-                               use_container_width=True):
-                      with st.spinner("Fetching coastlines. ~5s."):
-                          try:
-                              from src import range_map_static
-                              range_map_static.build_blank_outline_map(
-                                  pick_tree)
-                              st.success("Built.")
-                              st.rerun()
-                          except Exception as exc:
-                              st.error(f"Blank map build failed: {exc}")
-
               # ─── Credits at bottom ────────────────────────────────────
               st.markdown("---")
               st.markdown("### All credits (.txt)")

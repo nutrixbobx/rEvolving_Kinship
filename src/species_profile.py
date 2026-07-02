@@ -146,6 +146,24 @@ def _is_cc_license(license_code: str | None) -> bool:
     return code == "cc0" or code.startswith("cc-by")
 
 
+def _is_commercial_cc_license(license_code: str | None) -> bool:
+    """True only for CC codes that allow commercial use: cc0, cc-by,
+    cc-by-sa (and their 4.0 variants). Excludes the -nc (non-commercial)
+    and -nd (no-derivatives) branches.
+
+    Used to pick the license-safest available photo for a species, with
+    graceful fallback to any CC when nothing commercial-friendly exists.
+    """
+    if not license_code:
+        return False
+    code = license_code.strip().lower()
+    if code == "cc0":
+        return True
+    if "nc" in code or "nd" in code:
+        return False
+    return code.startswith("cc-by")
+
+
 def _empty_profile(sci: str, common: str | None) -> dict:
     return {
         "scientific_name": sci,
@@ -205,13 +223,24 @@ def find_profile(scientific_name: str, common_name: str | None = None,
             full = _inat_taxon(int(inat["id"]))
             if full:
                 inat = full
-            # CC enforcement: skip the default photo if it's all-rights-
-            # reserved; walk inat['taxon_photos'] for the first CC one.
-            photo = inat.get("default_photo") or {}
-            if not _is_cc_license(photo.get("license_code")):
-                photo = {}
-                for tp in (inat.get("taxon_photos") or []):
-                    cand = tp.get("photo") or {}
+            # License selection, two tiers:
+            #   1) Prefer commercial-CC (cc0, cc-by, cc-by-sa) — safe
+            #      for merch, prints, tax-deductible sales.
+            #   2) If nothing commercial exists, fall back to any CC
+            #      so the species still has a photo at all.
+            all_photos = []
+            if inat.get("default_photo"):
+                all_photos.append(inat["default_photo"])
+            for tp in (inat.get("taxon_photos") or []):
+                if tp.get("photo"):
+                    all_photos.append(tp["photo"])
+            photo = {}
+            for cand in all_photos:
+                if _is_commercial_cc_license(cand.get("license_code")):
+                    photo = cand
+                    break
+            if not photo:
+                for cand in all_photos:
                     if _is_cc_license(cand.get("license_code")):
                         photo = cand
                         break

@@ -128,17 +128,32 @@ def _basemap_world():
 def _density_layer_world(gbif_key: int, style: str):
     """One species density at z=2, all tiles fetched in parallel.
 
-    Note: GBIF @1x tiles are 512×512, @0.5x are 256×256. CARTO tiles
-    are 256×256. We use @0.5x so the two overlay at 1:1 with no
-    coordinate displacement."""
+    GBIF v2 only serves @1x (512x512) or @2x/@4x (larger). @0.5x
+    returns 404, which is why the composite was silently blank for
+    a while. We fetch @1x and downscale each tile to 256x256 in
+    memory so it aligns with the 256x256 CARTO basemap."""
     base = (
         "https://api.gbif.org/v2/map/occurrence/density/"
-        f"{ZOOM}/{{x}}/{{y}}@0.5x.png?taxonKey={gbif_key}&style={style}"
+        f"{ZOOM}/{{x}}/{{y}}@1x.png?taxonKey={gbif_key}&style={style}"
     )
     urls = [base.format(x=x, y=y)
             for x in range(N_TILES) for y in range(N_TILES)]
     tiles = _fetch_many(urls)
-    return _composite_tiles(tiles, base, N_TILES, bg=(0, 0, 0, 0))
+    # Downscale each 512px tile to 256px before we composite
+    from io import BytesIO as _BytesIO
+    from PIL import Image as _Image
+    resized: dict[str, bytes] = {}
+    for url, data in tiles.items():
+        try:
+            im = _Image.open(_BytesIO(data)).convert("RGBA")
+            if im.size != (TILE_SIDE, TILE_SIDE):
+                im = im.resize((TILE_SIDE, TILE_SIDE), _Image.LANCZOS)
+            buf = _BytesIO()
+            im.save(buf, "PNG")
+            resized[url] = buf.getvalue()
+        except Exception:
+            continue
+    return _composite_tiles(resized, base, N_TILES, bg=(0, 0, 0, 0))
 
 
 def _species_legend_strip(mapped: list[dict], width: int):
@@ -239,21 +254,31 @@ def build_range_map(tree_name: str,
               "the same coastlines you can sketch on.",
               fill=(120, 100, 100, 255), font=sub_font)
 
+    # Crop the bottom of the world canvas so we don't allocate a
+    # quarter of the map to blank Antarctica. Keeps roughly the top
+    # 10-15% of Antarctica visible for context.
+    ANTARCTIC_CROP = int(CANVAS_H * 0.22)
+    world_visible_h = CANVAS_H - ANTARCTIC_CROP
+    world_cropped = world.crop((0, 0, CANVAS_W, world_visible_h))
+
+    # Rebuild the final canvas at the reduced height (title + cropped
+    # world + legend). Credit strip removed per Maya: maps don't have
+    # pictures to credit, so it was noise.
+    total_h = title_h + world_visible_h + pad + legend_h
+    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
+    draw = ImageDraw.Draw(final)
+    draw.text((16, 12),
+              f"Range map, {tree_name}",
+              fill=(60, 40, 40, 255), font=title_font)
+    draw.text((16, 40),
+              f"{len(mapped)} species on GBIF, density overlays on "
+              "coastlines.",
+              fill=(120, 100, 100, 255), font=sub_font)
     y = title_h
-    final.paste(world, (0, y), world)
-    y += CANVAS_H + pad
+    final.paste(world_cropped, (0, y), world_cropped)
+    y += world_visible_h + pad
     if legend:
         final.paste(legend, (0, y))
-
-    # Credit footer (PIL variant): tiny bottom-right strip.
-    try:
-        from src import composite_credits
-        final = composite_credits.draw_pil_credit_strip(
-            final, tree_name,
-            text_color=(90, 70, 70),
-            bg_color=(250, 246, 238))
-    except Exception as _exc:
-        print(f"credit footer failed (non-fatal): {_exc}")
 
     out_path = out_dir / f"{stem}_range_map.png"
     final.convert("RGB").save(out_path, "PNG")
@@ -263,93 +288,10 @@ def build_range_map(tree_name: str,
 
 
 
-# ────────────────────────────────────────────────────────────────────────
-# Blank outline map for user drawing (no GBIF layers, no place names)
-# ────────────────────────────────────────────────────────────────────────
-
-CARTO_BLANK_TEMPLATE = (
-    "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"
-)
-
-
-def _basemap_blank_world():
-    """CARTO light-no-labels basemap at z=2 — coastlines + muted land
-    on a pale background, no place names. Meant for printing + sketching."""
-    urls = [
-        CARTO_BLANK_TEMPLATE.format(z=ZOOM, x=x, y=y)
-        for x in range(N_TILES) for y in range(N_TILES)
-    ]
-    print(f"  fetching {len(urls)} blank basemap tiles (z={ZOOM})...")
-    tiles = _fetch_many(urls)
-    return _composite_tiles(
-        tiles,
-        CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
-        N_TILES,
-        bg=(250, 246, 238, 255),  # warm off-white paper
-    )
-
-
-def build_blank_outline_map(tree_name: str,
-                            out_dir: Path | None = None) -> Path:
-    """Render a printable blank outline map: coastlines only, no
-    heatmaps, no labels, with a header naming the tree and space
-    beneath for handwritten notes.
-
-    Users can print this and sketch their own species observations,
-    migration paths, family stories, whatever grows from the tree.
-    Saved as outputs/<stem>_range_blank.png."""
-    from PIL import Image, ImageDraw, ImageFont
-    from src.tree import _safe as _safe_stem
-    out_dir = out_dir or config.OUTPUT_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = _safe_stem(tree_name).lower()
-
-    world = _basemap_blank_world()
-
-    # Header strip + note-taking gutter at the bottom
-    title_h = 60
-    gutter_h = 140  # blank space for notes
-    total_h = title_h + CANVAS_H + gutter_h
-    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
-    draw = ImageDraw.Draw(final)
-    try:
-        title_font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
-        sub_font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
-    except Exception:
-        title_font = ImageFont.load_default()
-        sub_font = ImageFont.load_default()
-    draw.text((16, 12),
-              f"Blank map — {tree_name}",
-              fill=(60, 40, 40, 255), font=title_font)
-    draw.text((16, 40),
-              "coastlines only. sketch your species, migrations, "
-              "family paths, stories.",
-              fill=(120, 100, 100, 255), font=sub_font)
-
-    final.paste(world, (0, title_h), world)
-
-    # Ruled notes gutter (light pencil lines)
-    gy0 = title_h + CANVAS_H + 20
-    for row in range(4):
-        y = gy0 + row * 28
-        draw.line([(20, y), (CANVAS_W - 20, y)],
-                  fill=(200, 190, 180, 255), width=1)
-
-    # Blank outline map skips the per-species credit strip since it
-    # has no species data. Just CARTO + OSM attributions in the header.
-    out_path = out_dir / f"{stem}_range_blank.png"
-    final.convert("RGB").save(out_path, "PNG")
-    print(f"wrote {out_path}")
-    return out_path
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: python -m src.range_map_static [--blank] '<tree name>'")
+        print("usage: python -m src.range_map_static '<tree name>'")
         sys.exit(1)
-    if sys.argv[1] == "--blank":
-        print(build_blank_outline_map(sys.argv[2]))
-    else:
-        print(build_range_map(sys.argv[1]))
+    print(build_range_map(sys.argv[1]))
