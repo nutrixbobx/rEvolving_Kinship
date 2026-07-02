@@ -45,6 +45,14 @@ CARTO_TEMPLATE = (
     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 )
 
+# Light coastlines basemap (was: build_blank_outline_map's basemap).
+# Session G composite migrated to this for the blank-outline visual
+# family. Kept as a module constant after the blank-outline builder
+# was deleted in Session J.
+CARTO_BLANK_TEMPLATE = (
+    "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"
+)
+
 # Concurrent tile fetches. 8 keeps GBIF + CARTO happy without 429s.
 MAX_WORKERS = 8
 
@@ -108,52 +116,80 @@ def _composite_tiles(tile_bytes: dict[str, bytes],
 
 
 def _basemap_world():
-    """Build the CARTO light-nolabels basemap at z=2 (4x4 tiles). Same
-    coastline aesthetic as the blank outline map, so the composite +
-    the blank outline read as one visual family."""
+    """Build the CARTO dark basemap at z=2 (4x4 tiles). Dark because
+    GBIF's heat gradients (fire, greenHeat, blueHeat, etc.) are
+    calibrated for dark backgrounds — on light backgrounds low-density
+    pixels are near-black with low alpha and disappear entirely."""
     urls = [
-        CARTO_BLANK_TEMPLATE.format(z=ZOOM, x=x, y=y)
+        CARTO_TEMPLATE.format(z=ZOOM, x=x, y=y)
         for x in range(N_TILES) for y in range(N_TILES)
     ]
-    print(f"  fetching {len(urls)} light basemap tiles (z={ZOOM})...")
+    print(f"  fetching {len(urls)} dark basemap tiles (z={ZOOM})...")
     tiles = _fetch_many(urls)
     return _composite_tiles(
         tiles,
-        CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
+        CARTO_TEMPLATE.replace("{z}", str(ZOOM)),
         N_TILES,
-        bg=(250, 246, 238, 255),   # warm off-white paper
     )
 
 
-def _density_layer_world(gbif_key: int, style: str):
-    """One species density at z=2, all tiles fetched in parallel.
+def _density_layer_world(gbif_key: int, style: str,
+                          color: str = "#ff2a1a"):
+    """One species density at z=2, all tiles fetched in parallel and
+    then re-colorized to the species' legend color.
 
-    GBIF v2 only serves @1x (512x512) or @2x/@4x (larger). @0.5x
-    returns 404, which is why the composite was silently blank for
-    a while. We fetch @1x and downscale each tile to 256x256 in
-    memory so it aligns with the 256x256 CARTO basemap."""
+    Two important tricks here:
+
+    1. We fetch `scaled.circles` (not the heat-gradient point styles)
+       because at global zoom sparse-observation species render as
+       near-invisible dark pixels on gradients. scaled.circles gives
+       solid visible dots regardless of density.
+
+    2. We take the alpha channel of the returned tile as a density
+       mask and re-color it with the species' legend hex. Result: the
+       legend swatch is literally the color the eye sees on the map,
+       and every species that has any observations at all shows up.
+
+    GBIF v2 only serves @1x (512x512) or larger. We downscale to
+    256x256 to align with the CARTO basemap."""
     base = (
         "https://api.gbif.org/v2/map/occurrence/density/"
-        f"{ZOOM}/{{x}}/{{y}}@1x.png?taxonKey={gbif_key}&style={style}"
+        f"{ZOOM}/{{x}}/{{y}}@1x.png?taxonKey={gbif_key}"
+        "&style=scaled.circles"
     )
     urls = [base.format(x=x, y=y)
             for x in range(N_TILES) for y in range(N_TILES)]
     tiles = _fetch_many(urls)
-    # Downscale each 512px tile to 256px before we composite
+
+    # Parse the species color hex -> RGB
+    rgb = tuple(int(color.lstrip("#")[j:j+2], 16) for j in (0, 2, 4))
+
     from io import BytesIO as _BytesIO
     from PIL import Image as _Image
-    resized: dict[str, bytes] = {}
+    recolored: dict[str, bytes] = {}
     for url, data in tiles.items():
         try:
             im = _Image.open(_BytesIO(data)).convert("RGBA")
             if im.size != (TILE_SIDE, TILE_SIDE):
                 im = im.resize((TILE_SIDE, TILE_SIDE), _Image.LANCZOS)
+            # Take alpha as density mask, boost so faint dots become
+            # visible, and use it as the alpha of a solid-colored image
+            # in the species color.
+            alpha = im.split()[-1]
+            # Gamma-correct the alpha so low-density pixels don't
+            # disappear entirely. Multiplying by 1.6 clipping at 255.
+            import numpy as _np
+            arr = _np.array(alpha, dtype=_np.float32) * 1.6
+            arr = _np.clip(arr, 0, 255).astype(_np.uint8)
+            boosted = _Image.fromarray(arr, mode="L")
+            solid = _Image.new("RGBA", im.size, rgb + (0,))
+            solid.putalpha(boosted)
             buf = _BytesIO()
-            im.save(buf, "PNG")
-            resized[url] = buf.getvalue()
+            solid.save(buf, "PNG")
+            recolored[url] = buf.getvalue()
         except Exception:
             continue
-    return _composite_tiles(resized, base, N_TILES, bg=(0, 0, 0, 0))
+    return _composite_tiles(recolored, base, N_TILES, bg=(0, 0, 0, 0))
 
 
 def _species_legend_strip(mapped: list[dict], width: int):
@@ -166,7 +202,7 @@ def _species_legend_strip(mapped: list[dict], width: int):
     row_h = 22
     pad = 12
     height = n * row_h + 2 * pad
-    strip = Image.new("RGB", (width, height), (250, 246, 238))
+    strip = Image.new("RGB", (width, height), (14, 27, 26))
     draw = ImageDraw.Draw(strip)
     try:
         font = ImageFont.truetype(
@@ -177,13 +213,12 @@ def _species_legend_strip(mapped: list[dict], width: int):
         y = pad + i * row_h + row_h // 2
         color = sp.get("color", "#ff2a1a")
         col = tuple(int(color.lstrip("#")[j:j+2], 16) for j in (0, 2, 4))
-        draw.ellipse((pad, y - 7, pad + 14, y + 7), fill=col,
-                     outline=(90, 70, 70))
+        draw.ellipse((pad, y - 7, pad + 14, y + 7), fill=col)
         common = sp.get("common_name")
         sci = sp.get("scientific_name", "")
         lab = f"{common} ({sci})" if common else sci
         draw.text((pad + 24, y - 8), lab,
-                  fill=(60, 40, 40), font=font)
+                  fill=(232, 243, 239), font=font)
     return strip
 
 
@@ -224,7 +259,8 @@ def build_range_map(tree_name: str,
     world = _basemap_world()
     for sp in mapped:
         print(f"  density layer for {sp['scientific_name']}...")
-        layer = _density_layer_world(sp["gbif_key"], sp["style"])
+        layer = _density_layer_world(sp["gbif_key"], sp["style"],
+                                       color=sp.get("color", "#ff2a1a"))
         world = Image.alpha_composite(world, layer)
 
     # 2. Legend strip (matches blank-outline aesthetic)
@@ -261,19 +297,19 @@ def build_range_map(tree_name: str,
     world_visible_h = CANVAS_H - ANTARCTIC_CROP
     world_cropped = world.crop((0, 0, CANVAS_W, world_visible_h))
 
-    # Rebuild the final canvas at the reduced height (title + cropped
-    # world + legend). Credit strip removed per Maya: maps don't have
-    # pictures to credit, so it was noise.
+    # Rebuild the final canvas (title + cropped world + legend). Dark
+    # background so heat overlays read properly. Credit strip removed
+    # per Maya: maps don't have pictures to credit.
     total_h = title_h + world_visible_h + pad + legend_h
-    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
+    final = Image.new("RGBA", (CANVAS_W, total_h), (14, 27, 26, 255))
     draw = ImageDraw.Draw(final)
     draw.text((16, 12),
               f"Range map, {tree_name}",
-              fill=(60, 40, 40, 255), font=title_font)
+              fill=(232, 243, 239, 255), font=title_font)
     draw.text((16, 40),
               f"{len(mapped)} species on GBIF, density overlays on "
-              "coastlines.",
-              fill=(120, 100, 100, 255), font=sub_font)
+              "the same dark basemap the live tab uses.",
+              fill=(154, 179, 171, 255), font=sub_font)
     y = title_h
     final.paste(world_cropped, (0, y), world_cropped)
     y += world_visible_h + pad

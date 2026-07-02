@@ -209,6 +209,44 @@ def find_profile(scientific_name: str, common_name: str | None = None,
                     cache_path.write_text(json.dumps(profile, indent=2))
                 except Exception:
                     pass
+        # Heal previously-cached NON-commercial CC photos when a
+        # commercial-friendly one is available. Only fires when the
+        # cached photo is NC/ND-flavored, so it's a no-op for
+        # already-optimal profiles.
+        if profile and profile.get("image_license") and                 not _is_commercial_cc_license(profile.get("image_license")):
+            _sci = profile.get("scientific_name") or scientific_name
+            _inat = _inat_search(_sci)
+            if _inat and _inat.get("id"):
+                _full = _inat_taxon(int(_inat["id"]))
+                if _full:
+                    _all = []
+                    if _full.get("default_photo"):
+                        _all.append(_full["default_photo"])
+                    for _tp in (_full.get("taxon_photos") or []):
+                        if _tp.get("photo"):
+                            _all.append(_tp["photo"])
+                    for _cand in _all:
+                        if _is_commercial_cc_license(
+                                _cand.get("license_code")):
+                            profile["image_url"] = (
+                                _cand.get("medium_url")
+                                or _cand.get("square_url"))
+                            profile["image_attribution"] = (
+                                _cand.get("attribution"))
+                            profile["image_license"] = (
+                                _cand.get("license_code"))
+                            # Nuke cached local path so it re-downloads
+                            profile["image_path"] = None
+                            new_local = _download_image(
+                                profile["image_url"], sci_key)
+                            if new_local:
+                                profile["image_path"] = str(new_local)
+                            try:
+                                cache_path.write_text(
+                                    json.dumps(profile, indent=2))
+                            except Exception:
+                                pass
+                            break
 
     if not profile:
         inat = None

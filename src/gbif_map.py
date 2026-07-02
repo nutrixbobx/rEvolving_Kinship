@@ -200,7 +200,11 @@ L.tileLayer(
   }}
 ).addTo(map);
 
-var overlays = {{}};
+// Hand-rolled species panel: Leaflet's built-in L.control.layers
+// wraps every label in a <label> element that intercepts anchor
+// clicks. This custom control keeps the toggle checkbox and the
+// species link as separate hit targets.
+var layerByKey = {{}};
 species.forEach(function(s) {{
   var url = 'https://api.gbif.org/v2/map/occurrence/density/{{z}}/{{x}}/{{y}}@1x.png'
     + '?taxonKey=' + s.gbif_key + '&style=' + s.style;
@@ -209,24 +213,56 @@ species.forEach(function(s) {{
     opacity: 0.85, maxZoom: 14
   }});
   layer.addTo(map);
-  // Species name links to the quick-look via ?species=... URL param
-  // read by station.py. Uses parent.postMessage since the leaflet
-  // iframe can't touch the parent URL directly under Streamlit's
-  // sandbox. Fallback: plain visible name if messaging fails.
-  var enc = encodeURIComponent(s.scientific_name);
-  var linkBody = s.common_name
-    ? s.common_name + ' (<em>' + s.scientific_name + '</em>)'
-    : '<em>' + s.scientific_name + '</em>';
-  var lbl = '<a href="?species=' + enc + '" target="_top" '
-    + 'style="color:inherit;text-decoration:none;">'
-    + linkBody + '</a>';
-  var swatch = '<span class="swatch" style="background:' + s.color + '"></span>';
-  overlays[swatch + lbl] = layer;
+  layerByKey[s.scientific_name] = layer;
 }});
 
-L.control.layers(null, overlays, {{
-  collapsed: false, position: 'topright'
-}}).addTo(map);
+var speciesPanel = L.control({{ position: 'topright' }});
+speciesPanel.onAdd = function() {{
+  var div = L.DomUtil.create('div', 'leaflet-control-layers');
+  div.style.padding = '8px 10px';
+  div.style.background = 'rgba(14,27,26,0.92)';
+  div.style.color = '#e8f3ef';
+  div.style.borderRadius = '8px';
+  div.style.maxWidth = '320px';
+  var html = '';
+  species.forEach(function(s, i) {{
+    var enc = encodeURIComponent(s.scientific_name);
+    var linkBody = s.common_name
+      ? s.common_name + ' (<em>' + s.scientific_name + '</em>)'
+      : '<em>' + s.scientific_name + '</em>';
+    html += (
+      '<div class="sp-row" style="display:flex;align-items:center;'
+      + 'gap:6px;padding:3px 0;">'
+      + '<input type="checkbox" id="sp-cb-' + i + '" data-key="'
+      + s.scientific_name.replace(/"/g, '&quot;')
+      + '" checked style="margin:0;">'
+      + '<span class="swatch" style="background:' + s.color + '"></span>'
+      + '<a href="?species=' + enc + '" target="_top" '
+      + 'style="color:#e8f3ef;text-decoration:none;flex:1;">'
+      + linkBody + '</a>'
+      + '</div>'
+    );
+  }});
+  div.innerHTML = html;
+  // Stop map from panning/zooming when interacting with the panel.
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  // Wire checkboxes to add/remove layers
+  setTimeout(function() {{
+    var cbs = div.querySelectorAll('input[type=checkbox]');
+    cbs.forEach(function(cb) {{
+      cb.addEventListener('change', function() {{
+        var key = cb.getAttribute('data-key');
+        var layer = layerByKey[key];
+        if (!layer) return;
+        if (cb.checked) layer.addTo(map);
+        else map.removeLayer(layer);
+      }});
+    }});
+  }}, 50);
+  return div;
+}};
+speciesPanel.addTo(map);
 </script>
 </body>
 </html>

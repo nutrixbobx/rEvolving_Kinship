@@ -212,29 +212,31 @@ def build_photo_tip_tree(tree_name: str,
     enhanced = _inject_thumbs_into_svg(base_svg, uris, n_tips=_n_tips)
 
     # Credit strip: right-aligned minimal footer with per-species
-    # attributions, injected just above the CC footer line.
+    # attributions, tucked above the CC footer.
     try:
         from src import composite_credits
         lines = composite_credits.collect_credits(tree_name)
         if lines:
-            shown = lines[:6]
-            if len(lines) > 6:
-                shown.append(f"+{len(lines) - 6} more, see credits.txt")
+            shown = lines[:5]
+            if len(lines) > 5:
+                shown.append(f"+{len(lines) - 5} more, see credits.txt")
             import re as _re
-            # Build a stacked <text> block anchored bottom-right
-            row_h = 10
-            base_y = 96.5  # % — sits above the CC footer at 99.2%
-            credit_svg = "<g pointer-events='none'>"
+            # Positioning: y coords in percent of SVG height. Rows sit
+            # in a 6-percent band just above the CC footer at 99.2%.
+            n_rows = len(shown)
+            top_y = 93.5
+            row_pct = 0.9
+            credit_svg = '<g pointer-events="none">'
             for i, ln in enumerate(shown):
-                y = base_y - (len(shown) - 1 - i) * (row_h * 0.006 * 100)
-                # Escape XML special chars
-                safe = (ln.replace("&","&amp;").replace("<","&lt;")
-                         .replace(">","&gt;"))
+                y_pct = top_y + i * row_pct
+                safe = (ln.replace("&", "&amp;")
+                          .replace("<", "&lt;")
+                          .replace(">", "&gt;"))
                 credit_svg += (
-                    f'<text x="99%" y="{y}%" fill="#5a4646" '
+                    f'<text x="99%" y="{y_pct}%" fill="#e8f3ef" '
                     f'font-family="Helvetica,Arial,sans-serif" '
-                    f'font-size="6" text-anchor="end" '
-                    f'font-style="italic" opacity="0.85">{safe}</text>')
+                    f'font-size="7" text-anchor="end" '
+                    f'font-style="italic" opacity="0.75">{safe}</text>')
             credit_svg += "</g>"
             enhanced = _re.sub(r"(</svg>)", credit_svg + r"\1",
                                 enhanced, count=1)
