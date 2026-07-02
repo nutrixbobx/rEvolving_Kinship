@@ -102,19 +102,67 @@ def random_tip() -> str:
 
 
 import contextlib as _contextlib
+import json as _json
 
 
 @_contextlib.contextmanager
 def spinner_with_tip(message: str):
-    """Same as `st.spinner(message)` but also fires a `st.toast` with
-    a random fun fact so users have something to read during any long
-    operation, not just the first-visit NCBI load."""
+    """Wraps `st.spinner(message)` and shows a PERSISTENT HTML card
+    with client-side JS rotation of fun facts. The card stays visible
+    the whole time Python is blocking on the build, and the facts roll
+    to the next one every ROTATION_SECONDS in the browser (JS setInterval)
+    without needing any server round-trip."""
+    # Render the persistent card BEFORE the spinner so it's on screen
+    # for the whole duration. Streamlit reads this once; JS handles the
+    # rotation.
+    slot = st.empty()
     try:
-        st.toast(random_tip(), icon=":material/water_drop:")
-    except Exception:
-        pass
-    with st.spinner(message):
-        yield
+        facts_json = _json.dumps(FUN_FACTS)
+        card_html = f"""
+<div id="kn-tip-card" style="
+    background: var(--kn-bg-alt, rgba(0,0,0,0.35));
+    border-left: 4px solid var(--kn-accent, #cfd78c);
+    border-radius: 10px;
+    padding: 14px 18px; margin: 12px 0;
+    color: var(--kn-ink, #f4ecdc);
+    font-size: 14px; line-height: 1.55;">
+  <div style="font-size:11px; letter-spacing:0.12em;
+              text-transform:uppercase;
+              color: var(--kn-accent, #cfd78c);
+              margin-bottom:6px;">
+    While the river fills
+  </div>
+  <div id="kn-tip-text" style="min-height: 3em;">
+    {random_tip()}
+  </div>
+</div>
+<script>
+(function() {{
+    const facts = {facts_json};
+    const el = document.getElementById("kn-tip-text");
+    if (!el) return;
+    let i = Math.floor(Math.random() * facts.length);
+    setInterval(function() {{
+        i = (i + 1) % facts.length;
+        el.style.opacity = 0;
+        setTimeout(function() {{
+            el.textContent = facts[i];
+            el.style.opacity = 1;
+        }}, 250);
+    }}, {int(ROTATION_SECONDS * 1000)});
+    if (el) el.style.transition = "opacity 0.25s ease";
+}})();
+</script>
+"""
+        slot.markdown(card_html, unsafe_allow_html=True)
+        with st.spinner(message):
+            yield
+    finally:
+        # Clear the card once the operation is done
+        try:
+            slot.empty()
+        except Exception:
+            pass
 
 
 def _current_status() -> dict:

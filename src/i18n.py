@@ -481,20 +481,27 @@ def render_region_multi_picker(label: str, key: str,
         labels,
         default=default_labels,
         key=f"{key}_multi",
-        help="Pick as many regions as apply. Use the Other box below "
-              "for anywhere not on the list.")
+        help="Start typing to filter. Every country + sub-region on "
+              "this list is a validated ISO 3166 code, so please pick "
+              "from here whenever possible.")
     picked = [code_by_label[lbl] for lbl in picked_labels]
 
-    other = st.text_input(
-        "Other (comma-separated)",
-        key=f"{key}_multi_other",
-        placeholder="US-GA, MX-OAX, custom-tag",
-        help="Add any regions not on the list, comma separated.")
-    if other:
-        for tok in other.split(","):
-            tok = tok.strip().upper()
-            if tok and tok not in picked:
-                picked.append(tok)
+    # Other freetext tucked behind an expander so it's only used for
+    # genuine cases (indigenous nations, niche regions, custom tags).
+    with st.expander("Not on the list? Add a custom tag", expanded=False):
+        st.caption(
+            "Only use for indigenous nations, dialect regions, or "
+            "other places that don't map cleanly to ISO 3166. If a "
+            "country + sub-region works, please use the list above.")
+        other = st.text_input(
+            "Custom tag(s), comma-separated",
+            key=f"{key}_multi_other",
+            placeholder="e.g. US-NAV, dine-bikeyah, oaxaca-mixteca")
+        if other:
+            for tok in other.split(","):
+                tok = tok.strip().upper()
+                if tok and tok not in picked:
+                    picked.append(tok)
     return picked
 
 

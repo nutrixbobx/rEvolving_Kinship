@@ -226,6 +226,26 @@ def _clade_browser_lookup(tree_name: str, nwk_path: str,
     }
 
 
+def _ensure_tree_built(tree_name: str) -> bool:
+    """Guarantee that <stem>_named_tree.nwk + _nodes.json exist for
+    this tree before a downstream builder is called. Returns True on
+    success. Users used to get 'Build the tree first' errors from every
+    output button; now the tree just builds automatically."""
+    from src.tree import _safe as _safe_stem
+    stem = _safe_stem(tree_name).lower()
+    nwk = config.OUTPUT_DIR / f"{stem}_named_tree.nwk"
+    meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
+    if nwk.exists() and meta_path.exists():
+        return True
+    try:
+        from src import tree as _tree_mod
+        _tree_mod.build_tree(tree_name)
+        return nwk.exists() and meta_path.exists()
+    except Exception as _exc:
+        st.error(f"Auto tree build failed: {_exc}")
+        return False
+
+
 def _fav_toggle_for_tree(tree_name: str) -> None:
     """Render a ⭐/☆ favorite toggle for the currently-picked tree. Visible
     to any named user. No-op when not named."""
@@ -729,6 +749,8 @@ if active_tab == "Dashboard":
                                         "are being fetched for the first "
                                         "time."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src import press_pdf
                               press_pdf.build_press_pdf(pick_tree)
                               st.success("Built. Download below.")
@@ -765,6 +787,8 @@ if active_tab == "Dashboard":
                       with st.spinner("Fetching photos + audio, rendering "
                                         "spectrograms, composing tree."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src import photo_audio_tree
                               photo_audio_tree.build_photo_audio_tree(
                                   pick_tree)
@@ -788,6 +812,8 @@ if active_tab == "Dashboard":
                       with st.spinner("Fetching photos + drawing "
                                         "tip thumbnails."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src import photo_tip_tree
                               photo_tip_tree.build_photo_tip_tree(pick_tree)
                               st.success("Built.")
@@ -814,6 +840,8 @@ if active_tab == "Dashboard":
                                use_container_width=True):
                       with st.spinner("Overlaying every spectrogram..."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src import spectrogram_blend
                               spectrogram_blend.build_spectrogram_blend(
                                   pick_tree)
@@ -837,6 +865,8 @@ if active_tab == "Dashboard":
                       with loading.spinner_with_tip("Fetching CARTO basemap + GBIF "
                                         "density per species. ~30s."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src import range_map_static
                               range_map_static.build_range_map(pick_tree)
                               st.success("Built.")
@@ -871,6 +901,8 @@ if active_tab == "Dashboard":
                                use_container_width=True):
                       with st.spinner("Aggregating credits..."):
                           try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
                               from src.credits import write_credits_txt
                               write_credits_txt(pick_tree, credits_txt)
                               st.success("Built.")
@@ -1387,6 +1419,10 @@ if active_tab == "Dashboard":
                           "Fetching recordings from Xeno-Canto + "
                           "Wikipedia and blending."):
                       try:
+                          if not _ensure_tree_built(pick_tree):
+                              raise RuntimeError("Tree build failed.")
+                          if not _ensure_tree_built(pick_tree):
+                              raise RuntimeError("Tree build failed.")
                           from src import audio_blend
                           res = audio_blend.build_chorus(pick_tree)
                           if res is None:
@@ -1420,6 +1456,10 @@ if active_tab == "Dashboard":
                           f"Blending the chord and the chorus into "
                           f"a {med_min} min track."):
                       try:
+                          if not _ensure_tree_built(pick_tree):
+                              raise RuntimeError("Tree build failed.")
+                          if not _ensure_tree_built(pick_tree):
+                              raise RuntimeError("Tree build failed.")
                           from src import meditation
                           res = meditation.build_meditation(pick_tree,
                                                               med_secs)
