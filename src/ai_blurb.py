@@ -177,9 +177,13 @@ def _template_blurb(tree_name: str, species: list[dict],
         from src import usage_log
         tree_wh = usage_log.tree_total(tree_name)
         relatable = usage_log.relatable(tree_wh)
+        water_ml = usage_log.wh_to_water_ml(tree_wh)
+        water_relatable = usage_log.water_relatable(tree_wh)
         footprint = (f"\n\nBuilding this tree so far has cost about "
-                     f"{tree_wh} watt-hours, {relatable}. Knowing the price "
-                     "in light is part of the kinship.")
+                     f"{tree_wh} watt-hours ({relatable}) and "
+                     f"~{water_ml:.0f} mL of water ({water_relatable}) "
+                     "for data-center cooling. Knowing the price in "
+                     "light and water is part of the kinship.")
     except Exception:
         footprint = ""
     return lead + "\n\n" + care + footprint

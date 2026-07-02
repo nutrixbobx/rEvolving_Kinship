@@ -465,21 +465,24 @@ def build_press_pdf(tree_name: str,
     story.append(Spacer(1, 14))
     story.append(Paragraph("About {r}Evolving Kinship", h_sec))
     story.append(Paragraph(
-        "{r}Evolving Kinship is a participatory ecological art piece by "
-        "Maya, of Shared Rivers. Visitors name a species they feel kin "
-        "to; the piece places that species in the tree of life, redraws "
-        "the tree with the visitor's kin inside it, and sounds the "
-        "deep-time distances back as a microtonal chord. Each finished "
-        "tree carries a photo, a short profile, and the species' actual "
-        "recorded voice, so the kinship is felt across every sense the "
-        "gallery has.", h_body))
+        "{r}Evolving Kinship is a participatory ecological art piece "
+        "hosted by Shared Rivers. Visitors name a species they feel "
+        "kin to; the piece places that species in the tree of life, "
+        "redraws the tree with the visitor's kin inside it, and sounds "
+        "the deep-time distances back as a microtonal chord. Each "
+        "finished tree carries a photo, a short profile, and the "
+        "species' actual recorded voice, so the kinship is felt "
+        "across every sense the room has.", h_body))
     story.append(Spacer(1, 8))
     story.append(Paragraph(
-        "Shared Rivers is the global confluence lab Maya works through, "
-        "gathering artists and ecologists and educators around the idea "
-        "that waterways are not borders or resources but living "
-        "connectors. The lab convenes events that braid art, ecology, "
-        "music, gastronomy, and education into one room.", h_body))
+        "Shared Rivers is the global confluence lab that runs this "
+        "piece and others alongside it. The lab gathers artists, "
+        "ecologists, and educators around the idea that waterways are "
+        "not borders or resources but living connectors. It convenes "
+        "events that braid art, ecology, music, gastronomy, and "
+        "education into one room. This particular piece has traveled "
+        "to several venues, most recently SITE in The Goat Farm, "
+        "Atlanta.", h_body))
 
     fp = _footprint_lines(tree_name)
     if fp:

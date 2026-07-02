@@ -2,8 +2,10 @@
 
 *a living kinship pipeline*
 
-A participatory piece by Maya, of Shared Rivers, presented at SITE in The Goat
-Farm, Atlanta, on the evening of October 3rd 2026.
+A participatory ecological art piece by Maya, hosted by Shared Rivers.
+The piece travels — it has run at SITE in The Goat Farm (Atlanta,
+October 2026) and is being staged at additional venues along the
+waterways Shared Rivers works across.
 
 Visitors name a species they feel kin to. The pipeline places that species in
 the tree of life, redraws the tree with the visitor's kin inside it, sounds the
@@ -196,7 +198,7 @@ XENO_CANTO_API_KEY=your-key-here     # optional, falls back to Wikipedia
 ADMIN_PASSWORD=your-admin-password   # optional, gates the override editors
 ```
 
-Run `db/schema.sql` once in the Supabase SQL editor. After that the same
+Run `db/schema_v2.sql` once in the Supabase SQL editor. After that the same
 `make load` and `make run` commands write to Supabase. Embed the per-tree
 JSON in `outputs/web/` from any page, or query `v_species_public` through the
 Supabase client. The public surface is always a named view, never the raw

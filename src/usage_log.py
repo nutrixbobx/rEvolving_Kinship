@@ -33,7 +33,6 @@ ENERGY_WH = {
     "render_tree": 1.5,        # toytree + matplotlib draw
     "sonify_chord": 0.8,
     "build_chorus": 8.0,       # fetches species recordings if not cached
-    "build_sound_tree": 4.5,   # spectrograms for ~10 species
     "build_photo_tree": 5.5,   # fetches species photos if not cached
     "build_meditation": 3.0,
     "blurb_remote": 4.0,         # LLM call to Groq / Hugging Face
