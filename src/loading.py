@@ -95,6 +95,28 @@ FUN_FACTS: list[str] = [
 ROTATION_SECONDS = 5.0
 
 
+def random_tip() -> str:
+    """A random fun fact from the pool. Used anywhere in the app for
+    a quick 'while you wait' popup."""
+    return random.choice(FUN_FACTS)
+
+
+import contextlib as _contextlib
+
+
+@_contextlib.contextmanager
+def spinner_with_tip(message: str):
+    """Same as `st.spinner(message)` but also fires a `st.toast` with
+    a random fun fact so users have something to read during any long
+    operation, not just the first-visit NCBI load."""
+    try:
+        st.toast(random_tip(), icon=":material/water_drop:")
+    except Exception:
+        pass
+    with st.spinner(message):
+        yield
+
+
 def _current_status() -> dict:
     """Read + return the shared status dict for the download."""
     st.session_state.setdefault("_ncbi_status", {

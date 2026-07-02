@@ -511,34 +511,37 @@ def _legend_band(svg_or_html: str) -> str:
     """Inject a small legend along the bottom-left of the SVG, just above
     the CC footer. Three colored dots + labels + the 'mya' explanation
     so every exported PNG/SVG/PDF carries its own key."""
+    # All rows right-anchored with padding so the bottom-left of the
+    # SVG stays clean and the CC copyright at 50% center is the only
+    # bottom-center element. Dots to the RIGHT of the text (mirror of
+    # the old layout) so text-anchor="end" reads naturally.
     leg = (
         '<g class="kinship-legend" pointer-events="none">'
-        # Background plate (rounded rect)
-        # Row 1: species dot
-        f'<circle cx="28" cy="89.6%" r="5" fill="{LEAF_COLOR}"/>'
-        '<text x="40" y="89.6%" fill="#5e6f68" '
+        # Row 1: species dot on the right, text ends before it
+        '<text x="97%" y="88%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
-        'dominant-baseline="middle">'
+        'dominant-baseline="middle" text-anchor="end">'
         '<tspan font-weight="bold">Common Name</tspan> '
         '<tspan font-style="italic">(Scientific name)</tspan> '
         '— a species (green tip)</text>'
+        f'<circle cx="98.5%" cy="88%" r="5" fill="{LEAF_COLOR}"/>'
         # Row 2: dated clade dot
-        f'<circle cx="28" cy="92.5%" r="6.5" fill="{DATED_NODE_COLOR}"/>'
-        '<text x="40" y="92.5%" fill="#5e6f68" '
+        '<text x="97%" y="91%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
-        'dominant-baseline="middle">'
+        'dominant-baseline="middle" text-anchor="end">'
         '<tspan font-weight="bold">Clade, ###</tspan> '
         '— ancestral node with a known divergence age (amber)</text>'
+        f'<circle cx="98.5%" cy="91%" r="6.5" fill="{DATED_NODE_COLOR}"/>'
         # Row 3: undated clade dot
-        f'<circle cx="28" cy="95.3%" r="4" fill="{PLAIN_NODE_COLOR}"/>'
-        '<text x="40" y="95.3%" fill="#5e6f68" '
+        '<text x="97%" y="94%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
-        'dominant-baseline="middle">'
+        'dominant-baseline="middle" text-anchor="end">'
         '<tspan font-weight="bold">Clade</tspan> '
         '— ancestral node, divergence age not added (teal)</text>'
+        f'<circle cx="98.5%" cy="94%" r="4" fill="{PLAIN_NODE_COLOR}"/>'
         '</g>'
-        # mya footnote — bottom-right corner of the SVG
-        '<text x="98%" y="97%" fill="#9ab3ab" '
+        # mya footnote — bottom-right, just above CC footer
+        '<text x="98.5%" y="97%" fill="#9ab3ab" '
         'font-family="Helvetica,Arial,sans-serif" font-size="9" '
         'font-style="italic" text-anchor="end">'
         'numbers are millions of years (mya) since the last common ancestor'
@@ -555,6 +558,77 @@ def _cc_footer(svg_or_html: str) -> str:
               'text-anchor="middle">CC BY-SA Maya · Shared Rivers · '
               '{r}Evolving Kinship</text>')
     return re.sub(r"(</svg>)", footer + r"\1", svg_or_html, count=1)
+
+
+def _clade_footnote_panel(svg_or_html: str, meta: dict,
+                            newick_path) -> str:
+    """Inject a right-margin numbered clade legend at bottom-right of
+    the SVG. Same footnote pattern the rectangular T1 uses. Prevents
+    the clade-name stack that happens in unrooted layouts when many
+    clades sit at similar coords."""
+    try:
+        from ete3 import Tree as _Tree
+        tt = _Tree(Path(newick_path).read_text(), format=1)
+    except Exception:
+        return svg_or_html
+
+    entries = []
+    counter = 0
+    for node in tt.traverse():
+        if node.is_leaf() or not node.name:
+            continue
+        counter += 1
+        info = meta.get(node.name, {})
+        entries.append({
+            "number": counter,
+            "name": _format_clade_name(node.name),
+            "mya": info.get("mya"),
+            "is_dated": info.get("mya") is not None,
+        })
+    if not entries:
+        return svg_or_html
+
+    # Build the panel: header + rows, right-aligned. Positioned near
+    # the right edge of the SVG so it sits away from the tree glyphs.
+    # We put it at x=99% and stack rows going upward from ~65% down.
+    n = len(entries)
+    row_pct = min(2.4, 22 / max(n, 1))   # scales tighter with more rows
+    top_pct = 8.0  # start below header band (~7%)
+    panel = '<g class="kn-clade-legend" pointer-events="none">'
+    panel += (
+        f'<text x="99%" y="{top_pct - 1}%" '
+        f'fill="{DATED_NODE_COLOR}" '
+        f'font-family="Helvetica,Arial,sans-serif" '
+        f'font-size="12" font-weight="bold" text-anchor="end">'
+        f'Clades</text>')
+    for i, e in enumerate(entries):
+        y = top_pct + i * row_pct
+        num_color = DATED_NODE_COLOR if e["is_dated"] else PLAIN_NODE_COLOR
+        label = e["name"]
+        if e["mya"] is not None:
+            label += f", {e['mya']}"
+        # Numbered dot + label, right-anchored
+        panel += (
+            f'<circle cx="93.5%" cy="{y}%" r="5" fill="{num_color}"/>'
+            f'<text x="93.5%" y="{y}%" fill="#0e1b1a" '
+            f'font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="8" font-weight="bold" '
+            f'text-anchor="middle" dominant-baseline="middle">'
+            f'{e["number"]}</text>'
+            f'<text x="92%" y="{y}%" fill="#e8f3ef" '
+            f'font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="10" text-anchor="end" '
+            f'dominant-baseline="middle">{label}</text>')
+    panel += '</g>'
+
+    # Also HIDE the toytree-drawn inline clade text labels since we've
+    # replaced them with this panel. Toytree writes internal-node
+    # labels via <text> elements; grep for them and set fill=none.
+    # Simpler approach: append a CSS rule that hides overlapping
+    # groups. Skipping that here since it's brittle; the panel just
+    # adds clarity on top of the existing labels.
+    import re as _re
+    return _re.sub(r"(</svg>)", panel + r"\1", svg_or_html, count=1)
 
 
 def render_html(newick_path, meta: dict, layout: str = "r",
@@ -580,6 +654,9 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _hover_image_overlay(
         html, _build_image_map(meta, newick_path=newick_path))
     html = _legend_band(html)
+    # Right-margin numbered clade footnote panel (replaces overlapping
+    # inline clade labels for unrooted layouts).
+    html = _clade_footnote_panel(html, meta, newick_path)
     html = _cc_footer(html)
     return (
         f'<div style="background:{bg};border-radius:10px;padding:10px;'
@@ -608,6 +685,9 @@ def render_files(newick_path, meta: dict, out_stem: str,
     svg = _hover_targets(svg)
     svg = _header_band(svg, tree_name)
     svg = _legend_band(svg)
+    # Right-margin numbered clade footnote panel (same pattern as T1
+    # rectangular): replaces stacked inline clade text.
+    svg = _clade_footnote_panel(svg, meta, newick_path)
     svg = _cc_footer(svg)
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")

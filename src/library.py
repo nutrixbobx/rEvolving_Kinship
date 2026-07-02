@@ -1558,9 +1558,6 @@ def _render_clade_dating() -> None:
             from src.render import _format_clade_name
             current = r.get("mya")
             label = f"**{_format_clade_name(cn)}**"
-            if r.get("rank"):
-                label += (f"  <span style='color:#9ab3ab;font-size:11px'>"
-                          f"{r['rank']}</span>")
             if r.get("species_count"):
                 label += (f"  <span style='color:#9ab3ab;font-size:11px'>"
                           f"· {int(r['species_count'])} sp.</span>")

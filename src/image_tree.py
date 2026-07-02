@@ -102,12 +102,25 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
             ax.plot(nx, ny, "o", color=LEAF, ms=6, zorder=3)
             common = info.get("common_name")
             sci = info.get("scientific_name") or node.name.replace("_", " ")
+            # Wrap long common names so they never overrun the photo
+            # column. 42 chars keeps even very compound names within
+            # the label band before the photo strip.
+            import textwrap as _tw
             if common:
-                ax.text(nx + 0.18, ny, common, color=TIP_TEXT, fontsize=10,
-                        va="center")
+                wrapped_common = "\n".join(_tw.wrap(common, width=42)
+                                              or [common])
+                ax.text(nx + 0.18, ny - 0.08, wrapped_common,
+                         color=TIP_TEXT, fontsize=9.5,
+                         va="center", wrap=True)
+                # Scientific name as small italic underneath.
+                ax.text(nx + 0.18, ny + 0.24, f"({sci})",
+                         color=TIP_TEXT, fontsize=8,
+                         va="center", style="italic", alpha=0.75)
             else:
-                ax.text(nx + 0.18, ny, sci, color=TIP_TEXT, fontsize=10,
-                        va="center", style="italic")
+                wrapped_sci = "\n".join(_tw.wrap(sci, width=42) or [sci])
+                ax.text(nx + 0.18, ny, wrapped_sci,
+                         color=TIP_TEXT, fontsize=9.5,
+                         va="center", style="italic")
             continue
         num = number_for_node.get(node.idx)
         if node.name in dated:
@@ -193,13 +206,11 @@ def draw_header(fig, tree_name):
 
 
 def _draw_legend(fig):
-    """Inject a small legend at the bottom-left of the figure mirroring
-    the SVG legend in render.py: three colored dots + labels + mya note.
-    Matches the look of the dashboard tree."""
-    legend_ax = fig.add_axes([0.02, 0.005, 0.85, 0.045])
+    """Bottom-RIGHT legend for T1: dots on the far right with labels
+    ending just to their left. Padding added between rows."""
+    legend_ax = fig.add_axes([0.45, 0.005, 0.52, 0.048])
     legend_ax.set_facecolor("#13211f")
     legend_ax.axis("off")
-    # Three rows of dot+label
     rows = [
         (LEAF, 6, "Common Name", "(Scientific name)",
          "— a species (green tip)"),
@@ -208,23 +219,24 @@ def _draw_legend(fig):
         (PLAIN, 5, "Clade", "",
          "— ancestral node, divergence age not added (teal)"),
     ]
-    y_positions = [0.85, 0.5, 0.15]
+    y_positions = [0.86, 0.51, 0.16]
     for (color, size, bold, italic, rest), y in zip(rows, y_positions):
-        legend_ax.scatter([0.005], [y], s=size**2, c=color,
-                            zorder=3, transform=legend_ax.transAxes)
         text = bold
         if italic:
             text += f"  $\\it{{{italic}}}$"
         text += f"  {rest}"
-        legend_ax.text(0.02, y, text, color="#e8f3ef",
-                        fontsize=8, va="center",
-                        transform=legend_ax.transAxes)
-    # mya footnote
-    legend_ax.text(
-        0.99, 0.15,
+        legend_ax.text(
+            0.965, y, text, color="#e8f3ef",
+            fontsize=8, va="center", ha="right",
+            transform=legend_ax.transAxes)
+        legend_ax.scatter(
+            [0.985], [y], s=size**2, c=color,
+            zorder=3, transform=legend_ax.transAxes)
+    fig.text(
+        0.98, 0.005,
         "numbers are millions of years (mya) since the last common ancestor",
-        color="#9ab3ab", fontsize=7, va="center", ha="right",
-        style="italic", transform=legend_ax.transAxes)
+        color="#9ab3ab", fontsize=7, ha="right", va="bottom",
+        style="italic")
 
 
 

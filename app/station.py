@@ -558,7 +558,7 @@ if active_tab == "Dashboard":
                              type="primary",
                              key=f"build_top_{pick_tree}",
                              use_container_width=True):
-                    with st.spinner("Resolving taxonomy, building the tree, "
+                    with loading.spinner_with_tip("Resolving taxonomy, building the tree, "
                                     "rendering, and sonifying. The first "
                                     "ever run also downloads the NCBI "
                                     "taxonomy (~5 min)."):
@@ -793,7 +793,7 @@ if active_tab == "Dashboard":
                                key=f"presspdf_{pick_tree}",
                                type="primary",
                                use_container_width=True):
-                      with st.spinner("Composing the kinship report. "
+                      with loading.spinner_with_tip("Composing the kinship report. "
                                         "This can take a minute if photos "
                                         "are being fetched for the first "
                                         "time."):
@@ -903,7 +903,7 @@ if active_tab == "Dashboard":
                   if st.button("Build / refresh range map",
                                key=f"rangemap_{pick_tree}",
                                use_container_width=True):
-                      with st.spinner("Fetching CARTO basemap + GBIF "
+                      with loading.spinner_with_tip("Fetching CARTO basemap + GBIF "
                                         "density per species. ~30s."):
                           try:
                               from src import range_map_static
