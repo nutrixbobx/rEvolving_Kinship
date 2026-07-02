@@ -81,6 +81,28 @@ Session E (guest lockdown + map polish + NCBI auto-load):
     Manual "Build NCBI" expander removed. Admin re-download panel
     stays on the Dashboard as a corruption escape hatch.
 
+Session F (optimization + UX masterization, 2026-07-01):
+  - MYA-scaled branch lengths: `src/scale_tree.py` writes a sibling
+    `<stem>_scaled_tree.nwk` with log10(1+mya) branch lengths derived
+    from `<stem>_nodes.json`. `src/render.py:_resolve_newick_path()`
+    prefers the scaled file when it exists, controlled by `use_scaled`
+    kwarg on `_prepare()`. Default: True.
+  - Numbered clade callouts on T1: `src/image_tree.py:_draw_tree()`
+    returns clade_entries. `_draw_clade_legend()` renders them in a
+    right-margin column. Solves the T1 clade-overlap issue Maya has
+    called out many times.
+  - Inline MYA editor: form inside the Clade Browser expander lets
+    admins + editors write to `clade.divergence_mya` without SQL.
+    Uses new `db.get_clade_id_by_name()`.
+  - Range map palette fix: reverted `.point` solid styles (they
+    silently fall back to yellow on GBIF v2) to the working heat
+    styles. Swatch hex sampled from real tile pixels.
+  - Mobile + tablet polish: horizontal-scroll tabs bar, adaptive tree
+    iframe, tablet 3-col-to-2 fallback.
+  - Speed: `_clade_browser_lookup()` on station.py is
+    `@st.cache_data(ttl=600)`, so switching between clades is instant
+    on the second visit.
+
 Two migrations shipped this cycle:
   - `db/theme_migration.sql`
   - `db/clade_note_migration.sql`

@@ -2348,6 +2348,20 @@ def list_clades_for_dating() -> pd.DataFrame:
     """), get_engine())
 
 
+def get_clade_id_by_name(clade_name: str) -> str | None:
+    """Return clade_id for a given clade.name, or None. Case-sensitive
+    on stored name; caller should pass the meta['name'] value."""
+    if not clade_name:
+        return None
+    engine = get_engine()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT clade_id::text FROM clade WHERE name = :n"),
+            {"n": clade_name},
+        ).fetchone()
+    return row[0] if row else None
+
+
 def set_clade_divergence_mya(clade_id: str,
                               mya: float | None) -> int:
     """Set (or clear, when mya is None) the divergence_mya field on one

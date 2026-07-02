@@ -538,6 +538,52 @@ input:focus, textarea:focus, select:focus {{
   [data-testid="stSidebar"] {{
     min-width: 80vw !important;
   }}
+
+  /* Top-level tabs bar: horizontal scroll instead of wrapping */
+  .stTabs [data-baseweb="tab-list"] {{
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+  }}
+  .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {{ display: none; }}
+  .stTabs [data-baseweb="tab"] {{
+    flex-shrink: 0 !important;
+    white-space: nowrap;
+  }}
+
+  /* Sub-nav radio: horizontal scroll, not wrap */
+  [data-testid="stRadio"] > div {{
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }}
+  [data-testid="stRadio"] > div::-webkit-scrollbar {{ display: none; }}
+
+  /* Interactive tree canvas fills the column, no min-width crash */
+  [data-testid="stIFrame"] {{
+    max-width: 100% !important;
+    width: 100% !important;
+  }}
+
+  /* Section headings shrink a touch on phone */
+  .section-kicker {{ font-size: 10px !important; }}
+  .section-title  {{ font-size: 22px !important; }}
+
+  /* Range map legend swatches bigger + more visible on phone */
+  .leaflet-control-layers-overlays .swatch {{
+    width: 14px !important; height: 14px !important;
+  }}
+}}
+
+/* ============ Tablet — 641px to 900px ============================== */
+@media (min-width: 641px) and (max-width: 900px) {{
+  .block-container {{
+    padding-left: 1rem; padding-right: 1rem;
+  }}
+  /* 3-col grids drop to 2 across on tablet */
+  [data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(n+3) {{
+    min-width: 50% !important;
+  }}
 }}
 
 /* ============ Small visual flourishes for landing screen =========== */

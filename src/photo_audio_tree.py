@@ -149,21 +149,27 @@ def build_photo_audio_tree(tree_name: str,
     image_tree.draw_header(fig, tree_name)
     image_tree._draw_legend(fig)
 
-    # Layout: tree on left (50%), photo column (15%), spectrogram column
-    # (28%), attribution column (rest)
-    # Tighter horizontal layout. Header reserves top 12% so title +
-    # slogan are clear of the tree (parity with the unrooted SVG).
-    tree_l, tree_b, tree_w, tree_h = 0.02, 0.08, 0.42, 0.80
+    # Layout: tree (35%), photo (7%), spec (39%), clade legend column
+    # on the far right (10%). Header reserves top 12% so title + slogan
+    # are clear of the tree (parity with the unrooted SVG). The clade
+    # legend absorbs the previous overlap zone so clade labels no longer
+    # collide with each other on the tree axis.
+    tree_l, tree_b, tree_w, tree_h = 0.02, 0.08, 0.37, 0.80
     ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
-    image_tree._draw_tree(ax_tree, tre, pos, meta, dated, max_depth, n)
+    clade_entries = image_tree._draw_tree(
+        ax_tree, tre, pos, meta, dated, max_depth, n)
+    image_tree._draw_clade_legend(
+        fig, clade_entries,
+        left=0.895, width=0.10,
+        bottom=tree_b, height=tree_h)
 
     # Photo + spec columns. No equal-row-height heuristic — instead we
     # use the tree's actual tip Y positions so every photo lines up
     # vertically with its tip dot.
-    photo_left = 0.44
-    photo_w = 0.07          # smaller per Maya
+    photo_left = 0.40
+    photo_w = 0.07
     spec_left = photo_left + photo_w + 0.012
-    spec_w = 0.45
+    spec_w = 0.395
 
     # tree axes span: figure_y(tip i) = tree_b + tree_h - (i/(n-1)) * tree_h
     # for n>=2. For n=1, center the single row.

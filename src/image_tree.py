@@ -52,6 +52,13 @@ def _layout(tre):
 
 
 def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
+    """Draw the rectangular tree with numbered callouts on clade nodes
+    instead of inline text labels. Returns the ordered list of clade
+    entries so callers can render a matching right-margin legend.
+
+    Returns: list[dict] with keys number, name, mya, is_dated. Root
+    first, then depth-ordered."""
+    # Branches
     for node in tre.traverse():
         if node.is_leaf() or len(node.children) < 2:
             continue
@@ -64,6 +71,30 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
         px, _ = pos[node.up.idx]
         cx, cy = pos[node.idx]
         ax.plot([px, cx], [cy, cy], color=EDGE, lw=1.6)
+
+    # Collect internal-node clades in traversal order (root down),
+    # numbered starting at 1. Only named internal nodes get numbers.
+    from src.render import _format_clade_name
+    clade_entries: list[dict] = []
+    number_for_node: dict[int, int] = {}
+    counter = 0
+    for node in tre.traverse():
+        if node.is_leaf() or not node.name:
+            continue
+        counter += 1
+        info = meta.get(node.name, {})
+        mya = info.get("mya")
+        clade_entries.append({
+            "number": counter,
+            "name": _format_clade_name(node.name),
+            "mya": mya,
+            "is_dated": node.name in dated,
+        })
+        number_for_node[node.idx] = counter
+
+    # Nodes: leaves keep their inline text (species names), clades get
+    # numbered badges. Numbers sit dead-center on the dot in white for
+    # perfect readability regardless of clade colour.
     for node in tre.traverse():
         nx, ny = pos[node.idx]
         info = meta.get(node.name, {})
@@ -77,27 +108,59 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
             else:
                 ax.text(nx + 0.18, ny, sci, color=TIP_TEXT, fontsize=10,
                         va="center", style="italic")
-        elif node.name in dated:
-            from src.render import _format_clade_name
-            ax.plot(nx, ny, "o", color=DATED, ms=9, zorder=3)
-            mya = info.get("mya")
-            ax.text(nx - 0.12, ny - 0.28,
-                    f"{_format_clade_name(node.name)}, {mya}",
-                    color=LABEL, fontsize=8, ha="right", weight="bold")
+            continue
+        num = number_for_node.get(node.idx)
+        if node.name in dated:
+            ax.plot(nx, ny, "o", color=DATED, ms=12, zorder=3)
         elif node.name:
-            from src.render import _format_clade_name
-            ax.plot(nx, ny, "o", color=PLAIN, ms=5, zorder=3)
-            # Match T1's amber/orange clade-label color
-            ax.text(nx - 0.12, ny - 0.28,
-                    _format_clade_name(node.name),
-                    color=LABEL, fontsize=7, ha="right",
-                    style="italic", alpha=0.85)
+            ax.plot(nx, ny, "o", color=PLAIN, ms=10, zorder=3)
         else:
             ax.plot(nx, ny, "o", color=PLAIN, ms=4, zorder=3)
+        if num is not None:
+            ax.text(nx, ny, str(num), color="#0e1b1a",
+                    fontsize=6.5, ha="center", va="center",
+                    weight="bold", zorder=4)
+
     ax.set_xlim(-0.6, max_depth + 6)
     ax.set_ylim(n - 0.5, -0.5)
     ax.set_facecolor(BG)
     ax.axis("off")
+    return clade_entries
+
+
+def _draw_clade_legend(fig, clade_entries, left=0.905, width=0.09,
+                        bottom=0.10, height=0.80):
+    """Render the numbered clade legend column on the right margin.
+    Never overlaps the tree because it lives in its own axes."""
+    if not clade_entries:
+        return
+    ax = fig.add_axes([left, bottom, width, height])
+    ax.set_facecolor(BG)
+    ax.axis("off")
+    ax.text(0, 1.0, "Clades",
+            color=LABEL, fontsize=10, weight="bold",
+            transform=ax.transAxes, va="top")
+    # Wrap: fit up to N entries evenly in the column height. Font
+    # scales down if there are many.
+    n_entries = len(clade_entries)
+    row_pitch = 0.94 / max(n_entries, 1)
+    fs = max(5.5, min(8, 100 / max(n_entries, 1) * 0.06))
+    for i, e in enumerate(clade_entries):
+        y = 0.96 - i * row_pitch
+        # Colored dot
+        color = DATED if e["is_dated"] else PLAIN
+        ax.text(0, y, str(e["number"]),
+                 color="#0e1b1a", fontsize=fs, weight="bold",
+                 bbox=dict(boxstyle="circle,pad=0.15",
+                           fc=color, ec="none"),
+                 va="center", transform=ax.transAxes)
+        # Name + mya
+        label = e["name"]
+        if e["mya"] is not None:
+            label += f", {e['mya']}"
+        ax.text(0.13, y, label,
+                 color=TIP_TEXT, fontsize=fs,
+                 va="center", transform=ax.transAxes)
 
 
 def draw_header(fig, tree_name):

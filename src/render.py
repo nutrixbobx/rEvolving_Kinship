@@ -118,6 +118,19 @@ def _hover_text(label: str, info: dict) -> str:
     return ", ".join(parts)
 
 
+def _resolve_newick_path(newick_path, use_scaled: bool = True):
+    """Given a `<stem>_named_tree.nwk` path, prefer the MYA-scaled
+    sibling `<stem>_scaled_tree.nwk` when it exists AND use_scaled
+    is True. Falls back to the plain topology newick otherwise."""
+    p = Path(newick_path)
+    if not use_scaled:
+        return p
+    scaled = p.parent / p.name.replace("_named_tree.nwk", "_scaled_tree.nwk")
+    if scaled.exists():
+        return scaled
+    return p
+
+
 def _collapse_unary(newick_path, dated: set) -> str:
     """Collapse single-child internal nodes (the long rank chains) so the
     drawing shows clean branches, the species, and the dated clades. Dated
@@ -137,7 +150,8 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
              collapse: bool, plain_visible: bool, show_dated_labels: bool,
              show_undated_labels: bool = True,
              show_scientific: bool = True,
-             layout: str = "r"):
+             layout: str = "r",
+             use_scaled: bool = True):
     """Build the toytree object plus the idx-ordered style lists. The flags let
     each layout (rectangular / unrooted / circular) choose how dense to draw.
     """
@@ -145,8 +159,9 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
 
     dated = {k for k, v in meta.items()
              if not v.get("is_leaf") and v.get("mya") is not None}
-    nwk_str = (_collapse_unary(newick_path, dated) if collapse
-               else Path(newick_path).read_text())
+    resolved_nwk = _resolve_newick_path(newick_path, use_scaled=use_scaled)
+    nwk_str = (_collapse_unary(resolved_nwk, dated) if collapse
+               else Path(resolved_nwk).read_text())
     tre = toytree.tree(nwk_str)
     nnodes = tre.nnodes
 
@@ -222,11 +237,11 @@ def _layout_settings(layout: str, pal: dict):
             align=False, use_edges=False, edge_type="p",
             w=side, h=side, padding=60, shrink=120,
         )
-    # rectangular: hide undated-clade labels (they overlap horribly
-    # in dense trees). Dots stay; only dated clades get their name.
+    # rectangular: show undated labels too (dated are now chain-
+    # collapsed to innermost-only so the overlap problem is gone).
     return dict(
         collapse=True, plain_visible=True, show_dated_labels=True,
-        show_undated_labels=False,
+        show_undated_labels=True,
         align=True, use_edges=False, edge_type="p",
         w=pal["w"], h=pal["h"], padding=70, shrink=pal["shrink"],
     )

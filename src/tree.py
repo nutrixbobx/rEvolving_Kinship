@@ -145,6 +145,16 @@ def build_tree(tree_name: str, auto_enrich: bool = True):
     meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
     meta_path.write_text(json.dumps(node_meta, indent=2))
 
+    # Also write the MYA-scaled sister newick so renderers can draw
+    # branches at real evolutionary distance instead of uniform depth.
+    # Failures here are non-fatal: renderers fall back to the plain
+    # topology newick.
+    try:
+        from src import scale_tree
+        scale_tree.build_scaled_tree(tree_name)
+    except Exception as _exc:
+        print(f"  scaled newick build failed (non-fatal): {_exc}")
+
     print(f"tree built for {tree_name}: {len(leaves)} leaves -> {out_path.name}")
     if internal_clades:
         print(f"  named clades with chronology: {', '.join(internal_clades)}")

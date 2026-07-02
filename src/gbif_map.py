@@ -31,17 +31,19 @@ CACHE_PATH = config.OUTPUT_DIR / "gbif_keys.json"
 
 # Six distinct GBIF heatmap styles. Each species in a tree gets one in order
 # so neighboring species read as visually different on the same map.
-# GBIF v2 solid-color .point styles: each renders every occurrence as
-# a fixed-color dot (no gradient), so the legend swatch is literally
-# the color you see on the map. We rotated to these so the palette
-# matches perfectly.
+# GBIF v2 heat styles we've verified actually render on-server. The
+# .point solid-color variants (red.point, blue.point, orange.point,
+# etc.) silently fall back to yellow at the tile server level, which
+# was why Session E's palette all rendered as yellow. Swatches here
+# are peak-density colors sampled directly from real tile pixels so
+# the legend matches what the eye reads on the map.
 GBIF_STYLES = [
-    ("red.point",     "#ed1c24", "red"),
-    ("green.point",   "#22b14c", "green"),
-    ("blue.point",    "#00a2e8", "blue"),
-    ("purple.point",  "#a349a4", "purple"),
-    ("orange.point",  "#ff7f27", "orange"),
-    ("yellow.point",  "#f4e409", "yellow"),
+    ("fire.point",        "#ff2a1a", "red heat"),
+    ("greenHeat.point",   "#369617", "green heat"),
+    ("blueHeat.point",    "#206eff", "blue heat"),
+    ("purpleHeat.point",  "#ff21fd", "magenta heat"),
+    ("orangeHeat.point",  "#c06719", "orange heat"),
+    ("glacier.point",     "#0a5680", "glacier blue"),
 ]
 
 

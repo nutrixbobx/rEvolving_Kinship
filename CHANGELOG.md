@@ -42,6 +42,45 @@ tree, drawn on one Leaflet panel.
 follow + favorite, change-password. Admins additionally see Team
 (promote users to editor) and Password resets.
 
+## MYA-scaled branch lengths
+
+Every tree now writes a sibling `<stem>_scaled_tree.nwk` alongside the
+topology newick. Branch lengths reflect real divergence times in
+millions of years, log-scaled with log10(1+MYA) so a Cambrian branch
+does not swallow the recent ones. Renderers prefer the scaled newick
+by default. Sonification already reads ages directly, so the chord
+intervals inherit the same fidelity to real evolutionary distance.
+
+## Numbered clade callouts on T1
+
+The Photo-Spectral tree used to place clade text labels next to each
+internal node, which stacked on top of each other whenever two clades
+were near the same depth. Labels now live in a dedicated right-margin
+legend column with numbered badges on the tree, so no two labels can
+overlap regardless of tree shape.
+
+## Inline MYA editor in the Clade Browser
+
+Editors and admins can now set a clade's divergence age straight from
+the Clade Browser expander. Writes to `clade.divergence_mya` so the
+new age applies across every tree that uses this clade. Rebuild the
+tree afterward to see the branch rescale.
+
+## Range map palette (real fix)
+
+Session E swapped in `.point` solid-color styles like `red.point` and
+`blue.point`. Empirically, GBIF's tile server silently falls back to
+yellow on those. Reverted to the six heat styles that actually render
+(fire, greenHeat, blueHeat, purpleHeat, orangeHeat, glacier) with
+swatch hex values sampled directly from real tile pixels so the
+legend matches the map.
+
+## Mobile + tablet polish
+
+Top-level tabs bar and dashboard sub-nav radio now scroll horizontally
+on narrow screens instead of wrapping badly. Interactive tree iframe
+adapts to viewport. 3-column layouts collapse to 2-across on tablets.
+
 ## Access-code sign-up + guest upgrade
 
 Public sign-up is back but gated by a shared access code. Anyone with

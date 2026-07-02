@@ -178,6 +178,54 @@ def _cached_tree_species_picker(tree_name):
     return db.list_tree_species_with_names(tree_name)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _clade_browser_lookup(tree_name: str, nwk_path: str,
+                           clade_name: str) -> dict:
+    """Resolve a clade in the tree to (rep photo, rep species, species
+    list). Cached per (tree_name, clade_name) for 10 minutes so
+    switching between clades is instant on the second visit."""
+    from pathlib import Path as _P
+    import json as _json
+    from ete3 import Tree as _Tree
+    from src import species_profile
+    p = _P(nwk_path)
+    if not p.exists():
+        return {}
+    t = _Tree(p.read_text(), format=1)
+    nodes = t.search_nodes(name=clade_name)
+    if not nodes:
+        return {}
+    meta_path = p.parent / p.name.replace(
+        "_named_tree.nwk", "_nodes.json").replace(
+        "_scaled_tree.nwk", "_nodes.json")
+    meta = _json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    rep_photo_url = None
+    rep_common = None
+    rep_sci = None
+    species_under: list[str] = []
+    for lf in nodes[0].get_leaves():
+        lm = meta.get(lf.name, {})
+        sci = lm.get("scientific_name")
+        if not sci:
+            continue
+        species_under.append(lm.get("common_name") or sci)
+        if rep_photo_url is None:
+            try:
+                prof = species_profile.find_profile(sci, lm.get("common_name"))
+            except Exception:
+                prof = None
+            if prof and prof.get("image_url"):
+                rep_photo_url = prof["image_url"]
+                rep_common = lm.get("common_name")
+                rep_sci = sci
+    return {
+        "photo_url": rep_photo_url,
+        "rep_common": rep_common,
+        "rep_sci": rep_sci,
+        "species_under": species_under,
+    }
+
+
 def _fav_toggle_for_tree(tree_name: str) -> None:
     """Render a ⭐/☆ favorite toggle for the currently-picked tree. Visible
     to any named user. No-op when not named."""
@@ -1233,32 +1281,53 @@ if active_tab == "Dashboard":
                         f"Rank: {_crank or '—'} · Divergence: "
                         f"{f'{_cage} MYA' if _cage is not None else 'age not set'}")
 
+                    # Editors/admins can fill in a missing divergence
+                    # age here, without going into SQL. Writes to the
+                    # clade table so this contribution helps every
+                    # tree, not just this one.
+                    if auth.is_editor_or_admin():
+                        _clade_db_id = db.get_clade_id_by_name(_pick_clade)
+                        if _clade_db_id:
+                            with st.form(
+                                    key=f"mya_form_{pick_tree}_{_pick_clade}"):
+                                _new_mya = st.number_input(
+                                    "Set divergence age (MYA). Blank/0 to "
+                                    "clear.",
+                                    min_value=0.0, max_value=5000.0,
+                                    value=float(_cage) if _cage else 0.0,
+                                    step=0.5,
+                                    key=f"mya_input_{pick_tree}_{_pick_clade}")
+                                if st.form_submit_button("Save age",
+                                                           type="primary"):
+                                    to_save = (
+                                        _new_mya if _new_mya > 0 else None)
+                                    db.set_clade_divergence_mya(
+                                        _clade_db_id, to_save)
+                                    st.success(
+                                        f"Saved. Rebuild the tree so "
+                                        f"branches rescale to the new age.")
+                                    st.rerun()
+                        else:
+                            st.caption("(This clade isn't in the "
+                                        "database yet; it lives only in "
+                                        "the tree render. Rebuild the "
+                                        "tree once to seed it.)")
+
                     # Find representative species: first leaf descendant
-                    # in the newick that has a scientific_name.
+                    # in the newick that has a scientific_name. Cached
+                    # by (tree_name, clade_name, file mtime) so repeated
+                    # picks don't re-parse ete3 + re-fetch iNat.
                     _rep_photo_url = None
                     _rep_common = None
                     _rep_sci = None
                     _species_under: list[str] = []
                     try:
-                        from ete3 import Tree as _Tree
-                        _tt = _Tree(Path(nwk).read_text(), format=1)
-                        _nodes = _tt.search_nodes(name=_pick_clade)
-                        if _nodes:
-                            _leaves = _nodes[0].get_leaves()
-                            for _lf in _leaves:
-                                _lm = meta.get(_lf.name, {})
-                                _sci = _lm.get("scientific_name")
-                                if _sci:
-                                    _species_under.append(
-                                        _lm.get("common_name") or _sci)
-                                    if _rep_photo_url is None:
-                                        from src import species_profile
-                                        _prof = species_profile.find_profile(
-                                            _sci, _lm.get("common_name"))
-                                        if _prof and _prof.get("image_url"):
-                                            _rep_photo_url = _prof["image_url"]
-                                            _rep_common = _lm.get("common_name")
-                                            _rep_sci = _sci
+                        _rep = _clade_browser_lookup(
+                            pick_tree, str(nwk), _pick_clade)
+                        _rep_photo_url = _rep.get("photo_url")
+                        _rep_common = _rep.get("rep_common")
+                        _rep_sci = _rep.get("rep_sci")
+                        _species_under = _rep.get("species_under") or []
                     except Exception as _exc:
                         st.caption(f"Couldn't read tree file: {_exc}")
 
