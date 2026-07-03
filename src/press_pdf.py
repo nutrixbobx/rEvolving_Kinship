@@ -622,6 +622,7 @@ def build_press_pdf(tree_name: str,
                                      kind="proportional"))
             except Exception as exc:
                 print(f"range_map embed failed: {exc}")
+            story.append(PageBreak())
     except Exception as exc:
         print(f"range_map page failed: {exc}")
 

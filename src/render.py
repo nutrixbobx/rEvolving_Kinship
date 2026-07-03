@@ -507,6 +507,207 @@ def _hover_image_overlay(svg_or_html: str, image_map: dict) -> str:
 
 
 
+def _render_footer_strip(svg: str, credit_lines: list[str] | None = None,
+                          bg: str = "#0e1b1a",
+                          ink: str = "#e8f3ef",
+                          muted: str = "#9ab3ab",
+                          leaf: str = "#46c79a",
+                          dated: str = "#f0a24a",
+                          plain: str = "#6f8a82") -> str:
+    """Physically extend the SVG height by a reserved footer strip and
+    paint everything into that strip in absolute pixel coordinates.
+    Nothing here can overlap the tree drawing above it because they
+    live in completely separate Y ranges.
+
+    Layout inside the strip (each element in its own reserved row):
+      row 1: legend row 1 (Common Name — a species)
+      row 2: legend row 2 (Clade, ### — dated)
+      row 3: legend row 3 (Clade — undated)
+      row 4: mya footnote
+      rows 5..N+4: credit lines
+      row N+5: CC copyright (centered)"""
+    import re as _re
+    credit_lines = credit_lines or []
+    # Cap credits so the strip stays a reasonable height
+    if len(credit_lines) > 5:
+        credit_lines = credit_lines[:5] + [
+            f"+{len(credit_lines) - 5} more, see credits.txt"]
+
+    # Parse the SVG root <svg ... width=X height=Y viewBox="0 0 W H">.
+    # We handle two shapes: width/height only, or viewBox only.
+    m = _re.search(r"<svg\b[^>]*>", svg)
+    if not m:
+        return svg
+    root = m.group(0)
+
+    def _dim(attr):
+        mm = _re.search(rf'{attr}="([^"]+)"', root)
+        return mm.group(1) if mm else None
+
+    width_attr = _dim("width")
+    height_attr = _dim("height")
+    viewbox_attr = _dim("viewBox")
+
+    def _px(v):
+        # Strip "px"/"pt" suffix, return float. Fall back to 0.
+        if v is None:
+            return 0.0
+        v = v.strip().replace("px", "").replace("pt", "")
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+    old_w = _px(width_attr)
+    old_h = _px(height_attr)
+    vb = viewbox_attr
+    if vb:
+        parts = vb.split()
+        if len(parts) == 4:
+            try:
+                vb_x, vb_y, vb_w, vb_h = (float(x) for x in parts)
+            except Exception:
+                vb_x, vb_y, vb_w, vb_h = 0, 0, old_w, old_h
+        else:
+            vb_x, vb_y, vb_w, vb_h = 0, 0, old_w, old_h
+    else:
+        vb_x, vb_y, vb_w, vb_h = 0, 0, old_w or 1000, old_h or 800
+
+    # If width/height aren't explicit, fall back to viewBox dims
+    if old_w == 0: old_w = vb_w
+    if old_h == 0: old_h = vb_h
+
+    # Compute strip height in the SVG's own coord space.
+    row_h = max(14, vb_h * 0.018)     # per-row height
+    top_pad = 12
+    bottom_pad = 10
+    n_legend = 3
+    n_mya = 1
+    n_credit = len(credit_lines)
+    n_cc = 1
+    total_rows = n_legend + n_mya + n_credit + n_cc
+    strip_h = top_pad + total_rows * row_h + bottom_pad
+
+    new_vb_h = vb_h + strip_h
+    new_svg_h = old_h + strip_h * (old_h / vb_h if vb_h else 1)
+
+    # Rewrite root attributes
+    new_root = root
+    if viewbox_attr:
+        new_root = _re.sub(
+            r'viewBox="[^"]+"',
+            f'viewBox="{vb_x} {vb_y} {vb_w} {new_vb_h}"',
+            new_root, count=1)
+    else:
+        new_root = new_root[:-1] + f' viewBox="0 0 {vb_w} {new_vb_h}">'
+    if height_attr:
+        new_root = _re.sub(
+            r'height="[^"]+"',
+            f'height="{new_svg_h}"',
+            new_root, count=1)
+    else:
+        new_root = new_root[:-1] + f' height="{new_svg_h}">'
+    svg = svg.replace(root, new_root, 1)
+
+    # STRIP any prior legend/mya/cc/footer bits that older passes added.
+    svg = _re.sub(r'<g class="kinship-legend"[^>]*>.*?</g>', '',
+                   svg, count=1, flags=_re.DOTALL)
+    svg = _re.sub(r'<g class="kn-footer-band"[^>]*>.*?</g>', '',
+                   svg, count=1, flags=_re.DOTALL)
+    svg = _re.sub(r'<g class="kn-bottom-stack"[^>]*>.*?</g>', '',
+                   svg, count=1, flags=_re.DOTALL)
+    # Free-floating mya footnote text
+    svg = _re.sub(
+        r'<text[^>]*>numbers are millions of years[^<]*</text>',
+        '', svg, count=1)
+    # Free-floating CC copyright text
+    svg = _re.sub(
+        r'<text[^>]*>CC BY-SA[^<]*Evolving Kinship</text>',
+        '', svg, count=1)
+
+    # Paint the strip
+    strip_top = vb_y + vb_h
+    right_x = vb_x + vb_w * 0.98
+    center_x = vb_x + vb_w * 0.5
+
+    footer = []
+    # Background stripe under the strip
+    footer.append(
+        f'<rect x="{vb_x}" y="{strip_top}" width="{vb_w}" '
+        f'height="{strip_h}" fill="{bg}"/>')
+    # Divider hairline
+    footer.append(
+        f'<line x1="{vb_x + 20}" y1="{strip_top + 0.5}" '
+        f'x2="{vb_x + vb_w - 20}" y2="{strip_top + 0.5}" '
+        f'stroke="{muted}" stroke-opacity="0.25" stroke-width="1"/>')
+
+    y = strip_top + top_pad + row_h * 0.5
+
+    # Row 1: species tip
+    footer.append(
+        f'<text x="{right_x - 18}" y="{y}" fill="{ink}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        f'text-anchor="end" dominant-baseline="middle">'
+        f'<tspan font-weight="bold">Common Name</tspan> '
+        f'<tspan font-style="italic">(Scientific name)</tspan> '
+        f'— a species</text>'
+        f'<circle cx="{right_x}" cy="{y}" r="5" fill="{leaf}"/>')
+    y += row_h
+
+    # Row 2: dated clade
+    footer.append(
+        f'<text x="{right_x - 18}" y="{y}" fill="{ink}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        f'text-anchor="end" dominant-baseline="middle">'
+        f'<tspan font-weight="bold">Clade, ###</tspan> '
+        f'— ancestral node with a known divergence age</text>'
+        f'<circle cx="{right_x}" cy="{y}" r="6" fill="{dated}"/>')
+    y += row_h
+
+    # Row 3: undated clade
+    footer.append(
+        f'<text x="{right_x - 18}" y="{y}" fill="{ink}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        f'text-anchor="end" dominant-baseline="middle">'
+        f'<tspan font-weight="bold">Clade</tspan> '
+        f'— ancestral node, divergence age not added</text>'
+        f'<circle cx="{right_x}" cy="{y}" r="4" fill="{plain}"/>')
+    y += row_h
+
+    # Row 4: mya footnote
+    footer.append(
+        f'<text x="{right_x + 8}" y="{y}" fill="{muted}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+        f'font-style="italic" text-anchor="end" '
+        f'dominant-baseline="middle">'
+        f'numbers are millions of years (mya) since the last common ancestor'
+        f'</text>')
+    y += row_h
+
+    # Rows 5..: credits (right-aligned)
+    for ln in credit_lines:
+        safe = (str(ln).replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;"))
+        footer.append(
+            f'<text x="{right_x + 8}" y="{y}" fill="{muted}" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="8" '
+            f'font-style="italic" text-anchor="end" '
+            f'dominant-baseline="middle" opacity="0.9">{safe}</text>')
+        y += row_h
+
+    # Final row: CC copyright (centered)
+    footer.append(
+        f'<text x="{center_x}" y="{y}" fill="{muted}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+        f'text-anchor="middle" dominant-baseline="middle">'
+        f'CC BY-SA Maya · Shared Rivers · {{r}}Evolving Kinship'
+        f'</text>')
+
+    strip = '<g class="kn-real-footer">' + "".join(footer) + '</g>'
+    return _re.sub(r"(</svg>)", strip + r"\1", svg, count=1)
+
+
 def _legend_band(svg_or_html: str) -> str:
     """Inject a small legend along the bottom-left of the SVG, just above
     the CC footer. Three colored dots + labels + the 'mya' explanation
@@ -653,8 +854,13 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _header_band(html, tree_name)
     html = _hover_image_overlay(
         html, _build_image_map(meta, newick_path=newick_path))
-    html = _legend_band(html)
-    html = _cc_footer(html)
+    html = _render_footer_strip(
+        html,
+        credit_lines=None,
+        bg=_DARK["bg"],
+        ink="#e8f3ef",
+        muted="#9ab3ab",
+    )
     return (
         f'<div style="background:{bg};border-radius:10px;padding:10px;'
         f'display:inline-block;min-width:100%;box-sizing:border-box;'
@@ -668,7 +874,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
 def render_files(newick_path, meta: dict, out_stem: str,
                  layout: str = "r", out_dir: Path | None = None,
                  show_scientific: bool = True,
-                 tree_name: str | None = None) -> Path:
+                 tree_name: str | None = None,
+                 skip_footer: bool = False) -> Path:
     """Save a still SVG (and PNG) on a warm light background for the kinship report."""
     import toyplot.svg
 
@@ -681,8 +888,17 @@ def render_files(newick_path, meta: dict, out_stem: str,
     svg = _bg_rect(_two_line(svg_path.read_text()), _LIGHT["bg"])
     svg = _hover_targets(svg)
     svg = _header_band(svg, tree_name)
-    svg = _legend_band(svg)
-    svg = _cc_footer(svg)
+    # Physical footer strip below the tree instead of overlaying
+    # legend + CC + mya on the tree canvas. Skipped when callers
+    # (photo_tip_tree) want to add their own strip WITH credits.
+    if not skip_footer:
+        svg = _render_footer_strip(
+            svg,
+            credit_lines=None,
+            bg=_LIGHT["bg"],
+            ink="#3a2a2a",
+            muted="#7a6060",
+        )
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")
 
