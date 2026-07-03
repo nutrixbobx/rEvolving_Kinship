@@ -81,13 +81,28 @@ def _wiki_summary(title: str) -> dict | None:
         return None
 
 
+_OVERRIDES_CACHE: dict = {"mtime": 0.0, "data": {}}
+
+
 def _load_overrides() -> dict:
-    if OVERRIDES_PATH.exists():
-        try:
-            return json.loads(OVERRIDES_PATH.read_text())
-        except Exception:
-            return {}
-    return {}
+    """Load the on-disk overrides file. Cached in-memory by mtime so
+    repeated find_profile calls in a session share one read instead
+    of hitting the disk N times."""
+    if not OVERRIDES_PATH.exists():
+        return {}
+    try:
+        mtime = OVERRIDES_PATH.stat().st_mtime
+    except Exception:
+        mtime = 0.0
+    if _OVERRIDES_CACHE["mtime"] == mtime:
+        return _OVERRIDES_CACHE["data"]
+    try:
+        data = json.loads(OVERRIDES_PATH.read_text())
+    except Exception:
+        data = {}
+    _OVERRIDES_CACHE["mtime"] = mtime
+    _OVERRIDES_CACHE["data"] = data
+    return data
 
 
 def save_override(scientific_name: str, **fields) -> None:
@@ -99,6 +114,7 @@ def save_override(scientific_name: str, **fields) -> None:
         return
     overrides.setdefault(scientific_name, {}).update(cleaned)
     OVERRIDES_PATH.write_text(json.dumps(overrides, indent=2))
+    _OVERRIDES_CACHE["mtime"] = 0.0  # bust so next _load reloads
 
 
 def clear_override(scientific_name: str, field: str | None = None) -> None:

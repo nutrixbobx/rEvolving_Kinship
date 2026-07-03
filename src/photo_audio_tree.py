@@ -124,24 +124,37 @@ def build_photo_audio_tree(tree_name: str,
     pos, max_depth, n = image_tree._layout(tre)
     tips = list(tre.get_tip_labels())
 
-    print(f"fetching photos + audio for {n} tips ...")
-    rows = {}
-    for tip in tips:
+    print(f"fetching photos + audio for {n} tips (parallel)...")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch_one(tip):
         info = meta.get(tip, {})
         sci = info.get("scientific_name") or tip.replace("_", " ")
         common = info.get("common_name")
         try:
-            p = species_profile.find_profile(sci, common)
+            prof = species_profile.find_profile(sci, common)
         except Exception:
-            p = None
+            prof = None
         try:
-            a = species_audio.find_recording(sci, common)
+            aud = species_audio.find_recording(sci, common)
         except Exception:
-            a = None
-        rows[tip] = {"profile": p, "audio": a}
-        photo_status = "OK" if (p and p.get("image_path")) else "-"
-        audio_status = "OK" if (a and a.get("path")) else "-"
-        print(f"  {sci:30}  photo={photo_status}  audio={audio_status}")
+            aud = None
+        return tip, {"profile": prof, "audio": aud}, sci
+
+    rows = {}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futures = {ex.submit(_fetch_one, tip): tip for tip in tips}
+        for fut in as_completed(futures):
+            try:
+                tip, data, sci = fut.result()
+                rows[tip] = data
+                pstat = "OK" if (data.get("profile")
+                                  and data["profile"].get("image_path")) else "-"
+                astat = "OK" if (data.get("audio")
+                                  and data["audio"].get("path")) else "-"
+                print(f"  {sci:30}  photo={pstat}  audio={astat}")
+            except Exception as _exc:
+                print(f"  fetch failed: {_exc}")
 
     fig_w = 16
     fig_h = max(8, 1.15 * n + 2.6)
@@ -200,7 +213,6 @@ def build_photo_audio_tree(tree_name: str,
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})
-        common = info.get("common_name") or info.get("scientific_name") or tip
         sci = info.get("scientific_name") or tip.replace("_", " ")
         y_center = _tip_fig_y(i)
         y_bottom = y_center - h / 2

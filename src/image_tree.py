@@ -272,19 +272,28 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
     pos, max_depth, n = _layout(tre)
     tips = list(tre.get_tip_labels())
 
-    print(f"fetching photos for {n} tips ...")
-    profiles_by_tip = {}
-    for tip in tips:
+    print(f"fetching photos for {n} tips (parallel)...")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch(tip):
         info = meta.get(tip, {})
         sci = info.get("scientific_name") or tip.replace("_", " ")
         common = info.get("common_name")
         try:
-            p = species_profile.find_profile(sci, common)
+            prof = species_profile.find_profile(sci, common)
         except Exception as exc:
-            p = None
             print(f"  err {sci}: {exc}")
-        profiles_by_tip[tip] = p
-        print(f"  {sci:30} -> {'OK' if (p and p.get('image_path')) else '-'}")
+            prof = None
+        return tip, prof, sci
+
+    profiles_by_tip = {}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futures = [ex.submit(_fetch, tip) for tip in tips]
+        for fut in as_completed(futures):
+            tip, prof, sci = fut.result()
+            profiles_by_tip[tip] = prof
+            print(f"  {sci:30} -> "
+                  f"{'OK' if (prof and prof.get('image_path')) else '-'}")
 
     fig_w = 14
     fig_h = max(8, 1.05 * n + 2.0)

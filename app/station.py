@@ -1501,6 +1501,27 @@ if active_tab == "Dashboard":
                                 if i.get("is_leaf")]
                     if not tip_rows:
                         st.caption("Build the tree first.")
+                    else:
+                        # Pre-warm profile + audio caches in parallel so
+                        # the sequential Streamlit render loop below is
+                        # instant (cache hits) instead of blocking on
+                        # per-species iNat/XenoCanto calls.
+                        _tip_pairs = [(
+                            (info.get("scientific_name")
+                              or tip_name.replace("_", " ")),
+                            info.get("common_name"))
+                            for tip_name, info in tip_rows]
+                        _to_warm = [(s, c) for s, c in _tip_pairs
+                                     if (s, c) not in _PROFILE_CACHE
+                                     or (s, c) not in _AUDIO_CACHE]
+                        if _to_warm:
+                            from concurrent.futures import (
+                                ThreadPoolExecutor)
+                            def _warm(sc):
+                                _cached_profile(sc[0], sc[1])
+                                _cached_audio(sc[0], sc[1])
+                            with ThreadPoolExecutor(max_workers=6) as _ex:
+                                list(_ex.map(_warm, _to_warm))
                     for tip_name, info in tip_rows:
                         sci = (info.get("scientific_name")
                                or tip_name.replace("_", " "))
