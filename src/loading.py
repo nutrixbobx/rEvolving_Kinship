@@ -108,13 +108,10 @@ import json as _json
 @_contextlib.contextmanager
 def spinner_with_tip(message: str):
     """Wraps `st.spinner(message)` and shows a PERSISTENT HTML card
-    with client-side JS rotation of fun facts. The card stays visible
-    the whole time Python is blocking on the build, and the facts roll
-    to the next one every ROTATION_SECONDS in the browser (JS setInterval)
-    without needing any server round-trip."""
-    # Render the persistent card BEFORE the spinner so it's on screen
-    # for the whole duration. Streamlit reads this once; JS handles the
-    # rotation.
+    with client-side JS rotation of fun facts. Uses components.html so
+    the <script> actually runs — st.markdown strips scripts. Renders in
+    an iframe so we inline colors instead of reaching for CSS variables."""
+    import streamlit.components.v1 as _components
     slot = st.empty()
     try:
         facts_json = _json.dumps(FUN_FACTS)
@@ -124,30 +121,33 @@ def spinner_with_tip(message: str):
         cid = "kn-tip-" + _secrets.token_hex(3)
         card_html = f"""
 <div id="{cid}-card" style="
-    background: var(--kn-bg-alt, rgba(0,0,0,0.35));
-    border-left: 4px solid var(--kn-accent, #cfd78c);
+    background: #4a0030;
+    border-left: 4px solid #cfd78c;
     border-radius: 10px;
-    padding: 14px 18px; margin: 12px 0;
-    color: var(--kn-ink, #f4ecdc);
+    padding: 14px 18px; margin: 8px 0;
+    color: #f4ecdc;
     font-size: 14px; line-height: 1.55;
+    font-family: Helvetica, Arial, sans-serif;
     position: relative;
-    overflow: hidden;">
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);">
   <div style="display:flex; align-items:center; justify-content:space-between;
               margin-bottom:6px;">
     <div style="font-size:11px; letter-spacing:0.12em;
                 text-transform:uppercase;
-                color: var(--kn-accent, #cfd78c);">
+                color: #cfd78c;
+                font-weight:600;">
       While the river fills
     </div>
     <div style="display:flex; gap:6px;">
       <button id="{cid}-prev" aria-label="previous fact"
-              style="background:transparent; border:1px solid var(--kn-rule, rgba(255,255,255,0.15));
-                     color: var(--kn-ink, #f4ecdc); cursor:pointer;
+              style="background:transparent; border:1px solid rgba(255,255,255,0.2);
+                     color: #f4ecdc; cursor:pointer;
                      width:26px; height:26px; border-radius:6px;
                      font-size:13px; padding:0; line-height:1;">‹</button>
       <button id="{cid}-next" aria-label="next fact"
-              style="background:transparent; border:1px solid var(--kn-rule, rgba(255,255,255,0.15));
-                     color: var(--kn-ink, #f4ecdc); cursor:pointer;
+              style="background:transparent; border:1px solid rgba(255,255,255,0.2);
+                     color: #f4ecdc; cursor:pointer;
                      width:26px; height:26px; border-radius:6px;
                      font-size:13px; padding:0; line-height:1;">›</button>
     </div>
@@ -224,7 +224,8 @@ def spinner_with_tip(message: str):
 }})();
 </script>
 """
-        slot.markdown(card_html, unsafe_allow_html=True)
+        with slot.container():
+            _components.html(card_html, height=140, scrolling=False)
         with st.spinner(message):
             yield
     finally:
@@ -308,11 +309,8 @@ def render_loading_gate_if_needed() -> bool:
     if status.get("started_at"):
         elapsed = int(time.time() - status["started_at"])
 
-    # Rotating tip. Seeded so it stays stable within a single rerun,
-    # but rolls to the next value every ROTATION_SECONDS.
-    seed = int(time.time() // ROTATION_SECONDS)
-    tip = random.Random(seed).choice(FUN_FACTS)
-
+    # Rotation is client-side now (JS setInterval in the tip card),
+    # so no server-side tip variable is needed.
     # Compose the status banner based on phase.
     phase = status.get("phase", "idle")
     if phase == "no_url":
@@ -332,13 +330,14 @@ def render_loading_gate_if_needed() -> bool:
     else:
         banner = "Preparing the taxonomy fetch..."
 
+    # Header block via markdown (safe: no scripts)
     st.markdown(
         """
 <div style="
     max-width:720px; margin:6vh auto 0 auto;
-    padding:36px 40px; text-align:center;
-    background:rgba(0,0,0,0.22); border-radius:14px;
-    border:1px solid var(--kn-rule);
+    padding:36px 40px 20px 40px; text-align:center;
+    background:rgba(0,0,0,0.22); border-radius:14px 14px 0 0;
+    border:1px solid var(--kn-rule); border-bottom:none;
 ">
   <div style="font-size:12px; letter-spacing:0.18em;
               text-transform:uppercase; color:var(--kn-muted);">
@@ -352,30 +351,104 @@ def render_loading_gate_if_needed() -> bool:
     Downloading the NCBI taxonomy that every tree is built on. This
     happens once, then never again on this server.
   </div>
-  <div style="color:var(--kn-ink); font-size:13px; margin-bottom:22px;
+  <div style="color:var(--kn-ink); font-size:13px;
               padding:8px 14px; background:rgba(0,0,0,0.28);
               border-radius:6px; display:inline-block;">
     __BANNER__
   </div>
-  <div style="
-      background:var(--kn-bg-alt); border-radius:10px;
-      padding:20px 22px; text-align:left;
-      color:var(--kn-ink); font-size:15px; line-height:1.55;
-      border-left:4px solid var(--kn-accent);">
-    <div style="font-size:11px; letter-spacing:0.12em;
-                text-transform:uppercase; color:var(--kn-accent);
-                margin-bottom:8px;">
-      Something to hold you while the river fills
-    </div>
-    __TIP__
-  </div>
-  <div style="margin-top:22px; color:var(--kn-muted); font-size:12px;">
-    Card refreshes on its own every few seconds.
-  </div>
 </div>
-        """.replace("__BANNER__", banner).replace("__TIP__", tip),
+        """.replace("__BANNER__", banner),
         unsafe_allow_html=True,
     )
+
+    # Tip card via components.html — script tags execute here.
+    import streamlit.components.v1 as _components
+    import secrets as _secrets
+    cid = "kn-ncbi-" + _secrets.token_hex(3)
+    tip_html = f"""
+<div style="max-width:720px; margin:0 auto;">
+  <div style="
+      background:#4a0030; border-radius:0 0 14px 14px;
+      padding:22px 40px 28px 40px;
+      color:#f4ecdc; font-size:15px; line-height:1.55;
+      border-left:4px solid #cfd78c;
+      font-family:Helvetica,Arial,sans-serif;
+      box-shadow:0 4px 14px rgba(0,0,0,0.45);
+      position:relative; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                margin-bottom:10px;">
+      <div style="font-size:11px; letter-spacing:0.14em;
+                  text-transform:uppercase; color:#cfd78c;
+                  font-weight:600;">
+        Something to hold you while the river fills
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button id="{cid}-prev" aria-label="previous fact"
+                style="background:transparent;
+                       border:1px solid rgba(255,255,255,0.2);
+                       color:#f4ecdc; cursor:pointer;
+                       width:30px; height:30px; border-radius:6px;
+                       font-size:15px; padding:0; line-height:1;">‹</button>
+        <button id="{cid}-next" aria-label="next fact"
+                style="background:transparent;
+                       border:1px solid rgba(255,255,255,0.2);
+                       color:#f4ecdc; cursor:pointer;
+                       width:30px; height:30px; border-radius:6px;
+                       font-size:15px; padding:0; line-height:1;">›</button>
+      </div>
+    </div>
+    <div id="{cid}-stage" style="position:relative; min-height:4em; overflow:hidden;">
+      <div id="{cid}-text"
+           style="transition: transform 0.45s cubic-bezier(.4,.15,.2,1),
+                              opacity 0.35s ease;">
+        Loading fact...
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {{
+    const facts = {_json.dumps(FUN_FACTS)};
+    const el = document.getElementById("{cid}-text");
+    const btnPrev = document.getElementById("{cid}-prev");
+    const btnNext = document.getElementById("{cid}-next");
+    if (!el) return;
+    let i = Math.floor(Math.random() * facts.length);
+    let pauseUntil = 0;
+    function show(newIdx, direction) {{
+        const outX = direction > 0 ? -60 : 60;
+        const inX = direction > 0 ? 60 : -60;
+        el.style.opacity = 0;
+        el.style.transform = "translateX(" + outX + "px)";
+        setTimeout(function() {{
+            el.textContent = facts[newIdx];
+            el.style.transition = "none";
+            el.style.transform = "translateX(" + inX + "px)";
+            void el.offsetHeight;
+            el.style.transition = "transform 0.45s cubic-bezier(.4,.15,.2,1), opacity 0.35s ease";
+            el.style.opacity = 1;
+            el.style.transform = "translateX(0)";
+        }}, 320);
+    }}
+    el.textContent = facts[i];
+    el.style.opacity = 1;
+    el.style.transform = "translateX(0)";
+    function nextFact() {{ i = (i + 1) % facts.length; show(i, +1); }}
+    function prevFact() {{ i = (i - 1 + facts.length) % facts.length; show(i, -1); }}
+    if (btnNext) btnNext.addEventListener("click", function() {{
+        pauseUntil = Date.now() + 12000; nextFact();
+    }});
+    if (btnPrev) btnPrev.addEventListener("click", function() {{
+        pauseUntil = Date.now() + 12000; prevFact();
+    }});
+    setInterval(function() {{
+        if (Date.now() < pauseUntil) return;
+        nextFact();
+    }}, {int(ROTATION_SECONDS * 1000)});
+}})();
+</script>
+"""
+    _components.html(tip_html, height=200, scrolling=False)
 
     # Escape hatches, once we've been stuck long enough OR errored out.
     is_stuck = (phase in ("no_url", "error")
