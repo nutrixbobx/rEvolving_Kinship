@@ -92,7 +92,7 @@ FUN_FACTS: list[str] = [
 ]
 
 # Roughly 5 seconds per tip (was 3s, now ~40% slower).
-ROTATION_SECONDS = 5.0
+ROTATION_SECONDS = 6.0
 
 
 def random_tip() -> str:
@@ -118,39 +118,109 @@ def spinner_with_tip(message: str):
     slot = st.empty()
     try:
         facts_json = _json.dumps(FUN_FACTS)
+        # Unique id so multiple simultaneous cards don't clobber each
+        # other in the DOM.
+        import secrets as _secrets
+        cid = "kn-tip-" + _secrets.token_hex(3)
         card_html = f"""
-<div id="kn-tip-card" style="
+<div id="{cid}-card" style="
     background: var(--kn-bg-alt, rgba(0,0,0,0.35));
     border-left: 4px solid var(--kn-accent, #cfd78c);
     border-radius: 10px;
     padding: 14px 18px; margin: 12px 0;
     color: var(--kn-ink, #f4ecdc);
-    font-size: 14px; line-height: 1.55;">
-  <div style="font-size:11px; letter-spacing:0.12em;
-              text-transform:uppercase;
-              color: var(--kn-accent, #cfd78c);
+    font-size: 14px; line-height: 1.55;
+    position: relative;
+    overflow: hidden;">
+  <div style="display:flex; align-items:center; justify-content:space-between;
               margin-bottom:6px;">
-    While the river fills
+    <div style="font-size:11px; letter-spacing:0.12em;
+                text-transform:uppercase;
+                color: var(--kn-accent, #cfd78c);">
+      While the river fills
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button id="{cid}-prev" aria-label="previous fact"
+              style="background:transparent; border:1px solid var(--kn-rule, rgba(255,255,255,0.15));
+                     color: var(--kn-ink, #f4ecdc); cursor:pointer;
+                     width:26px; height:26px; border-radius:6px;
+                     font-size:13px; padding:0; line-height:1;">‹</button>
+      <button id="{cid}-next" aria-label="next fact"
+              style="background:transparent; border:1px solid var(--kn-rule, rgba(255,255,255,0.15));
+                     color: var(--kn-ink, #f4ecdc); cursor:pointer;
+                     width:26px; height:26px; border-radius:6px;
+                     font-size:13px; padding:0; line-height:1;">›</button>
+    </div>
   </div>
-  <div id="kn-tip-text" style="min-height: 3em;">
-    {random_tip()}
+  <div id="{cid}-stage" style="position:relative; min-height: 3.5em; overflow:hidden;">
+    <div id="{cid}-text"
+         style="transition: transform 0.45s cubic-bezier(.4,.15,.2,1),
+                            opacity 0.35s ease;
+                will-change: transform, opacity;">
+      Loading fact...
+    </div>
   </div>
 </div>
 <script>
 (function() {{
     const facts = {facts_json};
-    const el = document.getElementById("kn-tip-text");
-    if (!el) return;
+    const el = document.getElementById("{cid}-text");
+    const stage = document.getElementById("{cid}-stage");
+    const btnPrev = document.getElementById("{cid}-prev");
+    const btnNext = document.getElementById("{cid}-next");
+    if (!el || !stage) return;
+
     let i = Math.floor(Math.random() * facts.length);
-    setInterval(function() {{
-        i = (i + 1) % facts.length;
+    let autoTimer = null;
+    let paused = false;
+    let pauseUntil = 0;
+    // direction: +1 for next (slide out to LEFT, in from RIGHT),
+    //           -1 for prev (slide out to RIGHT, in from LEFT).
+    function show(newIdx, direction) {{
+        const outX = direction > 0 ? -60 : 60;
+        const inX = direction > 0 ? 60 : -60;
         el.style.opacity = 0;
+        el.style.transform = "translateX(" + outX + "px)";
         setTimeout(function() {{
-            el.textContent = facts[i];
+            el.textContent = facts[newIdx];
+            el.style.transition = "none";
+            el.style.transform = "translateX(" + inX + "px)";
+            // Force reflow so the next transition applies
+            void el.offsetHeight;
+            el.style.transition = "transform 0.45s cubic-bezier(.4,.15,.2,1), opacity 0.35s ease";
             el.style.opacity = 1;
-        }}, 250);
-    }}, {int(ROTATION_SECONDS * 1000)});
-    if (el) el.style.transition = "opacity 0.25s ease";
+            el.style.transform = "translateX(0)";
+        }}, 320);
+    }}
+    // Initial paint (no slide, just show)
+    el.textContent = facts[i];
+    el.style.opacity = 1;
+    el.style.transform = "translateX(0)";
+
+    function nextFact() {{
+        i = (i + 1) % facts.length;
+        show(i, +1);
+    }}
+    function prevFact() {{
+        i = (i - 1 + facts.length) % facts.length;
+        show(i, -1);
+    }}
+    function scheduleAuto() {{
+        if (autoTimer) clearInterval(autoTimer);
+        autoTimer = setInterval(function() {{
+            if (Date.now() < pauseUntil) return;
+            nextFact();
+        }}, {int(ROTATION_SECONDS * 1000)});
+    }}
+    if (btnNext) btnNext.addEventListener("click", function() {{
+        pauseUntil = Date.now() + 12000;  // 12s pause after manual
+        nextFact();
+    }});
+    if (btnPrev) btnPrev.addEventListener("click", function() {{
+        pauseUntil = Date.now() + 12000;
+        prevFact();
+    }});
+    scheduleAuto();
 }})();
 </script>
 """
