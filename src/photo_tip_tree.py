@@ -211,26 +211,10 @@ def build_photo_tip_tree(tree_name: str,
     _n_tips = sum(1 for v in meta.values() if v.get("is_leaf"))
     enhanced = _inject_thumbs_into_svg(base_svg, uris, n_tips=_n_tips)
 
-    # Credits go into the physical footer strip that render.render_files
-    # already appended below the tree. _render_footer_strip is
-    # idempotent about tree drawing (it always writes to the reserved
-    # strip area). We call it again here to APPEND credit rows into
-    # that strip. Since it operates on the reserved region (not on the
-    # tree canvas), collisions with any element above are geometrically
-    # impossible.
-    try:
-        from src import composite_credits, render as _render
-        credit_lines = composite_credits.collect_credits(tree_name)
-        enhanced = _render._render_footer_strip(
-            enhanced,
-            credit_lines=credit_lines,
-            bg="#0e1b1a",
-            ink="#e8f3ef",
-            muted="#9ab3ab",
-        )
-    except Exception as _exc:
-        print(f"T2 credit footer (non-fatal): {_exc}")
-
+    # SVG output is tree-only. The footer is composited onto the PNG
+    # rasterization below using PIL, which has real font metrics + real
+    # word wrap + guaranteed non-overlap since it draws below the tree
+    # in a physically separate canvas region.
     out_svg = out_dir / f"{stem}_photo_tips.svg"
     out_svg.write_text(enhanced)
     print(f"wrote {out_svg}")
@@ -248,6 +232,17 @@ def build_photo_tip_tree(tree_name: str,
             (out_dir / f"{out_stem}.png").unlink(missing_ok=True)
         except Exception:
             pass
+
+        # Composite a proper PIL footer below the tree PNG. Bg is
+        # sampled from the tree PNG itself so it always matches.
+        try:
+            from src import composite_credits, tree_footer
+            credit_lines = composite_credits.collect_credits(tree_name)
+            tree_footer.compose_with_footer(
+                out_png, credit_lines=credit_lines)
+            print(f"footer composited onto {out_png}")
+        except Exception as exc:
+            print(f"T2 PIL footer (non-fatal): {exc}")
         return out_png
     except Exception as exc:
         print(f"  PNG rasterization skipped ({exc}); SVG ready at {out_svg}")

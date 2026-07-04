@@ -854,13 +854,9 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     html = _header_band(html, tree_name)
     html = _hover_image_overlay(
         html, _build_image_map(meta, newick_path=newick_path))
-    html = _render_footer_strip(
-        html,
-        credit_lines=None,
-        bg=_DARK["bg"],
-        ink="#e8f3ef",
-        muted="#9ab3ab",
-    )
+    # Interactive dashboard tree: no baked footer. The Streamlit
+    # sidebar carries the legend + credits/mya callout separately.
+    pass
     return (
         f'<div style="background:{bg};border-radius:10px;padding:10px;'
         f'display:inline-block;min-width:100%;box-sizing:border-box;'
@@ -891,14 +887,11 @@ def render_files(newick_path, meta: dict, out_stem: str,
     # Physical footer strip below the tree instead of overlaying
     # legend + CC + mya on the tree canvas. Skipped when callers
     # (photo_tip_tree) want to add their own strip WITH credits.
-    if not skip_footer:
-        svg = _render_footer_strip(
-            svg,
-            credit_lines=None,
-            bg=_LIGHT["bg"],
-            ink="#3a2a2a",
-            muted="#7a6060",
-        )
+    # Footer intentionally NOT drawn in SVG anymore. Callers (like
+    # photo_tip_tree) composite a PIL-based footer onto the rasterized
+    # PNG where we have real text metrics + real word wrap + guaranteed
+    # non-overlap. See src/tree_footer.py.
+    pass
     svg_path.write_text(svg)
     print(f"rendered {svg_path.name}")
 
