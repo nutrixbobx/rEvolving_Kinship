@@ -3,9 +3,6 @@
 *a living kinship pipeline*
 
 A participatory ecological art piece by Maya Godoy, from Shared Rivers.
-The piece travels — it has run at SITE in The Goat Farm (Atlanta,
-October 2026) and is being staged at additional venues along the
-waterways Shared Rivers works across.
 
 Visitors name a species they feel kin to. The pipeline places that species in
 the tree of life, redraws the tree with the visitor's kin inside it, sounds the
