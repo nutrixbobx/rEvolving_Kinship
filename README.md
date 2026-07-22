@@ -1,15 +1,10 @@
 # {r}Evolving Kinship
 
-*a living kinship pipeline*
+*Your reliable custom phylogenetic tree generator and community science hub for {r}envisioning our self.*
 
 A participatory ecological art piece by Maya Godoy, from Shared Rivers.
 
-Visitors name a species they feel kin to. The pipeline places that species in
-the tree of life, redraws the tree with the visitor's kin inside it, sounds the
-deep-time distances back as a microtonal chord, and gathers everyone's voices
-into one tree the whole room belongs to. Each finished tree carries a photo, a
-short profile, and the species' actual recorded voice, so the kinship is felt
-across every sense the gallery has.
+Visitors name a species they feel kin to. The pipeline places that species in the tree of life, redraws the tree with the visitor's kin inside it, sounds the deep-time distances back as a microtonal chord, and gathers everyone's voices into one tree. Each finished tree carries a photo, a short profile, and the species' actual recorded voice, so the kinship is felt across every sense.
 
 ---
 
