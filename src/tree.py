@@ -142,6 +142,20 @@ def build_tree(tree_name: str, auto_enrich: bool = True):
     except Exception as exc:
         print(f"  (no TimeTree ages: {exc})")
 
+    # Reference table fills what is still undated; ages entered by hand
+    # in the Clade Browser override every other source. Without this
+    # merge, community LCA input never reached the branches or the
+    # chord, which quietly wasted people's contributions.
+    try:
+        from src import clade_ages
+        counts = clade_ages.apply_ages(node_meta)
+        if counts["reference"]:
+            print(f"  reference ages filled {counts['reference']} clade(s)")
+        if counts["community"]:
+            print(f"  community ages set {counts['community']} clade(s)")
+    except Exception as exc:
+        print(f"  (clade age merge skipped: {exc})")
+
     meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
     meta_path.write_text(json.dumps(node_meta, indent=2))
 

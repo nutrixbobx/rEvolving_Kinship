@@ -490,10 +490,70 @@ input:focus, textarea:focus, select:focus {{
 .identity-name {{ color: var(--kn-ink); font-weight: 500; font-size: 14px; }}
 .identity-bio {{ color: var(--kn-muted); font-size: 12px; margin-top: 4px; }}
 
+/* ============ Nav pills (top nav + dashboard sub-nav) ============== */
+/* The top-level nav and the Dashboard sub-nav are st.radio widgets
+   (st.tabs resets on rerun). Dressed as segmented pill controls they
+   read as app navigation instead of a form question, which matters
+   most on a phone. Targets the stable st-key- classes Streamlit puts
+   on keyed widgets; if a build lacks them, plain radios render. */
+.st-key-active_tab [role="radiogroup"],
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] {{
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  background: var(--kn-bg-alt);
+  border: 1px solid var(--kn-rule);
+  border-radius: 999px;
+  padding: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}}
+.st-key-active_tab [role="radiogroup"]::-webkit-scrollbar,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"]::-webkit-scrollbar {{
+  display: none;
+}}
+.st-key-active_tab [role="radiogroup"] label,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label {{
+  border-radius: 999px;
+  padding: 7px 14px;
+  margin: 0 !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+  border: 1px solid transparent;
+}}
+/* Hide the radio circle itself (a span in current Streamlit builds,
+   a div in some older ones) */
+.st-key-active_tab [role="radiogroup"] label > span:first-child,
+.st-key-active_tab [role="radiogroup"] label > div:first-child,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label > span:first-child,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label > div:first-child {{
+  display: none !important;
+}}
+.st-key-active_tab [role="radiogroup"] label p,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label p {{
+  font-size: 14px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: var(--kn-muted);
+  white-space: nowrap;
+}}
+.st-key-active_tab [role="radiogroup"] label:has(input:checked),
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label:has(input:checked) {{
+  background: var(--kn-primary);
+  border-color: var(--kn-rule);
+}}
+.st-key-active_tab [role="radiogroup"] label:has(input:checked) p,
+[class*="st-key-dash_sub_tab_"] [role="radiogroup"] label:has(input:checked) p {{
+  color: var(--kn-bg) !important;
+  font-weight: 600;
+}}
+
 /* ============ MOBILE — under 640px ================================= */
 @media (max-width: 640px) {{
   .block-container {{
-    padding-top: 0.8rem;
+    padding-top: 2.9rem; /* below Streamlit's top chrome, no clipped title */
     padding-left: 0.7rem;
     padding-right: 0.7rem;
   }}
@@ -573,6 +633,36 @@ input:focus, textarea:focus, select:focus {{
   .leaflet-control-layers-overlays .swatch {{
     width: 14px !important; height: 14px !important;
   }}
+
+  /* Top nav stays reachable while scrolling: the pill bar pins to the
+     top of the viewport on phones. */
+  .st-key-active_tab {{
+    position: sticky;
+    top: 0;
+    z-index: 99;
+    background: var(--kn-bg);
+    padding: 6px 0 8px 0;
+    margin: 0 -0.2rem;
+  }}
+  .st-key-active_tab [role="radiogroup"] label {{
+    padding: 9px 15px; /* comfortable thumb size */
+  }}
+
+  /* Checkboxes + radios outside the nav get bigger touch targets */
+  [data-testid="stCheckbox"] label,
+  [data-testid="stRadio"] label {{
+    min-height: 40px;
+    align-items: center;
+  }}
+
+  /* Audio players full width */
+  audio {{ width: 100% !important; }}
+
+  /* Dataframes: let them breathe, scroll sideways naturally */
+  [data-testid="stDataFrame"] {{ font-size: 13px; }}
+
+  /* Selectboxes: 16px font stops iOS zoom-on-focus jumpiness */
+  [data-baseweb="select"] * {{ font-size: 16px !important; }}
 }}
 
 /* ============ Tablet — 641px to 900px ============================== */

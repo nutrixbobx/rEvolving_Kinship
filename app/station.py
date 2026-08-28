@@ -292,6 +292,28 @@ def _safe_url(url: str | None) -> str:
     return _u.quote(url, safe="/:?#=&%")
 
 
+def _sticky_pick(label: str, options: list, state_key: str,
+                  help: str | None = None):
+    """Selectbox that never silently jumps to another option.
+
+    The stock pattern (no key, options list rebuilt every rerun) makes
+    Streamlit regenerate the widget whenever the options change, which
+    resets the selection to the first row. On a shared app that meant
+    "my tree switched by itself and I added species to someone else's
+    tree." This keeps the pick in session_state and re-applies it as
+    long as it's still on the list."""
+    wkey = f"sticky_{state_key}"
+    if not options:
+        return None
+    if wkey in st.session_state and st.session_state[wkey] not in options:
+        # The remembered pick vanished (tree renamed/deleted). Fall back
+        # loudly, not silently.
+        st.session_state.pop(wkey, None)
+        st.caption("Your previously selected tree is no longer on the "
+                    "list, so the first one is shown.")
+    return st.selectbox(label, options, key=wkey, help=help)
+
+
 def _invalidate_dashboard_caches():
     _cached_list_trees_for_dashboard.clear()
     _cached_read_tree.clear()
@@ -385,8 +407,9 @@ if active_tab == "Request station":
 
     trees = _cached_list_trees_for_dashboard()
     existing = trees["tree_name"].tolist() if not trees.empty else []
-    choice = st.selectbox(
-        "Which tree are you adding to?", existing + ["+ start a new tree"]
+    choice = _sticky_pick(
+        "Which tree are you adding to?", existing + ["+ start a new tree"],
+        state_key="request_tree",
     )
     tree_name = (
         st.text_input("Name the new tree", "")
@@ -433,7 +456,9 @@ if active_tab == "Request station":
         st.info("Guests can search + browse but can't add species to a "
                  "tree. Head to your Profile to upgrade with an access "
                  "code, then come back here.")
-    if st.button("Add to the tree", type="primary", disabled=_guest_lock):
+    _add_label = (f"Add to \u201c{tree_name.strip()}\u201d"
+                   if tree_name.strip() else "Add to the tree")
+    if st.button(_add_label, type="primary", disabled=_guest_lock):
         if not tree_name.strip():
             st.warning("Name the tree first.")
         elif not pick:
@@ -506,8 +531,9 @@ if active_tab == "Dashboard":
                 "After that, every other section comes alive: hover the tips, listen to "
                 "each species, download the press files, mix a meditation track."
             )
-        pick_tree = st.selectbox("Pick a tree",
-                                 trees["tree_name"].tolist())
+        pick_tree = _sticky_pick("Pick a tree",
+                                  trees["tree_name"].tolist(),
+                                  state_key="dash_tree")
         _fav_toggle_for_tree(pick_tree)
 
         # Tree personalization right under T0 (the picker) so the
@@ -1065,6 +1091,12 @@ if active_tab == "Dashboard":
                             if cleaned[k] == "":
                                 cleaned[k] = None
                     n = db.update_fields(pick_tree, pick_sci, cleaned)
+                    _invalidate_dashboard_caches()
+                    try:
+                        from src import library as _lib
+                        _lib._invalidate_all_caches()
+                    except Exception:
+                        pass
                     st.success(f"Updated {n} row(s).")
                     st.rerun()
 
@@ -1474,6 +1506,59 @@ if active_tab == "Dashboard":
                       except Exception as exc:
                           st.error(f"Build failed: {exc}")
 
+          # The tuning table: every dated clade is one sustained tone,
+          # pitched by its age. Seeing the mapping invites people to
+          # date more clades (Customize -> Clade Browser), which adds
+          # voices to the chord and rescales the branches.
+          with st.expander("How the chord is tuned", expanded=False):
+              try:
+                  import json as _json
+                  _meta_p = config.OUTPUT_DIR / f"{stem}_nodes.json"
+                  if _meta_p.exists():
+                      _meta_all = _json.loads(_meta_p.read_text())
+                      _ages_now = {
+                          k: v.get("mya") for k, v in _meta_all.items()
+                          if not v.get("is_leaf")
+                          and v.get("mya") is not None}
+                      if _ages_now:
+                          from src import sonify as _sonify
+                          from src.render import _format_clade_name                               as _fmt
+                          _voices = _sonify.chord_voices(_ages_now)
+                          st.caption(
+                              "One tone per dated clade. Deeper in "
+                              "time sits lower in pitch; the whole "
+                              "chord is the sound of how far back "
+                              "you and your kin last touched.")
+                          import pandas as _pd
+                          st.dataframe(_pd.DataFrame([{
+                              "clade": _fmt(v["name"]),
+                              "million years ago": v["mya"],
+                              "Hz": round(v["hz"], 1),
+                              "MIDI": v["midi"],
+                          } for v in _voices]),
+                              use_container_width=True,
+                              hide_index=True)
+                          _undated_n = sum(
+                              1 for k, v in _meta_all.items()
+                              if not v.get("is_leaf") and v.get("name",
+                                  k) and v.get("mya") is None)
+                          if _undated_n:
+                              st.caption(
+                                  f"{_undated_n} clade(s) in this tree "
+                                  "still have no age. Add one in "
+                                  "Customize > Clade Browser and it "
+                                  "joins the chord on the next build.")
+                      else:
+                          st.caption(
+                              "No dated clades yet. Add ages in "
+                              "Customize > Clade Browser, or rebuild "
+                              "the tree to pull reference ages for "
+                              "well-known clades.")
+                  else:
+                      st.caption("Build the tree first.")
+              except Exception as _exc:
+                  st.caption(f"(tuning table unavailable: {_exc})")
+
           st.markdown("---")
           st.markdown("### Listen to each species")
         # Kin cards used to hide behind a checkbox. Now a friendlier
@@ -1734,7 +1819,15 @@ if active_tab == "Range map":
                     "Common for very recently described species or for "
                     "uncommon synonyms.")
             else:
-                html = gbif_map.build_map_html(species_for_map, height=620)
+                _keep = {}
+                try:
+                    _tok = auth._read_session_token()
+                    if _tok:
+                        _keep["s"] = _tok
+                except Exception:
+                    pass
+                html = gbif_map.build_map_html(species_for_map, height=620,
+                                               keep_params=_keep)
                 components.html(html, height=640)
                 st.caption(
                     "Map data © OpenStreetMap, © CARTO. Occurrence data © "

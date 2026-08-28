@@ -181,6 +181,9 @@ def _read_session_token() -> str | None:
 def _write_session_token(token: str) -> None:
     if not token:
         return
+    # Mirror into session_state so the token survives URL clobbering
+    # (in-app links that replace the query string, share-sheet trims).
+    st.session_state["_auth_token"] = token
     try:
         st.query_params[_SESSION_PARAM] = token
     except Exception:
@@ -188,6 +191,7 @@ def _write_session_token(token: str) -> None:
 
 
 def _clear_session_token() -> None:
+    st.session_state.pop("_auth_token", None)
     try:
         if _SESSION_PARAM in st.query_params:
             del st.query_params[_SESSION_PARAM]
@@ -260,8 +264,14 @@ def _try_cookie_restore() -> bool:
         except Exception:
             pass
     if is_named():
+        # Self-heal: if something replaced the query string (species
+        # links, copied URLs), put the token back so the next refresh
+        # still restores the session.
+        _tok = st.session_state.get("_auth_token")
+        if _tok and not _read_session_token():
+            _write_session_token(_tok)
         return True
-    token = _read_session_token()
+    token = _read_session_token() or st.session_state.get("_auth_token")
     if not token:
         return False
     cid = db.lookup_auth_session(token)
@@ -273,6 +283,9 @@ def _try_cookie_restore() -> bool:
         _clear_session_token()
         return False
     _set_session_user(user)
+    # Re-assert the token in both stores (it may have come from
+    # session_state after a URL wipe) and slide its 30-day window.
+    _write_session_token(token)
     try:
         db.touch_auth_session(token)
         db.update_last_login(cid)

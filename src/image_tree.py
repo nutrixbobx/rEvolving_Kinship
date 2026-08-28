@@ -81,6 +81,15 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
     for node in tre.traverse():
         if node.is_leaf() or not node.name:
             continue
+        # Chains of unary dated clades (Mammalia > Theria > Eutheria...)
+        # all sit on the same horizontal line, so stacking a badge on
+        # each drew overlapping circles. Same rule as T0's
+        # _chain_combined_label: only the innermost clade of a unary
+        # chain is shown; the outer links stay quiet pass-through dots.
+        if len(node.children) == 1:
+            child = node.children[0]
+            if (not child.is_leaf()) and len(child.children) == 1:
+                continue
         counter += 1
         info = meta.get(node.name, {})
         mya = info.get("mya")
@@ -102,12 +111,19 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
             ax.plot(nx, ny, "o", color=LEAF, ms=6, zorder=3)
             common = info.get("common_name")
             sci = info.get("scientific_name") or node.name.replace("_", " ")
-            # Wrap long common names so they never overrun the photo
-            # column. 42 chars keeps even very compound names within
-            # the label band before the photo strip.
+            # Wrap width derived from the actual inches available
+            # between the tip dot and the photo column, so labels
+            # cannot overrun it no matter how deep the tree is or how
+            # narrow the axes (photo_audio_tree uses a much slimmer
+            # tree column than the plain photo tree).
             import textwrap as _tw
+            _fig = ax.figure
+            _ax_w_in = _fig.get_size_inches()[0] * ax.get_position().width
+            _in_per_unit = _ax_w_in / (max_depth + 6.6)
+            _avail_in = max(0.9, (6.0 - 0.18) * _in_per_unit)
+            _wrap = max(12, min(42, int(_avail_in / 0.079)))
             if common:
-                wrapped_common = "\n".join(_tw.wrap(common, width=42)
+                wrapped_common = "\n".join(_tw.wrap(common, width=_wrap)
                                               or [common])
                 ax.text(nx + 0.18, ny - 0.08, wrapped_common,
                          color=TIP_TEXT, fontsize=9.5,
@@ -117,18 +133,21 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
                          color=TIP_TEXT, fontsize=8,
                          va="center", style="italic", alpha=0.75)
             else:
-                wrapped_sci = "\n".join(_tw.wrap(sci, width=42) or [sci])
+                wrapped_sci = "\n".join(_tw.wrap(sci, width=_wrap) or [sci])
                 ax.text(nx + 0.18, ny, wrapped_sci,
                          color=TIP_TEXT, fontsize=9.5,
                          va="center", style="italic")
             continue
         num = number_for_node.get(node.idx)
-        if node.name in dated:
-            ax.plot(nx, ny, "o", color=DATED, ms=12, zorder=3)
-        elif node.name:
-            ax.plot(nx, ny, "o", color=PLAIN, ms=10, zorder=3)
-        else:
+        if num is None:
+            # Chain link folded into its innermost clade, or unnamed
+            # node: a small dot keeps the branch readable without
+            # stacking badges on one line.
             ax.plot(nx, ny, "o", color=PLAIN, ms=4, zorder=3)
+        elif node.name in dated:
+            ax.plot(nx, ny, "o", color=DATED, ms=12, zorder=3)
+        else:
+            ax.plot(nx, ny, "o", color=PLAIN, ms=10, zorder=3)
         if num is not None:
             ax.text(nx, ny, str(num), color="#0e1b1a",
                     fontsize=6.5, ha="center", va="center",
@@ -157,7 +176,12 @@ def _draw_clade_legend(fig, clade_entries, left=0.905, width=0.09,
     # scales down if there are many.
     n_entries = len(clade_entries)
     row_pitch = 0.94 / max(n_entries, 1)
-    fs = max(5.5, min(8, 100 / max(n_entries, 1) * 0.06))
+    # Font size follows the actual row pitch in points, clamped to a
+    # readable band, so dense legends shrink gracefully instead of
+    # colliding and sparse legends don't whisper.
+    _pitch_in = (fig.get_size_inches()[1] * height) * row_pitch
+    fs = max(5.5, min(9.0, _pitch_in * 72 * 0.30))
+    import textwrap as _tw
     for i, e in enumerate(clade_entries):
         y = 0.96 - i * row_pitch
         # Colored dot
@@ -171,6 +195,8 @@ def _draw_clade_legend(fig, clade_entries, left=0.905, width=0.09,
         label = e["name"]
         if e["mya"] is not None:
             label += f", {e['mya']}"
+        label = "\n".join(_tw.wrap(label, width=26, max_lines=2,
+                                     placeholder="\u2026"))
         ax.text(0.13, y, label,
                  color=TIP_TEXT, fontsize=fs,
                  va="center", transform=ax.transAxes)

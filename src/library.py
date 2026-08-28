@@ -1318,7 +1318,7 @@ def _render_manage() -> None:
                        s.canonical_scientific_name AS species,
                        (SELECT sn.name_text FROM species_name sn
                           WHERE sn.species_id = s.species_id
-                            AND sn.language_code = 'en'
+                            AND sn.language_code = 'ENG'
                             AND sn.name_category = 'common'
                             AND sn.is_preferred = true LIMIT 1) AS common_name,
                        d.name AS deity,

@@ -90,17 +90,51 @@ def init_db() -> None:
     """Verify the v2 schema is applied. wipe_and_init.sql + schema_v2.sql must
     be run in the Supabase SQL editor before the app starts."""
     engine = get_engine()
-    with engine.connect() as conn:
-        n = conn.execute(text(
-            "SELECT count(*) FROM information_schema.tables "
-            "WHERE table_schema = 'public' "
-            "AND table_name IN ('tree','species','species_name',"
-            "'tree_species','clade','contributor')"
-        )).scalar() or 0
-    if int(n) < 6:
-        raise RuntimeError(
-            "v2 schema missing. Run db/wipe_and_init.sql then "
-            "db/schema_v2.sql in the Supabase SQL editor.")
+    if is_postgres():
+        with engine.connect() as conn:
+            n = conn.execute(text(
+                "SELECT count(*) FROM information_schema.tables "
+                "WHERE table_schema = 'public' "
+                "AND table_name IN ('tree','species','species_name',"
+                "'tree_species','clade','contributor')"
+            )).scalar() or 0
+        if int(n) < 6:
+            raise RuntimeError(
+                "v2 schema missing. Run db/wipe_and_init.sql then "
+                "db/schema_v2.sql in the Supabase SQL editor.")
+    else:
+        # SQLite (offline gallery mode) has no information_schema; the
+        # old check crashed the whole app at boot. Look in
+        # sqlite_master instead and give the same style of hint.
+        with engine.connect() as conn:
+            n = conn.execute(text(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' "
+                "AND name IN ('tree','species','species_name',"
+                "'tree_species','clade','contributor')"
+            )).scalar() or 0
+        if int(n) < 6:
+            raise RuntimeError(
+                "v2 schema missing in the local SQLite file. Point "
+                "DATABASE_URL at Supabase, or initialize the offline "
+                "database (see MIGRATIONS.md).")
+    # Self-heal: map any stray 2-letter language codes to the 3-letter
+    # standard. Idempotent, cheap on these table sizes, and it means the
+    # iso639_3 migration never has to be re-run by hand after a bad write.
+    try:
+        from src.i18n import TWO_TO_THREE
+        with engine.begin() as conn:
+            for two, three in TWO_TO_THREE.items():
+                for table in ("species_name", "story"):
+                    conn.execute(text(
+                        f"UPDATE {table} SET language_code = :three "
+                        f"WHERE lower(language_code) = :two"
+                    ), {"three": three, "two": two})
+            for table in ("species_name", "story"):
+                conn.execute(text(
+                    f"UPDATE {table} SET language_code = upper(language_code) "
+                    f"WHERE language_code <> upper(language_code)"))
+    except Exception as exc:  # pragma: no cover
+        print(f"language-code self-heal skipped: {exc}")
     where = "Postgres/Supabase" if is_postgres() else "SQLite"
     print(f"warehouse ready ({where}, schema v2): "
           f"{config.DATABASE_URL.split('@')[-1]}")
@@ -578,6 +612,10 @@ def add_species_name(species_id: str, name_text: str,
     if not name_text or not name_text.strip():
         return
     name_text = name_text.strip()
+    # Normalize at the write boundary so a stray 2-letter code can never
+    # land in the DB again (every reader filters on the 3-letter form).
+    from src.i18n import normalize_language_code
+    language = normalize_language_code(language)
     engine = get_engine()
     with engine.begin() as conn:
         # If marking this as preferred, demote any others first so there is
@@ -800,7 +838,7 @@ def insert_request(
     _link_clades_for_taxid(species_id, int(ncbi_taxid))
 
     if common_name:
-        add_species_name(species_id, common_name, language="en",
+        add_species_name(species_id, common_name, language="ENG",
                          category="common", source="community",
                          is_preferred=True, contributor_id=contributor_id)
 
@@ -866,7 +904,7 @@ def update_fields(tree_name: str, scientific_name: str, fields: dict) -> int:
                     UPDATE species_name
                     SET is_preferred = false
                     WHERE species_id = :s
-                      AND language_code = 'en'
+                      AND language_code = 'ENG'
                       AND name_category = 'common'
                       AND lower(name_text) <> lower(:n)
                 """),
@@ -880,7 +918,7 @@ def update_fields(tree_name: str, scientific_name: str, fields: dict) -> int:
                         INSERT INTO species_name
                             (species_id, name_text, language_code,
                              name_category, source, is_preferred)
-                        VALUES (:s, :n, 'en', 'common', 'community', true)
+                        VALUES (:s, :n, 'ENG', 'common', 'community', true)
                         ON CONFLICT (species_id, name_text, language_code, name_category)
                         DO UPDATE SET is_preferred = true
                     """),
@@ -1297,13 +1335,15 @@ def add_story(body_text: str,
               species_id: str | None = None,
               tree_id: str | None = None,
               title: str | None = None,
-              language: str = "en",
+              language: str = "ENG",
               region: str | None = None,
               contributor_id: str | None = None) -> str:
     if not body_text or not body_text.strip():
         raise ValueError("Story body text is required.")
     if not species_id and not tree_id:
         raise ValueError("Story must be linked to a species or a tree.")
+    from src.i18n import normalize_language_code
+    language = normalize_language_code(language)
     engine = get_engine()
     with engine.begin() as conn:
         new = conn.execute(
@@ -1901,6 +1941,11 @@ def update_species_name(name_id: str, fields: dict) -> bool:
     category) to keep the invariant. Returns True if a row was updated."""
     allowed = {"name_text", "language_code", "name_category",
                "region_code", "is_preferred"}
+    if "language_code" in fields:
+        from src.i18n import normalize_language_code
+        fields = dict(fields)
+        fields["language_code"] = normalize_language_code(
+            fields["language_code"])
     sets, params = [], {"i": name_id}
     for k, v in fields.items():
         if k in allowed:
@@ -2046,7 +2091,7 @@ def list_tree_species_with_names(tree_name: str) -> list[dict]:
             # Build choices: None means 'global preferred fallback'.
         global_pref = next(
             (r[1] for r in name_rows
-                if r[2] == "en" and r[3] == "common" and r[4]),
+                if str(r[2]).upper() in ("EN", "ENG") and r[3] == "common" and r[4]),
             None,
         )
         global_label = (f"(default — {global_pref})"
@@ -2276,11 +2321,12 @@ def lookup_auth_session(session_id: str) -> str | None:
     if not session_id:
         return None
     engine = get_engine()
+    _now = "now()" if is_postgres() else "datetime('now')"
     try:
         with engine.connect() as conn:
             row = conn.execute(text(
                 "SELECT contributor_id FROM auth_session "
-                "WHERE session_id = :s AND expires_at > now() LIMIT 1"
+                f"WHERE session_id = :s AND expires_at > {_now} LIMIT 1"
             ), {"s": session_id}).fetchone()
         return str(row[0]) if row else None
     except Exception:
@@ -2288,16 +2334,24 @@ def lookup_auth_session(session_id: str) -> str | None:
 
 
 def touch_auth_session(session_id: str) -> None:
-    """Update last_seen_at so we can prune truly idle sessions later."""
+    """Update last_seen_at AND slide expires_at forward. "Stay signed in
+    for 30 days" means 30 days from your last visit, not from the day you
+    first signed in. Without the slide, daily users still got dumped on
+    day 30, which read as "remember me sometimes doesn't work"."""
     if not session_id:
         return
     engine = get_engine()
+    if is_postgres():
+        _sql = ("UPDATE auth_session SET last_seen_at = now(), "
+                "expires_at = now() + INTERVAL '30 days' "
+                "WHERE session_id = :s")
+    else:
+        _sql = ("UPDATE auth_session SET last_seen_at = datetime('now'), "
+                "expires_at = datetime('now', '+30 days') "
+                "WHERE session_id = :s")
     try:
         with engine.begin() as conn:
-            conn.execute(text(
-                "UPDATE auth_session SET last_seen_at = now() "
-                "WHERE session_id = :s"
-            ), {"s": session_id})
+            conn.execute(text(_sql), {"s": session_id})
     except Exception:
         pass
 
@@ -2318,10 +2372,11 @@ def delete_auth_session(session_id: str) -> None:
 def cleanup_expired_sessions() -> int:
     """Best-effort housekeeping. Returns number of rows deleted."""
     engine = get_engine()
+    _now = "now()" if is_postgres() else "datetime('now')"
     try:
         with engine.begin() as conn:
             result = conn.execute(text(
-                "DELETE FROM auth_session WHERE expires_at <= now()"
+                f"DELETE FROM auth_session WHERE expires_at <= {_now}"
             ))
             return int(result.rowcount or 0)
     except Exception:
@@ -2364,6 +2419,23 @@ def get_clade_id_by_name(clade_name: str) -> str | None:
             {"n": clade_name},
         ).fetchone()
     return row[0] if row else None
+
+
+def get_clade_ages() -> dict:
+    """{normalized clade name: divergence_mya} for every clade a person
+    has dated in the warehouse. Read at tree-build time so hand-entered
+    LCA ages actually reach the branch lengths and the chord."""
+    from src.clade_ages import norm_clade
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT name, divergence_mya FROM clade "
+                "WHERE divergence_mya IS NOT NULL"
+            )).fetchall()
+        return {norm_clade(r[0]): float(r[1]) for r in rows if r[0]}
+    except Exception:
+        return {}
 
 
 def set_clade_divergence_mya(clade_id: str,

@@ -29,21 +29,27 @@ import config  # noqa: E402
 UA = {"User-Agent": "shared-rivers/1.0 (https://shared-rivers.org)"}
 CACHE_PATH = config.OUTPUT_DIR / "gbif_keys.json"
 
-# Six distinct GBIF heatmap styles. Each species in a tree gets one in order
-# so neighboring species read as visually different on the same map.
-# GBIF v2 heat styles we've verified actually render on-server. The
-# .point solid-color variants (red.point, blue.point, orange.point,
-# etc.) silently fall back to yellow at the tile server level, which
-# was why Session E's palette all rendered as yellow. Swatches here
-# are peak-density colors sampled directly from real tile pixels so
-# the legend matches what the eye reads on the map.
+# Six distinct species colors. Both maps (interactive Leaflet tab and
+# the static composite) now use the same trick: fetch GBIF
+# `scaled.circles` tiles (solid, visible even for sparsely-observed
+# species), keep only the alpha channel as a density mask, and paint
+# it in the species color. The legend swatch is therefore literally
+# the pixel color on the map, on both maps, always.
+#
+# History: the heat-gradient styles (fire.point, greenHeat.point...)
+# render server-side as multi-hue ramps. fire peaks at amber-yellow,
+# orangeHeat peaks at pale yellow, so dense areas of two different
+# species became indistinguishable, and no single swatch hex could
+# honestly describe a ramp. That was the "colors don't match the
+# legend" bug. The .point solid styles (red.point etc.) are worse:
+# they silently fall back to yellow server-side.
 GBIF_STYLES = [
-    ("fire.point",        "#ff2a1a", "red heat"),
-    ("greenHeat.point",   "#369617", "green heat"),
-    ("blueHeat.point",    "#206eff", "blue heat"),
-    ("purpleHeat.point",  "#ff21fd", "magenta heat"),
-    ("orangeHeat.point",  "#c06719", "orange heat"),
-    ("glacier.point",     "#0a5680", "glacier blue"),
+    ("scaled.circles", "#ff4136", "red"),
+    ("scaled.circles", "#2ecc71", "green"),
+    ("scaled.circles", "#339cff", "blue"),
+    ("scaled.circles", "#ff5fd7", "magenta"),
+    ("scaled.circles", "#ffb340", "orange"),
+    ("scaled.circles", "#3fe0d0", "turquoise"),
 ]
 
 
@@ -108,6 +114,8 @@ def resolve_species(species_list: list[dict]) -> tuple[list[dict], list[dict]]:
                 "style": style,
                 "color": color,
                 "color_name": color_name,
+                "rgb": [int(color.lstrip("#")[j:j + 2], 16)
+                        for j in (0, 2, 4)],
             })
         else:
             unmapped.append(sp)
@@ -136,11 +144,21 @@ def species_for_tree(tree_name: str) -> list[dict]:
     return out
 
 
-def build_map_html(species_list: list[dict], height: int = 620) -> str:
+def build_map_html(species_list: list[dict], height: int = 620,
+                   keep_params: dict | None = None) -> str:
     """Return a self-contained Leaflet HTML page with one GBIF density layer
-    per species. The page goes straight into st.components.v1.html()."""
+    per species. The page goes straight into st.components.v1.html().
+
+    keep_params: query params to preserve on the species quick-look links
+    (the links target _top, so a bare ?species=... would wipe the whole
+    query string, including the ?s= remember-me token; that signed
+    people out)."""
     mapped, _ = resolve_species(species_list)
     species_json = json.dumps(mapped)
+    keep = "".join(
+        "&" + urllib.parse.quote(str(k)) + "=" + urllib.parse.quote(str(v))
+        for k, v in (keep_params or {}).items() if v)
+    keep_json = json.dumps(keep)
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -204,13 +222,45 @@ L.tileLayer(
 // wraps every label in a <label> element that intercepts anchor
 // clicks. This custom control keeps the toggle checkbox and the
 // species link as separate hit targets.
+var KEEP_PARAMS = {keep_json};
 var layerByKey = {{}};
+// Canvas layer that fetches a GBIF density tile, keeps its alpha
+// channel as the density mask, and paints it in the species' legend
+// color. What the legend shows is exactly what the map draws.
+var SpeciesLayer = L.GridLayer.extend({{
+  createTile: function(coords, done) {{
+    var size = this.getTileSize();
+    var tile = document.createElement('canvas');
+    tile.width = size.x; tile.height = size.y;
+    var ctx = tile.getContext('2d', {{ willReadFrequently: true }});
+    var rgb = this.options.rgb;
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {{
+      ctx.drawImage(img, 0, 0, size.x, size.y);
+      var id = ctx.getImageData(0, 0, size.x, size.y);
+      var d = id.data;
+      for (var i = 0; i < d.length; i += 4) {{
+        if (d[i + 3] > 0) {{
+          d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2];
+          d[i + 3] = Math.min(255, d[i + 3] * 1.6);
+        }}
+      }}
+      ctx.putImageData(id, 0, 0);
+      done(null, tile);
+    }};
+    img.onerror = function() {{ done(null, tile); }};
+    img.src = 'https://api.gbif.org/v2/map/occurrence/density/'
+      + coords.z + '/' + coords.x + '/' + coords.y + '@1x.png'
+      + '?taxonKey=' + this.options.taxonKey + '&style=scaled.circles';
+    return tile;
+  }}
+}});
 species.forEach(function(s) {{
-  var url = 'https://api.gbif.org/v2/map/occurrence/density/{{z}}/{{x}}/{{y}}@1x.png'
-    + '?taxonKey=' + s.gbif_key + '&style=' + s.style;
-  var layer = L.tileLayer(url, {{
+  var layer = new SpeciesLayer({{
+    taxonKey: s.gbif_key, rgb: s.rgb,
     attribution: '<a href="https://www.gbif.org/" target="_blank">GBIF</a>',
-    opacity: 0.85, maxZoom: 14
+    opacity: 0.9, maxZoom: 14
   }});
   layer.addTo(map);
   layerByKey[s.scientific_name] = layer;
@@ -237,7 +287,7 @@ speciesPanel.onAdd = function() {{
       + s.scientific_name.replace(/"/g, '&quot;')
       + '" checked style="margin:0;">'
       + '<span class="swatch" style="background:' + s.color + '"></span>'
-      + '<a href="?species=' + enc + '" target="_top" '
+      + '<a href="?species=' + enc + KEEP_PARAMS + '" target="_top" '
       + 'style="color:#e8f3ef;text-decoration:none;flex:1;">'
       + linkBody + '</a>'
       + '</div>'
