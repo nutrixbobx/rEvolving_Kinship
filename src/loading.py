@@ -152,7 +152,7 @@ def spinner_with_tip(message: str):
                      font-size:13px; padding:0; line-height:1;">›</button>
     </div>
   </div>
-  <div id="{cid}-stage" style="position:relative; min-height: 3.5em; overflow:hidden;">
+  <div id="{cid}-stage" style="position:relative; min-height: 4.6em; overflow:hidden; word-break:break-word;">
     <div id="{cid}-text"
          style="transition: transform 0.45s cubic-bezier(.4,.15,.2,1),
                             opacity 0.35s ease;
@@ -225,7 +225,7 @@ def spinner_with_tip(message: str):
 </script>
 """
         with slot.container():
-            _components.html(card_html, height=140, scrolling=False)
+            _components.html(card_html, height=210, scrolling=False)
         with st.spinner(message):
             yield
     finally:
@@ -397,7 +397,7 @@ def render_loading_gate_if_needed() -> bool:
                        font-size:15px; padding:0; line-height:1;">›</button>
       </div>
     </div>
-    <div id="{cid}-stage" style="position:relative; min-height:4em; overflow:hidden;">
+    <div id="{cid}-stage" style="position:relative; min-height:4.8em; overflow:hidden; word-break:break-word;">
       <div id="{cid}-text"
            style="transition: transform 0.45s cubic-bezier(.4,.15,.2,1),
                               opacity 0.35s ease;">
@@ -448,7 +448,7 @@ def render_loading_gate_if_needed() -> bool:
 }})();
 </script>
 """
-    _components.html(tip_html, height=200, scrolling=False)
+    _components.html(tip_html, height=240, scrolling=False)
 
     # Escape hatches, once we've been stuck long enough OR errored out.
     is_stuck = (phase in ("no_url", "error")

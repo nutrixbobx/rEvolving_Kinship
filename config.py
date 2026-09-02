@@ -34,6 +34,23 @@ NCBI_TAXA_DB = os.environ.get(
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
+# CARTO basemap tiles
+# ---------------------------------------------------------------------------
+# CARTO now stamps an "API key required" watermark on keyless raster
+# basemaps. Set CARTO_API_KEY in the environment (Streamlit secrets for the
+# deployed app, .env for local) and it is appended to every CARTO tile URL
+# as ?key=..., which clears the watermark. A CARTO raster key is meant to
+# live in client-side tile URLs and is domain-scoped, not an account secret,
+# so it is fine that the browser sees it. We still keep the value out of
+# tracked source and read it from the environment.
+CARTO_API_KEY = os.environ.get("CARTO_API_KEY", "").strip()
+
+
+def carto_key_suffix(sep: str = "?") -> str:
+    """'?key=...' (or '&key=...') when CARTO_API_KEY is set, else ''."""
+    return f"{sep}key={CARTO_API_KEY}" if CARTO_API_KEY else ""
+
+# ---------------------------------------------------------------------------
 # Database connection
 # ---------------------------------------------------------------------------
 # Default to a local SQLite file so the piece runs with nothing installed and

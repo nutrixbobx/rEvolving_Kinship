@@ -43,6 +43,7 @@ QUADRANT_TILES = 1 << QUADRANT_ZOOM // 2  # =4 per quadrant side
 
 CARTO_TEMPLATE = (
     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+    + config.carto_key_suffix()
 )
 
 # Light coastlines basemap (was: build_blank_outline_map's basemap).
@@ -51,6 +52,7 @@ CARTO_TEMPLATE = (
 # was deleted in Session J.
 CARTO_BLANK_TEMPLATE = (
     "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"
+    + config.carto_key_suffix()
 )
 
 # Concurrent tile fetches. 8 keeps GBIF + CARTO happy without 429s.
@@ -147,7 +149,7 @@ def _basemap_world_light():
         tiles,
         CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
         N_TILES,
-        bg=(250, 246, 238, 255),
+        bg=(235, 244, 250, 255),
     )
 
 
@@ -287,8 +289,10 @@ def build_range_map(tree_name: str,
     # Palette per style. Outline = warm paper + dark ink + faint density
     # so there is room to draw. Dark = the same basemap the live tab uses.
     if outline:
-        paper = (250, 246, 238, 255)
-        ink = (60, 40, 40, 255)
+        # Light blue-white so it reads as water and prints clean for
+        # hand annotation.
+        paper = (235, 244, 250, 255)
+        ink = (40, 55, 70, 255)
         sub_ink = (120, 100, 100, 255)
         alpha_scale = 0.85
         subtitle = (f"{len(mapped)} species on GBIF. Faint dots are the "
@@ -349,7 +353,7 @@ def build_range_map(tree_name: str,
         # Faint ruled lines to write on.
         for ly in range(y + 40, y + notes_h - 10, 34):
             draw.line([(16, ly), (CANVAS_W - 16, ly)],
-                      fill=(210, 200, 188, 255), width=1)
+                      fill=(200, 214, 226, 255), width=1)
 
     suffix = "range_outline" if outline else "range_map"
     out_path = out_dir / f"{stem}_{suffix}.png"

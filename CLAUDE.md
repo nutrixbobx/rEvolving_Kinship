@@ -41,6 +41,31 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session X (drag tree, CARTO key, loader clip, 2026-09-02):
+  - New draggable tree: `src/interactive_tree.py` builds a self-contained
+    D3 canvas from the collapsed newick + node metadata. Drag any node to
+    move it (dragging a clade carries its whole subtree), double-click a
+    clade to flip its children, switch radial or rectangular, pan and
+    zoom. Wired into the Dashboard tree view behind a "Drag to arrange
+    (interactive)" checkbox; the fixed toyplot layouts and their SVG/PNG
+    exports stay as they were. D3 loads from the cdnjs CDN. Nothing is
+    saved: it is an exploration space. Verified headless (jsdom + d3):
+    correct node/edge counts, finite coordinates, working layout switch.
+  - CARTO API key. CARTO now watermarks keyless raster tiles.
+    `config.CARTO_API_KEY` reads the key from the environment and
+    `config.carto_key_suffix()` appends ?key=... to every CARTO URL: the
+    two range_map_static templates and the interactive Leaflet tile URL.
+    The key lives in .env locally (gitignored) and must be added to
+    Streamlit secrets as CARTO_API_KEY for the deployed app. It is not in
+    tracked source.
+  - Printable outline map is now light blue-white (was warm cream) so it
+    reads as water and prints clean for hand annotation.
+  - Loader clipping fixed. The rotating fun-fact cards in `src/loading.py`
+    were clipped in narrow columns because the component iframe was too
+    short for a wrapped fact. Raised both iframe heights and their text
+    stages, added word-break so long words wrap.
+
+
 Session W (broken-items + optimization pass, 2026-09-02):
   - Branches now scale to deep time. `render._draw` takes `use_scaled`,
     loads the MYA-scaled sibling newick, and turns on
@@ -328,6 +353,9 @@ are expensive.
   layout, the on-screen mya-to-Hz formula, T1 label + legend cleanup,
   deterministic map colors, the printable outline map, and map
   show/hide checkboxes.
+- 2026-09-02: Session X added the draggable D3 tree, the CARTO API key
+  wiring, the light-blue annotation outline map, and the fun-fact
+  loader clip fix.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

@@ -642,6 +642,14 @@ if active_tab == "Dashboard":
                      "depth. Circular always draws even.")
             use_scaled_view = bool(scale_time) and _can_scale
             show_sci = st.checkbox("Show scientific names", value=True)
+            drag_mode = st.checkbox(
+                "Drag to arrange (interactive)", value=False,
+                key=f"dragmode_{pick_tree}",
+                help="Open a live canvas where you can drag any species "
+                     "or clade to move it, double-click a clade to flip "
+                     "it, switch radial or rectangular, and zoom. Nothing "
+                     "is saved: it is a space to find an arrangement worth "
+                     "a screenshot.")
             zoom_pct = st.slider(
                 "Zoom", min_value=50, max_value=130, value=85, step=5,
                 key=f"zoom_{pick_tree}",
@@ -689,13 +697,29 @@ if active_tab == "Dashboard":
 
         with view:
             if nwk.exists() and meta:
-                html = render_mod.render_html(
-                    nwk, meta, layout=render_mod.LAYOUTS[layout_name],
-                    show_scientific=show_sci, tree_name=pick_tree,
-                    zoom=zoom_pct / 100.0,
-                    use_scaled=use_scaled_view,
-                )
-                components.html(html, height=740, scrolling=True)
+                if drag_mode:
+                    try:
+                        from src import interactive_tree
+                        _ihtml = interactive_tree.build_interactive_html(
+                            nwk, meta, tree_name=pick_tree, height=700)
+                        components.html(_ihtml, height=720, scrolling=False)
+                        st.caption(
+                            "Drag species and clades to rearrange, "
+                            "double-click a clade to flip it, switch radial "
+                            "or rectangular, scroll to zoom. This canvas is "
+                            "for exploring; the downloads below still use "
+                            "the fixed layouts.")
+                    except Exception as _iexc:
+                        st.warning(
+                            f"Interactive view unavailable: {_iexc}")
+                else:
+                    html = render_mod.render_html(
+                        nwk, meta, layout=render_mod.LAYOUTS[layout_name],
+                        show_scientific=show_sci, tree_name=pick_tree,
+                        zoom=zoom_pct / 100.0,
+                        use_scaled=use_scaled_view,
+                    )
+                    components.html(html, height=740, scrolling=True)
 
                 # Download the current layout (SVG + PNG)
                 dl_cols = st.columns(2)

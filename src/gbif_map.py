@@ -165,6 +165,7 @@ def build_map_html(species_list: list[dict], height: int = 620,
     people out)."""
     mapped, _ = resolve_species(species_list)
     species_json = json.dumps(mapped)
+    carto_suffix = config.carto_key_suffix()
     keep = "".join(
         "&" + urllib.parse.quote(str(k)) + "=" + urllib.parse.quote(str(v))
         for k, v in (keep_params or {}).items() if v)
@@ -221,7 +222,7 @@ var map = L.map('map', {{ worldCopyJump:true, preferCanvas:true }})
             .setView([20, 0], 2);
 
 L.tileLayer(
-  'https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png',
+  'https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png{carto_suffix}',
   {{
     attribution: '&copy; OpenStreetMap, &copy; CARTO',
     maxZoom: 18, subdomains: 'abcd'
