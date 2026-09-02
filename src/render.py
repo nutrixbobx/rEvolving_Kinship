@@ -31,7 +31,7 @@ import config  # noqa: E402
 
 # Layout names the dashboard offers, mapped to toytree's codes. Rectangular reads
 # best for this kind of tree, so it leads.
-LAYOUTS = {"Unrooted": "unrooted", "Rectangular": "r"}
+LAYOUTS = {"Unrooted": "unrooted", "Rectangular": "r", "Circular": "c"}
 
 # Legend colors the dashboard reads (matched to the dark palette below).
 
@@ -246,9 +246,17 @@ def _layout_settings(layout: str, pal: dict):
 
 
 def _draw(newick_path, meta: dict, layout: str,
-          show_scientific: bool = True, dark: bool = True):
+          show_scientific: bool = True, dark: bool = True,
+          use_scaled: bool = False):
     pal = _DARK if dark else _LIGHT
     s = _layout_settings(layout, pal)
+    # When the caller asks to scale branches to time, load the MYA-scaled
+    # sibling newick and let toytree honor branch lengths. That file carries
+    # log10(1 + million-years) distances, so a deep split reads as a longer
+    # branch than a recent one without the Cambrian swamping the drawing.
+    # Circular ("c") stays topology-only: a radial time axis reads as a
+    # muddle and its tip alignment relies on uniform depth.
+    draw_scaled = bool(use_scaled) and layout in ("r", "unrooted")
     tre, tip_labels, sizes, colors, nlabels = _prepare(
         newick_path, meta, pal,
         collapse=s["collapse"], plain_visible=s["plain_visible"],
@@ -256,10 +264,16 @@ def _draw(newick_path, meta: dict, layout: str,
         show_undated_labels=s.get("show_undated_labels", True),
         layout=layout,
         show_scientific=show_scientific,
+        use_scaled=draw_scaled,
     )
+    # A time-scaled rectangular tree should not pull tip labels onto a
+    # shared right edge, or the branch-length signal hides behind the
+    # alignment guides. Let tips sit where time puts them.
+    tip_align = s["align"] and not draw_scaled
     return tre.draw(
         width=s["w"], height=s["h"], layout=layout, edge_type=s["edge_type"],
-        use_edge_lengths=s["use_edges"], tip_labels_align=s["align"],
+        use_edge_lengths=(True if draw_scaled else s["use_edges"]),
+        tip_labels_align=tip_align,
         tip_labels=tip_labels,
         tip_labels_style={"font-size": "12.5px", "fill": pal["tip"],
                           "-toyplot-anchor-shift": "14px"},
@@ -835,7 +849,8 @@ def _clade_footnote_panel(svg_or_html: str, meta: dict,
 def render_html(newick_path, meta: dict, layout: str = "r",
                 show_scientific: bool = True,
                 tree_name: str | None = None,
-                zoom: float = 0.85) -> str:
+                zoom: float = 0.85,
+                use_scaled: bool = False) -> str:
     """Return interactive HTML on a dark panel for the dashboard.
 
     zoom: visual scaling factor applied via CSS transform. 1.0 = native
@@ -845,7 +860,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     targets and downloads remain at native resolution."""
     import toyplot.html
 
-    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific, dark=True)
+    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific,
+                         dark=True, use_scaled=use_scaled)
     html = toyplot.html.tostring(canvas).replace("meta: ", "")
     html = _two_line(html)
     bg = _DARK["bg"]
@@ -871,13 +887,15 @@ def render_files(newick_path, meta: dict, out_stem: str,
                  layout: str = "r", out_dir: Path | None = None,
                  show_scientific: bool = True,
                  tree_name: str | None = None,
-                 skip_footer: bool = False) -> Path:
+                 skip_footer: bool = False,
+                 use_scaled: bool = False) -> Path:
     """Save a still SVG (and PNG) on a warm light background for the kinship report."""
     import toyplot.svg
 
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific, dark=False)
+    canvas, _, _ = _draw(newick_path, meta, layout, show_scientific,
+                         dark=False, use_scaled=use_scaled)
 
     svg_path = out_dir / f"{out_stem}.svg"
     toyplot.svg.render(canvas, str(svg_path))

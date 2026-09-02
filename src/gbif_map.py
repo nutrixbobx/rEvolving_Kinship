@@ -101,13 +101,23 @@ def resolve_species(species_list: list[dict]) -> tuple[list[dict], list[dict]]:
     of resolution, so neighboring species look different on the map."""
     mapped: list[dict] = []
     unmapped: list[dict] = []
+    # Deterministic color by alphabetical rank of the scientific name, not
+    # by resolution order. So a species is the same color on the live map
+    # and on the static composite, and stays that color across rebuilds.
+    # That was the "colors don't match the legend" confusion: the two maps
+    # resolved species in different orders and handed out different hues.
+    _ranked = sorted({
+        sp.get("scientific_name", "").strip()
+        for sp in species_list if sp.get("scientific_name")})
+    _color_index = {name: i for i, name in enumerate(_ranked)}
     for sp in species_list:
         sci = sp.get("scientific_name")
         if not sci:
             continue
         key = get_gbif_key(sci)
         if key:
-            style, color, color_name = GBIF_STYLES[len(mapped) % len(GBIF_STYLES)]
+            _idx = _color_index.get(sci.strip(), len(mapped)) % len(GBIF_STYLES)
+            style, color, color_name = GBIF_STYLES[_idx]
             mapped.append({
                 **sp,
                 "gbif_key": key,

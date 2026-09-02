@@ -41,6 +41,44 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session W (broken-items + optimization pass, 2026-09-02):
+  - Branches now scale to deep time. `render._draw` takes `use_scaled`,
+    loads the MYA-scaled sibling newick, and turns on
+    `use_edge_lengths` for the rectangular and unrooted layouts, so a
+    deep split reads as a long branch and a recent one reads as short.
+    A "Scale branches to deep time (MYA)" checkbox in the Dashboard
+    side panel drives it (default on). Circular stays topology-only on
+    purpose. The scaled file was already built by `scale_tree`; nothing
+    was drawing it until now.
+  - Third layout added: Circular. `LAYOUTS` now carries Unrooted,
+    Rectangular, and Circular, in that order, so Unrooted stays the
+    default view. The "c" path already existed in `_layout_settings`.
+  - The mya-to-Hz formula is on screen. The "How the chord is tuned"
+    panel under Listen prints the exact log transform, pulled live from
+    the sonify + config constants so the printed math can never drift
+    from the audio. Verified equal to the engine across the age window.
+  - T1 photo-spectral tree label cleanup. `image_tree._draw_tree`
+    stacks a wrapped common name and drops the scientific name below
+    its last line, so a two-line name can't sit on the sci line.
+    `_draw_clade_legend` flows into extra columns when a tree has more
+    clades than one column holds at a readable size. The photo-audio
+    tree gutter between the spectrogram strip and the clade legend was
+    widened so they never touch.
+  - Range map colors are deterministic. `gbif_map.resolve_species`
+    assigns each species a color by the alphabetical rank of its
+    scientific name, so the live map and the static composite agree
+    with their own legends and stay put across rebuilds. That was the
+    "colors don't match the legend" confusion between the two maps.
+  - Printable outline range map. `range_map_static.build_range_map`
+    takes `outline=True`: light coastlines on warm paper, faint
+    observed ranges, and an open ruled notes band, made to print and
+    draw on. A build button sits next to the dark composite in Outputs.
+  - Map show / hide. The Range map tab has clean per-species checkboxes
+    with Show all and Hide all, so people can pare the map down to the
+    kin they care about before it renders. Fewer species also means
+    fewer tile fetches.
+
+
 Roughly in order:
 
 Session A (UX / structure):
@@ -286,6 +324,10 @@ are expensive.
 
 ## Change log for this file
 
+- 2026-09-02: Session W added time-scaled branches, the Circular
+  layout, the on-screen mya-to-Hz formula, T1 label + legend cleanup,
+  deterministic map colors, the printable outline map, and map
+  show/hide checkboxes.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

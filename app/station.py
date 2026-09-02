@@ -624,7 +624,23 @@ if active_tab == "Dashboard":
                                        mime="text/plain",
                                        use_container_width=True,
                                        key=f"nwk_top_{pick_tree}")
-            layout_name = st.radio("Layout", list(render_mod.LAYOUTS.keys()))
+            layout_name = st.radio(
+                "Layout", list(render_mod.LAYOUTS.keys()), index=0,
+                help="Unrooted shows kinship without implying a "
+                     "direction, and is the most honest starting view. "
+                     "Rectangular reads left to right. Circular fans the "
+                     "whole tree around a center.")
+            _can_scale = layout_name in ("Unrooted", "Rectangular")
+            scale_time = st.checkbox(
+                "Scale branches to deep time (MYA)", value=True,
+                disabled=not _can_scale,
+                key=f"scale_time_{pick_tree}",
+                help="Stretch every branch to its real length in millions "
+                     "of years since the last common ancestor, log-adjusted "
+                     "so a 500-million-year split doesn't dwarf a "
+                     "5-million-year one. Off draws every branch at even "
+                     "depth. Circular always draws even.")
+            use_scaled_view = bool(scale_time) and _can_scale
             show_sci = st.checkbox("Show scientific names", value=True)
             zoom_pct = st.slider(
                 "Zoom", min_value=50, max_value=130, value=85, step=5,
@@ -677,6 +693,7 @@ if active_tab == "Dashboard":
                     nwk, meta, layout=render_mod.LAYOUTS[layout_name],
                     show_scientific=show_sci, tree_name=pick_tree,
                     zoom=zoom_pct / 100.0,
+                    use_scaled=use_scaled_view,
                 )
                 components.html(html, height=740, scrolling=True)
 
@@ -689,7 +706,8 @@ if active_tab == "Dashboard":
                         out = render_mod.render_files(
                             nwk, meta,
                             f"{stem}_tree_{layout_name.lower()}",
-                            layout=layout_code, tree_name=pick_tree)
+                            layout=layout_code, tree_name=pick_tree,
+                            use_scaled=use_scaled_view)
                         usage_log.log_event("render_tree", pick_tree)
                         st.success("Files ready below.")
                         st.rerun()
@@ -899,6 +917,38 @@ if active_tab == "Dashboard":
                               st.rerun()
                           except Exception as exc:
                               st.error(f"Range map build failed: {exc}")
+
+                  # Printable outline version: light coastlines, faint
+                  # ranges, and a notes band. Made to print and draw on.
+                  st.markdown("**Range map (printable outline)**")
+                  outline_png = config.OUTPUT_DIR / f"{stem}_range_outline.png"
+                  if outline_png.exists():
+                      st.image(outline_png.read_bytes())
+                      st.download_button(
+                          "Download outline (.png)",
+                          outline_png.read_bytes(),
+                          file_name=outline_png.name, mime="image/png",
+                          use_container_width=True,
+                          key=f"rangeoutline_dl_{pick_tree}")
+                  if st.button("Build / refresh outline map",
+                               key=f"rangeoutline_{pick_tree}",
+                               use_container_width=True,
+                               help="A warm-paper map with light "
+                                    "coastlines, faint observed ranges, "
+                                    "and blank space plus a notes band, "
+                                    "for drawing your own ranges by hand."):
+                      with loading.spinner_with_tip("Fetching light basemap "
+                                        "+ faint GBIF density. ~30s."):
+                          try:
+                              if not _ensure_tree_built(pick_tree):
+                                  raise RuntimeError("Tree build failed.")
+                              from src import range_map_static
+                              range_map_static.build_range_map(
+                                  pick_tree, outline=True)
+                              st.success("Built.")
+                              st.rerun()
+                          except Exception as exc:
+                              st.error(f"Outline map build failed: {exc}")
 
               # ─── Load kin cards (mirror of Listen sub-tab button) ───
               _kin_flag_key = f"kin_cards_loaded_{pick_tree}"
@@ -1529,6 +1579,33 @@ if active_tab == "Dashboard":
                               "time sits lower in pitch; the whole "
                               "chord is the sound of how far back "
                               "you and your kin last touched.")
+                          # The exact transform, pulled live from the
+                          # sonify + config constants so the printed
+                          # formula can never drift from the audio.
+                          try:
+                              import config as _cfg
+                              _flow = _sonify.REFERENCE_HZ
+                              _oct = (_cfg.MIDI_PITCH_HIGH
+                                      - _cfg.MIDI_PITCH_LOW) / 12.0
+                              _amin = _sonify.MYA_MIN
+                              _amax = _sonify.MYA_MAX
+                              st.latex(
+                                  r"f(\text{mya}) = f_{\text{low}}\cdot 2"
+                                  r"^{\,O\,\cdot\,\frac{\log_{10} A_{\max}"
+                                  r" - \log_{10}(\text{mya})}{\log_{10} A_{\max}"
+                                  r" - \log_{10} A_{\min}}}")
+                              st.caption(
+                                  f"log time, not linear time: each tenfold "
+                                  f"jump back in age drops the pitch by the "
+                                  f"same step. f_low = {_flow:.1f} Hz (C2), "
+                                  f"O = {_oct:.0f} octaves, and the age window "
+                                  f"is clamped to {_amin}–{_amax} mya "
+                                  f"(deepest split sits lowest). The .wav "
+                                  f"holds these exact frequencies; the .mid "
+                                  f"carries them as notes plus a per-voice "
+                                  f"pitch bend so nothing snaps to a key.")
+                          except Exception:
+                              pass
                           import pandas as _pd
                           st.dataframe(_pd.DataFrame([{
                               "clade": _fmt(v["name"]),
@@ -1808,6 +1885,47 @@ if active_tab == "Range map":
         if not species_for_map:
             st.caption("This tree has no species yet.")
         else:
+            # Clean show / hide checkboxes so people can pare the map down
+            # to the kin they care about. A key-version nonce lets "Show
+            # all" / "Hide all" reset every box without fighting Streamlit's
+            # widget state.
+            _ver_key = f"mapsel_ver_{map_pick}"
+            _def_key = f"mapsel_def_{map_pick}"
+            st.session_state.setdefault(_ver_key, 0)
+            st.session_state.setdefault(_def_key, True)
+            with st.expander(
+                    f"Show / hide species ({len(species_for_map)})",
+                    expanded=False):
+                _bcols = st.columns(2)
+                if _bcols[0].button("Show all", key=f"mapall_{map_pick}",
+                                    use_container_width=True):
+                    st.session_state[_def_key] = True
+                    st.session_state[_ver_key] += 1
+                    st.rerun()
+                if _bcols[1].button("Hide all", key=f"mapnone_{map_pick}",
+                                    use_container_width=True):
+                    st.session_state[_def_key] = False
+                    st.session_state[_ver_key] += 1
+                    st.rerun()
+                _ver = st.session_state[_ver_key]
+                _default = st.session_state[_def_key]
+                _grid = st.columns(2)
+                _selected = []
+                for _i, _sp in enumerate(species_for_map):
+                    _lab = _sp.get("common_name") or _sp["scientific_name"]
+                    with _grid[_i % 2]:
+                        _on = st.checkbox(
+                            _lab, value=_default,
+                            key=f"mapcb_{map_pick}_{_ver}_{_i}",
+                            help=_sp["scientific_name"])
+                    if _on:
+                        _selected.append(_sp)
+            if not _selected:
+                st.info("Every species is hidden. Turn at least one back "
+                        "on in Show / hide species above.")
+                st.stop()
+            species_for_map = _selected
+
             with st.spinner(
                     f"Resolving {len(species_for_map)} species in GBIF "
                     "(cached after the first lookup)..."):

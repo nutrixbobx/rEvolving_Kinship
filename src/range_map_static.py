@@ -133,8 +133,27 @@ def _basemap_world():
     )
 
 
+def _basemap_world_light():
+    """Light coastlines basemap at z=2 on near-white paper. For the
+    printable outline map people draw and take notes on: thin gray
+    coastlines, no labels, lots of open space to sketch ranges."""
+    urls = [
+        CARTO_BLANK_TEMPLATE.format(z=ZOOM, x=x, y=y)
+        for x in range(N_TILES) for y in range(N_TILES)
+    ]
+    print(f"  fetching {len(urls)} light basemap tiles (z={ZOOM})...")
+    tiles = _fetch_many(urls)
+    return _composite_tiles(
+        tiles,
+        CARTO_BLANK_TEMPLATE.replace("{z}", str(ZOOM)),
+        N_TILES,
+        bg=(250, 246, 238, 255),
+    )
+
+
 def _density_layer_world(gbif_key: int, style: str,
-                          color: str = "#ff2a1a"):
+                          color: str = "#ff2a1a",
+                          alpha_scale: float = 1.6):
     """One species density at z=2, all tiles fetched in parallel and
     then re-colorized to the species' legend color.
 
@@ -179,7 +198,7 @@ def _density_layer_world(gbif_key: int, style: str,
             # Gamma-correct the alpha so low-density pixels don't
             # disappear entirely. Multiplying by 1.6 clipping at 255.
             import numpy as _np
-            arr = _np.array(alpha, dtype=_np.float32) * 1.6
+            arr = _np.array(alpha, dtype=_np.float32) * alpha_scale
             arr = _np.clip(arr, 0, 255).astype(_np.uint8)
             boosted = _Image.fromarray(arr, mode="L")
             solid = _Image.new("RGBA", im.size, rgb + (0,))
@@ -192,17 +211,22 @@ def _density_layer_world(gbif_key: int, style: str,
     return _composite_tiles(recolored, base, N_TILES, bg=(0, 0, 0, 0))
 
 
-def _species_legend_strip(mapped: list[dict], width: int):
-    """Color-swatch + species label per row. Rendered on warm paper
-    so it matches the blank outline aesthetic."""
+def _species_legend_strip(mapped: list[dict], width: int,
+                          paper=(14, 27, 26, 255)):
+    """Color-swatch + species label per row, drawn on the same paper as
+    the map so the legend reads whether the map is dark or warm-white."""
     from PIL import Image, ImageDraw, ImageFont
     n = len(mapped)
     if n == 0:
         return None
+    bg = tuple(paper[:3])
+    # Pick text color that contrasts the paper (dark ink on light, light
+    # ink on dark).
+    text_col = (60, 40, 40) if sum(bg) > 384 else (232, 243, 239)
     row_h = 22
     pad = 12
     height = n * row_h + 2 * pad
-    strip = Image.new("RGB", (width, height), (14, 27, 26))
+    strip = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(strip)
     try:
         font = ImageFont.truetype(
@@ -217,16 +241,20 @@ def _species_legend_strip(mapped: list[dict], width: int):
         common = sp.get("common_name")
         sci = sp.get("scientific_name", "")
         lab = f"{common} ({sci})" if common else sci
-        draw.text((pad + 24, y - 8), lab,
-                  fill=(232, 243, 239), font=font)
+        draw.text((pad + 24, y - 8), lab, fill=text_col, font=font)
     return strip
 
 
 def build_range_map(tree_name: str,
                     out_dir: Path | None = None,
-                    include_quadrants: bool = False) -> Path:
+                    include_quadrants: bool = False,
+                    outline: bool = False) -> Path:
     """Render the composite range map. include_quadrants=False is fast
-    (~10s); =True adds 4 zoomed quadrants (~50s)."""
+    (~10s); =True adds 4 zoomed quadrants (~50s).
+
+    outline=True builds the printable version: light coastlines on warm
+    paper, faint density so the observed ranges read as a reference, and
+    an open notes band at the bottom. Made to print and draw on."""
     from PIL import Image, ImageDraw, ImageFont
     from src import db, gbif_map
     from src.tree import _safe as _safe_stem
@@ -253,27 +281,39 @@ def build_range_map(tree_name: str,
         raise RuntimeError("No species in this tree are in GBIF.")
 
     print(f"range map: {len(mapped)} species, "
-          f"parallel fetches ({MAX_WORKERS} threads)")
+          f"parallel fetches ({MAX_WORKERS} threads), "
+          f"{'outline' if outline else 'dark'} style")
+
+    # Palette per style. Outline = warm paper + dark ink + faint density
+    # so there is room to draw. Dark = the same basemap the live tab uses.
+    if outline:
+        paper = (250, 246, 238, 255)
+        ink = (60, 40, 40, 255)
+        sub_ink = (120, 100, 100, 255)
+        alpha_scale = 0.85
+        subtitle = (f"{len(mapped)} species on GBIF. Faint dots are the "
+                    "observed range; the rest is yours to draw and note.")
+    else:
+        paper = (14, 27, 26, 255)
+        ink = (232, 243, 239, 255)
+        sub_ink = (154, 179, 171, 255)
+        alpha_scale = 1.6
+        subtitle = (f"{len(mapped)} species on GBIF, density overlays on "
+                    "the same dark basemap the live tab uses.")
 
     # 1. World basemap + per-species density at z=2
-    world = _basemap_world()
+    world = _basemap_world_light() if outline else _basemap_world()
     for sp in mapped:
         print(f"  density layer for {sp['scientific_name']}...")
         layer = _density_layer_world(sp["gbif_key"], sp["style"],
-                                       color=sp.get("color", "#ff2a1a"))
+                                       color=sp.get("color", "#ff2a1a"),
+                                       alpha_scale=alpha_scale)
         world = Image.alpha_composite(world, layer)
 
-    # 2. Legend strip (matches blank-outline aesthetic)
-    legend = _species_legend_strip(mapped, width=CANVAS_W)
+    # 2. Legend strip. On the outline map it sits on the same warm paper.
+    legend = _species_legend_strip(mapped, width=CANVAS_W, paper=paper)
     legend_h = legend.size[1] if legend else 0
 
-    # 3. Layout: title + world + legend on warm off-white paper so
-    # this reads as the same visual family as the blank outline map.
-    title_h = 60
-    pad = 12
-    total_h = title_h + CANVAS_H + pad + legend_h
-    final = Image.new("RGBA", (CANVAS_W, total_h), (250, 246, 238, 255))
-    draw = ImageDraw.Draw(final)
     try:
         title_font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
@@ -282,41 +322,37 @@ def build_range_map(tree_name: str,
     except Exception:
         title_font = ImageFont.load_default()
         sub_font = ImageFont.load_default()
-    draw.text((16, 12),
-              f"Range map, {tree_name}",
-              fill=(60, 40, 40, 255), font=title_font)
-    draw.text((16, 40),
-              f"{len(mapped)} species on GBIF, density overlays on "
-              "the same coastlines you can sketch on.",
-              fill=(120, 100, 100, 255), font=sub_font)
 
-    # Crop the bottom of the world canvas so we don't allocate a
-    # quarter of the map to blank Antarctica. Keeps roughly the top
-    # 10-15% of Antarctica visible for context.
+    # Crop blank Antarctica so it doesn't eat a quarter of the drawing.
     ANTARCTIC_CROP = int(CANVAS_H * 0.22)
     world_visible_h = CANVAS_H - ANTARCTIC_CROP
     world_cropped = world.crop((0, 0, CANVAS_W, world_visible_h))
 
-    # Rebuild the final canvas (title + cropped world + legend). Dark
-    # background so heat overlays read properly. Credit strip removed
-    # per Maya: maps don't have pictures to credit.
-    total_h = title_h + world_visible_h + pad + legend_h
-    final = Image.new("RGBA", (CANVAS_W, total_h), (14, 27, 26, 255))
+    # Open notes band under everything on the outline map.
+    notes_h = 220 if outline else 0
+    title_h = 60
+    pad = 12
+    total_h = title_h + world_visible_h + pad + legend_h + notes_h
+    final = Image.new("RGBA", (CANVAS_W, total_h), paper)
     draw = ImageDraw.Draw(final)
-    draw.text((16, 12),
-              f"Range map, {tree_name}",
-              fill=(232, 243, 239, 255), font=title_font)
-    draw.text((16, 40),
-              f"{len(mapped)} species on GBIF, density overlays on "
-              "the same dark basemap the live tab uses.",
-              fill=(154, 179, 171, 255), font=sub_font)
+    draw.text((16, 12), f"Range map, {tree_name}", fill=ink,
+              font=title_font)
+    draw.text((16, 40), subtitle, fill=sub_ink, font=sub_font)
     y = title_h
     final.paste(world_cropped, (0, y), world_cropped)
     y += world_visible_h + pad
     if legend:
         final.paste(legend, (0, y))
+        y += legend_h
+    if notes_h:
+        draw.text((16, y + 10), "Notes", fill=sub_ink, font=sub_font)
+        # Faint ruled lines to write on.
+        for ly in range(y + 40, y + notes_h - 10, 34):
+            draw.line([(16, ly), (CANVAS_W - 16, ly)],
+                      fill=(210, 200, 188, 255), width=1)
 
-    out_path = out_dir / f"{stem}_range_map.png"
+    suffix = "range_outline" if outline else "range_map"
+    out_path = out_dir / f"{stem}_{suffix}.png"
     final.convert("RGB").save(out_path, "PNG")
     print(f"wrote {out_path}")
     return out_path

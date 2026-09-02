@@ -184,7 +184,7 @@ def build_photo_audio_tree(tree_name: str,
         ax_tree, tre, pos, meta, dated, max_depth, n)
     image_tree._draw_clade_legend(
         fig, clade_entries,
-        left=0.895, width=0.10,
+        left=0.905, width=0.09,
         bottom=tree_b, height=tree_h)
 
     # Photo + spec columns. No equal-row-height heuristic — instead we
@@ -193,7 +193,9 @@ def build_photo_audio_tree(tree_name: str,
     photo_left = tree_l + tree_w + 0.01
     if has_any_audio:
         spec_left = photo_left + photo_w + 0.012
-        spec_w = 0.895 - spec_left - 0.005
+        # Leave a clear gutter before the clade legend (starts at 0.905)
+        # so the spectrogram strip and the legend never touch.
+        spec_w = 0.888 - spec_left
     else:
         # No spec column at all
         spec_left = 0.0

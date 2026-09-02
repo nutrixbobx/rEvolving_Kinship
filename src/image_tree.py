@@ -123,13 +123,19 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
             _avail_in = max(0.9, (6.0 - 0.18) * _in_per_unit)
             _wrap = max(12, min(42, int(_avail_in / 0.079)))
             if common:
-                wrapped_common = "\n".join(_tw.wrap(common, width=_wrap)
-                                              or [common])
-                ax.text(nx + 0.18, ny - 0.08, wrapped_common,
+                _lines = _tw.wrap(common, width=_wrap) or [common]
+                wrapped_common = "\n".join(_lines)
+                # Anchor the common name at the top of its block and drop
+                # the sci line just below the LAST wrapped line, so a
+                # two- or three-line common name can't land on the sci
+                # name. 0.30 y-units per text line matches fontsize 9.5.
+                _line_h = 0.30
+                _top = ny - (len(_lines) - 1) * _line_h / 2
+                ax.text(nx + 0.18, _top, wrapped_common,
                          color=TIP_TEXT, fontsize=9.5,
-                         va="center", wrap=True)
-                # Scientific name as small italic underneath.
-                ax.text(nx + 0.18, ny + 0.24, f"({sci})",
+                         va="center", linespacing=1.15)
+                _sci_y = _top + (len(_lines) - 1) * _line_h / 2 + 0.30
+                ax.text(nx + 0.18, _sci_y, f"({sci})",
                          color=TIP_TEXT, fontsize=8,
                          va="center", style="italic", alpha=0.75)
             else:
@@ -162,42 +168,56 @@ def _draw_tree(ax, tre, pos, meta, dated, max_depth, n):
 
 def _draw_clade_legend(fig, clade_entries, left=0.905, width=0.09,
                         bottom=0.10, height=0.80):
-    """Render the numbered clade legend column on the right margin.
-    Never overlaps the tree because it lives in its own axes."""
+    """Render the numbered clade legend on the right margin. Lives in its
+    own axes so it can never touch the tree, and flows into extra columns
+    when a tree has more clades than one column can hold at a readable
+    size. That is what keeps dense trees from stacking labels on top of
+    each other."""
     if not clade_entries:
         return
+    import textwrap as _tw
     ax = fig.add_axes([left, bottom, width, height])
     ax.set_facecolor(BG)
     ax.axis("off")
     ax.text(0, 1.0, "Clades",
             color=LABEL, fontsize=10, weight="bold",
             transform=ax.transAxes, va="top")
-    # Wrap: fit up to N entries evenly in the column height. Font
-    # scales down if there are many.
+
     n_entries = len(clade_entries)
-    row_pitch = 0.94 / max(n_entries, 1)
-    # Font size follows the actual row pitch in points, clamped to a
-    # readable band, so dense legends shrink gracefully instead of
-    # colliding and sparse legends don't whisper.
-    _pitch_in = (fig.get_size_inches()[1] * height) * row_pitch
+    col_h_in = fig.get_size_inches()[1] * height
+    # Smallest still-readable row height, in inches. Below this we stop
+    # cramming a column and open another one instead of shrinking to
+    # illegibility.
+    MIN_ROW_IN = 0.16
+    rows_per_col = max(1, int((col_h_in * 0.94) / MIN_ROW_IN))
+    n_cols = max(1, (n_entries + rows_per_col - 1) // rows_per_col)
+    # Even out the columns so the last one isn't a lonely single row.
+    rows_per_col = (n_entries + n_cols - 1) // n_cols
+    col_w = 1.0 / n_cols
+    row_pitch = 0.94 / max(rows_per_col, 1)
+    _pitch_in = col_h_in * row_pitch
     fs = max(5.5, min(9.0, _pitch_in * 72 * 0.30))
-    import textwrap as _tw
+    # Wrap width shrinks with column count so multi-column legends stay
+    # inside their lanes.
+    wrap_w = max(12, int(26 / n_cols) + 4)
+
     for i, e in enumerate(clade_entries):
-        y = 0.96 - i * row_pitch
-        # Colored dot
+        col = i // rows_per_col
+        row = i % rows_per_col
+        x0 = col * col_w
+        y = 0.96 - row * row_pitch
         color = DATED if e["is_dated"] else PLAIN
-        ax.text(0, y, str(e["number"]),
+        ax.text(x0, y, str(e["number"]),
                  color="#0e1b1a", fontsize=fs, weight="bold",
                  bbox=dict(boxstyle="circle,pad=0.15",
                            fc=color, ec="none"),
                  va="center", transform=ax.transAxes)
-        # Name + mya
         label = e["name"]
         if e["mya"] is not None:
             label += f", {e['mya']}"
-        label = "\n".join(_tw.wrap(label, width=26, max_lines=2,
+        label = "\n".join(_tw.wrap(label, width=wrap_w, max_lines=2,
                                      placeholder="\u2026"))
-        ax.text(0.13, y, label,
+        ax.text(x0 + 0.13 * col_w + 0.02, y, label,
                  color=TIP_TEXT, fontsize=fs,
                  va="center", transform=ax.transAxes)
 
