@@ -211,7 +211,10 @@ _CSS = f"""
 .block-container {{
   /* 3.5rem = below Streamlit's top chrome (hamburger + deploy button)
      so the app title isn't chopped. */
-  padding-top: 3.5rem; padding-bottom: 3rem; max-width: 1200px;
+  padding-top: 3.5rem; padding-bottom: 3rem;
+  /* Use the window instead of sitting in a 1200px box on wide Chrome.
+     Caps at 1680px so prose lines stay readable on huge monitors. */
+  max-width: min(1680px, 95vw); padding-left: 2rem; padding-right: 2rem;
 }}
 body, .stApp, .stMarkdown, [data-testid="stMarkdownContainer"] {{
   color: var(--kn-ink);

@@ -642,6 +642,13 @@ if active_tab == "Dashboard":
                      "depth. Circular always draws even.")
             use_scaled_view = bool(scale_time) and _can_scale
             show_sci = st.checkbox("Show scientific names", value=True)
+            show_all_clades = st.checkbox(
+                "Show every clade", value=False,
+                key=f"allclades_{pick_tree}",
+                help="Off (the default) keeps the tree calm: only the "
+                     "species and the dated clades show, so a four-species "
+                     "tree isn't buried under twenty circles. On draws "
+                     "every internal node and its label.")
             drag_mode = st.checkbox(
                 "Drag to arrange (interactive)", value=False,
                 key=f"dragmode_{pick_tree}",
@@ -718,6 +725,7 @@ if active_tab == "Dashboard":
                         show_scientific=show_sci, tree_name=pick_tree,
                         zoom=zoom_pct / 100.0,
                         use_scaled=use_scaled_view,
+                        show_all_clades=show_all_clades,
                     )
                     components.html(html, height=740, scrolling=True)
 
@@ -731,7 +739,8 @@ if active_tab == "Dashboard":
                             nwk, meta,
                             f"{stem}_tree_{layout_name.lower()}",
                             layout=layout_code, tree_name=pick_tree,
-                            use_scaled=use_scaled_view)
+                            use_scaled=use_scaled_view,
+                            show_all_clades=show_all_clades)
                         usage_log.log_event("render_tree", pick_tree)
                         st.success("Files ready below.")
                         st.rerun()

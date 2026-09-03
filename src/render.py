@@ -217,8 +217,14 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
     return tre, tip_labels, sizes, colors, nlabels
 
 
-def _layout_settings(layout: str, pal: dict):
-    """Per-layout drawing knobs."""
+def _layout_settings(layout: str, pal: dict, show_all_clades: bool = False):
+    """Per-layout drawing knobs.
+
+    show_all_clades: when False (the default), the undated internal nodes
+    are drawn as invisible pass-through dots with no label. That leaves the
+    species tips and the dated clades, which are the handful worth naming,
+    instead of twenty circles crowding a four-species tree. Flip it on to
+    see every internal node again."""
     if layout == "c":
         # Keep the full chain so the radial layout has structure to spread.
         side = max(pal["w"], pal["h"])
@@ -230,16 +236,15 @@ def _layout_settings(layout: str, pal: dict):
     if layout == "unrooted":
         side = max(pal["w"], pal["h"])
         return dict(
-            collapse=True, plain_visible=True, show_dated_labels=True,
-            show_undated_labels=True,
+            collapse=True, plain_visible=show_all_clades, show_dated_labels=True,
+            show_undated_labels=show_all_clades,
             align=False, use_edges=False, edge_type="p",
             w=side, h=side, padding=60, shrink=120,
         )
-    # rectangular: show undated labels too (dated are now chain-
-    # collapsed to innermost-only so the overlap problem is gone).
+    # rectangular
     return dict(
-        collapse=True, plain_visible=True, show_dated_labels=True,
-        show_undated_labels=True,
+        collapse=True, plain_visible=show_all_clades, show_dated_labels=True,
+        show_undated_labels=show_all_clades,
         align=True, use_edges=False, edge_type="p",
         w=pal["w"], h=pal["h"], padding=70, shrink=pal["shrink"],
     )
@@ -247,9 +252,10 @@ def _layout_settings(layout: str, pal: dict):
 
 def _draw(newick_path, meta: dict, layout: str,
           show_scientific: bool = True, dark: bool = True,
-          use_scaled: bool = False):
+          use_scaled: bool = False,
+          show_all_clades: bool = False):
     pal = _DARK if dark else _LIGHT
-    s = _layout_settings(layout, pal)
+    s = _layout_settings(layout, pal, show_all_clades=show_all_clades)
     # When the caller asks to scale branches to time, load the MYA-scaled
     # sibling newick and let toytree honor branch lengths. That file carries
     # log10(1 + million-years) distances, so a deep split reads as a longer
@@ -850,7 +856,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
                 show_scientific: bool = True,
                 tree_name: str | None = None,
                 zoom: float = 0.85,
-                use_scaled: bool = False) -> str:
+                use_scaled: bool = False,
+                show_all_clades: bool = False) -> str:
     """Return interactive HTML on a dark panel for the dashboard.
 
     zoom: visual scaling factor applied via CSS transform. 1.0 = native
@@ -861,7 +868,8 @@ def render_html(newick_path, meta: dict, layout: str = "r",
     import toyplot.html
 
     canvas, _, _ = _draw(newick_path, meta, layout, show_scientific,
-                         dark=True, use_scaled=use_scaled)
+                         dark=True, use_scaled=use_scaled,
+                         show_all_clades=show_all_clades)
     html = toyplot.html.tostring(canvas).replace("meta: ", "")
     html = _two_line(html)
     bg = _DARK["bg"]
@@ -888,14 +896,16 @@ def render_files(newick_path, meta: dict, out_stem: str,
                  show_scientific: bool = True,
                  tree_name: str | None = None,
                  skip_footer: bool = False,
-                 use_scaled: bool = False) -> Path:
+                 use_scaled: bool = False,
+                 show_all_clades: bool = False) -> Path:
     """Save a still SVG (and PNG) on a warm light background for the kinship report."""
     import toyplot.svg
 
     out_dir = out_dir or config.OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     canvas, _, _ = _draw(newick_path, meta, layout, show_scientific,
-                         dark=False, use_scaled=use_scaled)
+                         dark=False, use_scaled=use_scaled,
+                         show_all_clades=show_all_clades)
 
     svg_path = out_dir / f"{out_stem}.svg"
     toyplot.svg.render(canvas, str(svg_path))

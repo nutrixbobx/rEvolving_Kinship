@@ -134,7 +134,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <button id="b-rect">Rectangular</button>
     <button id="b-fit">Fit</button>
     <span class="sep"></span>
-    <button id="b-clades">Clades: all</button>
+    <button id="b-clades" class="on">Clades: dated</button>
     <button id="b-expand">Open all clades</button>
     <button id="b-labels">Labels: on</button>
     <button id="b-reset">Reset</button>
@@ -174,7 +174,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   let mode = "radial";
   let showLabels = true;
-  let cladeMode = "all";   // all | dated | none
+  let cladeMode = "dated";   // all | dated | none  (start calm)
 
   function countLeaves(n){
     if(!n.children && !n._children) return 1;

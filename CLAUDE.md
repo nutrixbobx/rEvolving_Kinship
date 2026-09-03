@@ -41,6 +41,23 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session Z (declutter default trees + full-width layout, 2026-09-02):
+  - Trees start calm. `render._layout_settings` takes `show_all_clades`
+    (default False). Off, the unrooted and rectangular toyplot views draw
+    only the species and the DATED clades; undated internal nodes become
+    invisible pass-through dots with no label, so a six-species tree shows
+    two named clades, not five. `render._draw`, `render_html`, and
+    `render_files` thread the flag; a "Show every clade" checkbox on the
+    Dashboard turns the busy view back on. This walks back the everything-
+    at-once look Maya flagged (twenty circles on a four-species tree). The
+    interactive D3 tree now also opens in "Clades: dated".
+  - Full-width layout. `theme.py` capped `.block-container` at 1200px,
+    which boxed the app into roughly two thirds of a wide Chrome window
+    and squeezed the right-hand config column (which was crowding the
+    loading card). Cap is now min(1680px, 95vw) with wider side padding,
+    so the app uses the window and the config column has room.
+
+
 Session Y (drag-tree declutter + export, loader polish, 2026-09-02):
   - Interactive tree can hide clades now. Click a clade dot to collapse
     its branch (the dot grows, ringed in the label color, and reads
@@ -379,6 +396,9 @@ are expensive.
 - 2026-09-02: Session Y added clade collapse/hide and PNG/SVG export to
   the drag tree, and made the fun-fact loader auto-size so it stops
   clipping on desktop and mobile.
+- 2026-09-02: Session Z made the default trees show only species and
+  dated clades (with a Show every clade toggle) and widened the app out
+  of its 1200px box to use the window.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
