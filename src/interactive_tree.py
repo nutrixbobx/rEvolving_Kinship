@@ -2,15 +2,19 @@
 Draggable, rearrangeable tree.
 
 The toyplot views (unrooted / rectangular / circular) are fixed drawings.
-This one is a live D3 canvas the visitor can arrange by hand: drag any
-node to move it (dragging a clade carries its whole subtree along),
-switch between a rectangular and a radial layout, rotate a clade's
-children with a double-click, and pan / zoom the whole thing.
+This one is a live D3 canvas the visitor can arrange by hand:
+
+  - drag any node to move it (dragging a clade carries its whole subtree),
+  - click a clade to collapse or open its branch (declutter a busy tree),
+  - shift-click a clade to flip its children,
+  - dial the clade dots between all / dated only / none,
+  - switch a rectangular and a radial layout, pan, and zoom,
+  - export the current arrangement as PNG or SVG.
 
 It reads the same collapsed newick + node metadata the other renderers
 use, so a species is the same color and the same clade is dated the same
-way here as everywhere else. Nothing is saved: this is a play space for
-finding the arrangement someone wants to screenshot or print.
+way here as everywhere else. Nothing is saved server-side: this is a play
+space for finding an arrangement worth keeping.
 
 Public entry: `build_interactive_html(newick_path, meta, tree_name)`.
 Returns a self-contained HTML string for st.components.v1.html().
@@ -95,7 +99,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     font-family: Helvetica, Arial, sans-serif; }
   #wrap { position:relative; width:100%; height:%%HEIGHT%%px;
     background:%%BG%%; border-radius:10px; overflow:hidden; }
-  #bar { position:absolute; top:10px; left:10px; z-index:5;
+  #bar { position:absolute; top:10px; left:10px; right:10px; z-index:5;
     display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   #bar button {
     background:rgba(14,27,26,0.85); color:%%TIP%%;
@@ -104,8 +108,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
   #bar button:hover { border-color:%%LABEL%%; }
   #bar button.on { background:%%LABEL%%; color:#0e1b1a; border-color:%%LABEL%%;
     font-weight:600; }
-  #hint { position:absolute; bottom:10px; left:12px; z-index:5;
-    color:#7f978f; font-size:11.5px; max-width:60%; line-height:1.4; }
+  #bar .sep { width:1px; height:20px; background:#26403b; margin:0 2px; }
+  #hint { position:absolute; bottom:10px; left:12px; right:12px; z-index:5;
+    color:#7f978f; font-size:11.5px; line-height:1.4; }
   #tt { position:absolute; z-index:6; pointer-events:none; opacity:0;
     background:rgba(14,27,26,0.96); color:%%TIP%%; border:1px solid #26403b;
     border-radius:7px; padding:6px 9px; font-size:12px; max-width:240px;
@@ -116,6 +121,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .lbl { fill:%%TIP%%; font-size:12px; user-select:none; pointer-events:none; }
   .clbl { fill:%%LABEL%%; font-size:11px; user-select:none; pointer-events:none; }
   .edge { stroke:%%EDGE%%; stroke-width:1.7; fill:none; }
+  @media (max-width: 560px) {
+    #bar button { padding:5px 8px; font-size:11.5px; }
+    #hint { font-size:10.5px; }
+  }
 </style>
 </head>
 <body>
@@ -123,21 +132,33 @@ _TEMPLATE = r"""<!DOCTYPE html>
   <div id="bar">
     <button id="b-radial" class="on">Radial</button>
     <button id="b-rect">Rectangular</button>
-    <button id="b-reset">Reset layout</button>
-    <button id="b-fit">Fit view</button>
+    <button id="b-fit">Fit</button>
+    <span class="sep"></span>
+    <button id="b-clades">Clades: all</button>
+    <button id="b-expand">Open all clades</button>
     <button id="b-labels">Labels: on</button>
+    <button id="b-reset">Reset</button>
+    <span class="sep"></span>
+    <button id="b-png">Export PNG</button>
+    <button id="b-svg">Export SVG</button>
   </div>
   <div id="tt"></div>
-  <div id="hint">Drag a species to move it. Drag a clade dot to move that
-    whole branch. Double-click a clade to flip it. Scroll to zoom, drag the
+  <div id="hint">Drag to move. Click a clade dot to hide or open its
+    branch. Shift-click a clade to flip it. Scroll to zoom, drag the
     background to pan.</div>
   <svg id="svg"></svg>
 </div>
 <script>
 (function(){
   const DATA = %%DATA%%;
+  const BG = "%%BG%%";
   const C = { edge:"%%EDGE%%", leaf:"%%LEAF%%", dated:"%%DATED%%",
               plain:"%%PLAIN%%", tip:"%%TIP%%", label:"%%LABEL%%" };
+  // Style text baked into exports so a saved SVG/PNG looks like the canvas.
+  const STYLE_TEXT =
+    ".lbl{fill:"+C.tip+";font-size:12px;font-family:Helvetica,Arial,sans-serif;}"+
+    ".clbl{fill:"+C.label+";font-size:11px;font-family:Helvetica,Arial,sans-serif;}"+
+    ".edge{stroke:"+C.edge+";stroke-width:1.7;fill:none;}";
   const svg = d3.select("#svg");
   const wrap = document.getElementById("wrap");
   let W = wrap.clientWidth || 900, H = wrap.clientHeight || %%HEIGHT%%;
@@ -153,6 +174,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   let mode = "radial";
   let showLabels = true;
+  let cladeMode = "all";   // all | dated | none
+
+  function countLeaves(n){
+    if(!n.children && !n._children) return 1;
+    const kids = n.children || n._children || [];
+    return kids.reduce((s,k)=>s+countLeaves(k), 0);
+  }
 
   function layout(){
     if (mode === "rect"){
@@ -178,20 +206,31 @@ _TEMPLATE = r"""<!DOCTYPE html>
     }
   }
 
+  function isCollapsed(d){ return !!(d._children && !d.children); }
+  function cladeShown(d){
+    if (d.data.is_leaf) return true;
+    if (isCollapsed(d)) return true;      // the handle to reopen
+    if (cladeMode === "none") return false;
+    if (cladeMode === "dated") return !!d.data.dated;
+    return true;
+  }
   function nodeColor(d){
     if (d.data.is_leaf) return C.leaf;
     return d.data.dated ? C.dated : C.plain;
   }
   function nodeR(d){
     if (d.data.is_leaf) return 5;
-    return d.data.dated ? 7 : 5;
+    const base = d.data.dated ? 7 : 5;
+    return isCollapsed(d) ? base + 3 : base;
   }
   function labelText(d){
     if (d.data.is_leaf){
       return d.data.common ? d.data.common : d.data.sci;
     }
-    if (d.data.dated && d.data.mya != null) return d.data.clade + ", " + d.data.mya;
-    return d.data.clade || "";
+    let t = d.data.clade || "";
+    if (d.data.dated && d.data.mya != null) t += ", " + d.data.mya;
+    if (isCollapsed(d)) t += " (+" + countLeaves(d) + ")";
+    return t;
   }
 
   function drawEdges(){
@@ -212,64 +251,123 @@ _TEMPLATE = r"""<!DOCTYPE html>
     const all = ent.merge(sel);
     all.attr("transform", d => "translate("+d.cx+","+d.cy+")");
     all.select("circle")
-      .attr("r", nodeR)
+      .attr("r", d => (d.data.is_leaf || cladeShown(d)) ? nodeR(d) : 0)
       .attr("fill", nodeColor)
-      .attr("stroke", "#0e1b1a").attr("stroke-width", 1);
+      .attr("stroke", d => isCollapsed(d) ? C.label : "#0e1b1a")
+      .attr("stroke-width", d => isCollapsed(d) ? 2 : 1);
     all.select("text")
       .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
       .attr("x", d => nodeR(d)+5)
       .attr("y", 4)
       .style("display", d => {
-        if (!showLabels) return "none";
+        if (!showLabels && d.data.is_leaf) return "none";
         if (d.data.is_leaf) return null;
-        return (d.data.clade ? null : "none");
+        if (!cladeShown(d)) return "none";
+        return (d.data.clade || isCollapsed(d)) ? null : "none";
       })
       .text(labelText);
+
     all.on("mousemove", function(ev,d){
         const html = d.data.is_leaf
           ? "<b>"+(d.data.common||d.data.sci)+"</b><br><i>"+d.data.sci+"</i>"
           : "<b>"+(d.data.clade||"clade")+"</b>"+
-            (d.data.mya!=null ? "<br>"+d.data.mya+" million years since the last common ancestor" : "<br>age not set");
+            (d.data.mya!=null ? "<br>"+d.data.mya+" million years since the last common ancestor" : "<br>age not set")+
+            (d.data.is_leaf?"":"<br><span style='color:#9ab3ab'>click to "+(isCollapsed(d)?"open":"hide")+"</span>");
         tt.html(html).style("opacity",1);
         const r = wrap.getBoundingClientRect();
         tt.style("left", (ev.clientX - r.left + 12)+"px")
           .style("top", (ev.clientY - r.top + 12)+"px");
       })
-      .on("mouseleave", () => tt.style("opacity",0))
-      .on("dblclick", function(ev,d){
-        ev.stopPropagation();
-        if (d.data.is_leaf || !d.children) return;
-        d.children.reverse();
-        if (d.data.children) d.data.children.reverse();
-        layout(); drawEdges(); drawNodes();
-      });
+      .on("mouseleave", () => tt.style("opacity",0));
+
     all.call(d3.drag()
-      .on("start", function(ev){ ev.sourceEvent.stopPropagation(); })
+      .on("start", function(ev){ ev.sourceEvent.stopPropagation();
+        this.__dist = 0; })
       .on("drag", function(ev,d){
+        this.__dist += Math.abs(ev.dx) + Math.abs(ev.dy);
         const set = d.descendants();
         set.forEach(n => { n.cx += ev.dx; n.cy += ev.dy; });
         gNodes.selectAll("g.node")
           .attr("transform", x => "translate("+x.cx+","+x.cy+")");
         drawEdges();
+      })
+      .on("end", function(ev,d){
+        if (this.__dist > 3) return;      // a real drag, not a click
+        if (d.data.is_leaf) return;
+        if (ev.sourceEvent && ev.sourceEvent.shiftKey){
+          // flip children order
+          if (d.children){ d.children.reverse(); if(d.data.children) d.data.children.reverse(); }
+        } else {
+          // collapse / open
+          if (d.children){ d._children = d.children; d.children = null; }
+          else if (d._children){ d.children = d._children; d._children = null; }
+        }
+        layout(); drawEdges(); drawNodes();
+        tt.style("opacity",0);
       }));
     sel.exit().remove();
   }
 
   function render(){ layout(); drawEdges(); drawNodes(); }
 
-  const zoom = d3.zoom().scaleExtent([0.2, 6])
+  const zoom = d3.zoom().scaleExtent([0.15, 6])
     .on("zoom", ev => viewport.attr("transform", ev.transform));
   svg.call(zoom);
 
-  function fit(){
+  function fitTransform(){
     const xs = root.descendants().map(d=>d.cx), ys = root.descendants().map(d=>d.cy);
     const x0=Math.min.apply(null,xs), x1=Math.max.apply(null,xs);
     const y0=Math.min.apply(null,ys), y1=Math.max.apply(null,ys);
     const bw=Math.max(1,x1-x0), bh=Math.max(1,y1-y0);
     const k=Math.min(6, 0.9*Math.min(W/bw, H/bh));
     const tx=W/2 - k*(x0+x1)/2, ty=H/2 - k*(y0+y1)/2;
-    svg.transition().duration(400)
-       .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(k));
+    return d3.zoomIdentity.translate(tx,ty).scale(k);
+  }
+  function fit(animate){
+    const t = fitTransform();
+    if (animate === false) svg.call(zoom.transform, t);
+    else svg.transition().duration(400).call(zoom.transform, t);
+  }
+
+  function download(blob, name){
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function exportImg(asPng){
+    fit(false);   // frame everything first
+    const NS = "http://www.w3.org/2000/svg";
+    const clone = svg.node().cloneNode(true);
+    clone.setAttribute("xmlns", NS);
+    clone.setAttribute("width", W);
+    clone.setAttribute("height", H);
+    const bg = document.createElementNS(NS, "rect");
+    bg.setAttribute("x",0); bg.setAttribute("y",0);
+    bg.setAttribute("width",W); bg.setAttribute("height",H);
+    bg.setAttribute("fill", BG);
+    clone.insertBefore(bg, clone.firstChild);
+    const styleEl = document.createElementNS(NS, "style");
+    styleEl.textContent = STYLE_TEXT;
+    clone.insertBefore(styleEl, clone.firstChild);
+    const src = new XMLSerializer().serializeToString(clone);
+    if (!asPng){
+      download(new Blob([src], {type:"image/svg+xml;charset=utf-8"}),
+               "kinship_tree.svg");
+      return;
+    }
+    const img = new Image();
+    img.onload = function(){
+      const c = document.createElement("canvas");
+      c.width = W*2; c.height = H*2;
+      const ctx = c.getContext("2d");
+      ctx.setTransform(2,0,0,2,0,0);
+      ctx.drawImage(img, 0, 0);
+      c.toBlob(function(b){ download(b, "kinship_tree.png"); });
+    };
+    img.onerror = function(){ alert("Could not rasterize. Try Export SVG."); };
+    img.src = "data:image/svg+xml;base64," +
+      btoa(unescape(encodeURIComponent(src)));
   }
 
   function setMode(m){
@@ -280,20 +378,32 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
   document.getElementById("b-radial").onclick = () => setMode("radial");
   document.getElementById("b-rect").onclick = () => setMode("rect");
-  document.getElementById("b-reset").onclick = () => { render(); fit(); };
   document.getElementById("b-fit").onclick = () => fit();
+  document.getElementById("b-reset").onclick = () => { render(); fit(); };
+  document.getElementById("b-clades").onclick = function(){
+    cladeMode = cladeMode==="all" ? "dated" : (cladeMode==="dated" ? "none" : "all");
+    this.textContent = "Clades: " + cladeMode;
+    this.classList.toggle("on", cladeMode !== "all");
+    drawNodes();
+  };
+  document.getElementById("b-expand").onclick = function(){
+    root.each(d => { if (d._children){ d.children = d._children; d._children = null; } });
+    render(); fit();
+  };
   document.getElementById("b-labels").onclick = function(){
     showLabels = !showLabels;
     this.textContent = "Labels: " + (showLabels ? "on":"off");
     drawNodes();
   };
+  document.getElementById("b-png").onclick = () => exportImg(true);
+  document.getElementById("b-svg").onclick = () => exportImg(false);
 
   window.addEventListener("resize", () => {
     W = wrap.clientWidth || W; H = wrap.clientHeight || H;
-    svg.attr("viewBox",[0,0,W,H]); render(); fit();
+    svg.attr("viewBox",[0,0,W,H]); render(); fit(false);
   });
 
-  render(); fit();
+  render(); fit(false);
 })();
 </script>
 </body>

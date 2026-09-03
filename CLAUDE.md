@@ -41,6 +41,26 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session Y (drag-tree declutter + export, loader polish, 2026-09-02):
+  - Interactive tree can hide clades now. Click a clade dot to collapse
+    its branch (the dot grows, ringed in the label color, and reads
+    "clade (+N)"); click again to open it. A "Clades" button cycles the
+    dots between all, dated only, and none. "Open all clades" restores
+    everything. Shift-click a clade still flips its children; the old
+    double-click flip was replaced by click-to-collapse with a drag-vs-
+    click threshold so dragging never collapses by accident.
+  - Interactive tree exports. "Export PNG" and "Export SVG" buttons save
+    exactly what is on the canvas, with the arrangement, the dark
+    background, and the styles baked in. All client-side. Verified the
+    SVG serialization carries the current clade filter (jsdom).
+  - Loader no longer clips. Both fun-fact cards in `src/loading.py` now
+    auto-size their component iframe to content via window.frameElement
+    plus a ResizeObserver, with a responsive style block for narrow
+    screens and a smaller header on the first-visit gate. The fixed
+    heights stay as a floor. This is the real fix for the clipping that
+    the taller-iframe patch in Session X only softened.
+
+
 Session X (drag tree, CARTO key, loader clip, 2026-09-02):
   - New draggable tree: `src/interactive_tree.py` builds a self-contained
     D3 canvas from the collapsed newick + node metadata. Drag any node to
@@ -356,6 +376,9 @@ are expensive.
 - 2026-09-02: Session X added the draggable D3 tree, the CARTO API key
   wiring, the light-blue annotation outline map, and the fun-fact
   loader clip fix.
+- 2026-09-02: Session Y added clade collapse/hide and PNG/SVG export to
+  the drag tree, and made the fun-fact loader auto-size so it stops
+  clipping on desktop and mobile.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

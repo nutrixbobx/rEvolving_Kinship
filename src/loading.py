@@ -120,6 +120,12 @@ def spinner_with_tip(message: str):
         import secrets as _secrets
         cid = "kn-tip-" + _secrets.token_hex(3)
         card_html = f"""
+<style>
+  html,body {{ margin:0; padding:0; }}
+  @media (max-width: 480px) {{
+    #{cid}-card {{ padding:12px 14px !important; font-size:13px !important; }}
+  }}
+</style>
 <div id="{cid}-card" style="
     background: #4a0030;
     border-left: 4px solid #cfd78c;
@@ -220,6 +226,15 @@ def spinner_with_tip(message: str):
         pauseUntil = Date.now() + 12000;
         prevFact();
     }});
+    function _fit() {{
+        try {{
+            var h = Math.ceil(document.documentElement.scrollHeight);
+            if (window.frameElement) window.frameElement.style.height = (h + 4) + "px";
+        }} catch (e) {{}}
+    }}
+    if (window.ResizeObserver) new ResizeObserver(_fit).observe(document.body);
+    window.addEventListener("resize", _fit);
+    setTimeout(_fit, 30); setTimeout(_fit, 320);
     scheduleAuto();
 }})();
 </script>
@@ -333,7 +348,13 @@ def render_loading_gate_if_needed() -> bool:
     # Header block via markdown (safe: no scripts)
     st.markdown(
         """
-<div style="
+<style>
+  @media (max-width: 480px) {
+    .kn-load-head { padding:22px 18px 14px 18px !important; margin-top:3vh !important; }
+    .kn-load-head h1 { font-size:27px !important; }
+  }
+</style>
+<div class="kn-load-head" style="
     max-width:720px; margin:6vh auto 0 auto;
     padding:36px 40px 20px 40px; text-align:center;
     background:rgba(0,0,0,0.22); border-radius:14px 14px 0 0;
@@ -366,8 +387,14 @@ def render_loading_gate_if_needed() -> bool:
     import secrets as _secrets
     cid = "kn-ncbi-" + _secrets.token_hex(3)
     tip_html = f"""
+<style>
+  html,body {{ margin:0; padding:0; }}
+  @media (max-width: 480px) {{
+    #{cid}-card {{ padding:16px 18px 20px 18px !important; font-size:14px !important; }}
+  }}
+</style>
 <div style="max-width:720px; margin:0 auto;">
-  <div style="
+  <div id="{cid}-card" style="
       background:#4a0030; border-radius:0 0 14px 14px;
       padding:22px 40px 28px 40px;
       color:#f4ecdc; font-size:15px; line-height:1.55;
@@ -445,6 +472,15 @@ def render_loading_gate_if_needed() -> bool:
         if (Date.now() < pauseUntil) return;
         nextFact();
     }}, {int(ROTATION_SECONDS * 1000)});
+    function _fit() {{
+        try {{
+            var h = Math.ceil(document.documentElement.scrollHeight);
+            if (window.frameElement) window.frameElement.style.height = (h + 4) + "px";
+        }} catch (e) {{}}
+    }}
+    if (window.ResizeObserver) new ResizeObserver(_fit).observe(document.body);
+    window.addEventListener("resize", _fit);
+    setTimeout(_fit, 30); setTimeout(_fit, 320);
 }})();
 </script>
 """
