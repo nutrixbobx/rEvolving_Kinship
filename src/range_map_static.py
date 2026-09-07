@@ -234,7 +234,9 @@ def _species_legend_strip(mapped: list[dict], width: int,
         font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except Exception:
-        font = ImageFont.load_default()
+        from src import env_setup
+        _fp = env_setup.bundled_font_path()
+        font = ImageFont.truetype(_fp, 13) if _fp else ImageFont.load_default()
     for i, sp in enumerate(mapped):
         y = pad + i * row_h + row_h // 2
         color = sp.get("color", "#ff2a1a")
@@ -324,8 +326,10 @@ def build_range_map(tree_name: str,
         sub_font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except Exception:
-        title_font = ImageFont.load_default()
-        sub_font = ImageFont.load_default()
+        from src import env_setup
+        _fp = env_setup.bundled_font_path()
+        title_font = ImageFont.truetype(_fp, 22) if _fp else ImageFont.load_default()
+        sub_font = ImageFont.truetype(_fp, 13) if _fp else ImageFont.load_default()
 
     # Crop blank Antarctica so it doesn't eat a quarter of the drawing.
     ANTARCTIC_CROP = int(CANVAS_H * 0.22)

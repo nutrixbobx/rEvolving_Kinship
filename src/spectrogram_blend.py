@@ -36,6 +36,7 @@ def _spec_for_audio(audio_path: Path) -> Path | None:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import librosa
+        from src import env_setup; env_setup.ensure_ffmpeg()
         import numpy as np
         y, sr = librosa.load(str(audio_path), sr=None, mono=True, duration=8.0)
         if len(y) == 0:

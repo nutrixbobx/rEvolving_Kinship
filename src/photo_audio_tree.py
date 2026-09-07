@@ -45,6 +45,8 @@ def _spec_png(audio_path: Path) -> Path | None:
         import matplotlib.pyplot as plt
         import librosa
         import numpy as np
+        from src import env_setup
+        env_setup.ensure_ffmpeg()
         y, sr = librosa.load(str(audio_path), sr=None, mono=True,
                               duration=8.0)
         if len(y) == 0:
@@ -100,6 +102,9 @@ def build_photo_audio_tree(tree_name: str,
     empty cell instead)."""
     import matplotlib
     matplotlib.use("Agg")
+    from src import env_setup
+    env_setup.register_matplotlib_fonts()
+    env_setup.ensure_ffmpeg()
     import matplotlib.pyplot as plt
     import matplotlib.image as mpimg
 

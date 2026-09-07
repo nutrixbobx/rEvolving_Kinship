@@ -41,6 +41,31 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AA (drop apt, restore ffmpeg + fonts via pip/bundle, 2026-09-02):
+  - Deploys stopped depending on apt. Streamlit Cloud was failing the
+    build on an expired Debian mirror Release file, and that step only
+    ran because packages.txt existed. packages.txt is removed from the
+    repo, so no more apt, no more mirror-breakage deploy failures.
+  - The two things apt used to give us are back without it, in the new
+    `src/env_setup.py` (both helpers idempotent):
+      - ffmpeg for mp3 decoding, via the imageio-ffmpeg pip wheel (a
+        static binary). `ensure_ffmpeg()` puts it on PATH as "ffmpeg" so
+        librosa and audioread find it. Called at app startup and before
+        every librosa.load (audio_blend, spectrogram_blend, meditation,
+        photo_audio_tree).
+      - fonts for non-Latin names in generated images and the PDF. Noto
+        Sans and Noto Sans Armenian are bundled under assets/fonts and
+        registered with matplotlib, which falls back per glyph. DejaVu
+        still covers Latin, Greek, and Cyrillic; Noto Sans Armenian fills
+        the collective's actual gap. `register_matplotlib_fonts()` runs
+        at startup and in image_tree / photo_audio_tree; range_map_static
+        falls back to the bundled font if the system DejaVu is missing.
+        Verified Armenian, Cyrillic, and Greek all render, no boxes.
+  - Note: full CJK glyphs in generated images would still need the large
+    Noto CJK font, which is not bundled (the collective's data is Latin
+    plus Armenian). Easy to add if CJK names show up.
+
+
 Session Z (declutter default trees + full-width layout, 2026-09-02):
   - Trees start calm. `render._layout_settings` takes `show_all_clades`
     (default False). Off, the unrooted and rectangular toyplot views draw
@@ -399,6 +424,9 @@ are expensive.
 - 2026-09-02: Session Z made the default trees show only species and
   dated clades (with a Show every clade toggle) and widened the app out
   of its 1200px box to use the window.
+- 2026-09-02: Session AA dropped packages.txt so deploys skip apt, and
+  restored ffmpeg (imageio-ffmpeg pip wheel) and non-Latin fonts (bundled
+  Noto, registered with matplotlib) that apt used to provide.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

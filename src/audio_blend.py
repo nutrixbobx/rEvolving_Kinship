@@ -24,6 +24,7 @@ SECONDS = 6.0
 def _load_loudest_window(path: Path, seconds: float = SECONDS) -> np.ndarray:
     """Decode the file to mono and return the loudest seconds-long window."""
     import librosa
+    from src import env_setup; env_setup.ensure_ffmpeg()
     from src.species_audio import ensure_wav
     y, _ = librosa.load(str(ensure_wav(path)), sr=SR, mono=True, duration=20.0)
     win = int(SR * seconds)

@@ -103,6 +103,7 @@ def _loop_xfade(audio: np.ndarray, target_n: int,
 def _extract_snippets(audio_path, n: int = 2, seconds: float = 4.5) -> list:
     """Return up to n non-overlapping high-energy snippets from a source file."""
     import librosa
+    from src import env_setup; env_setup.ensure_ffmpeg()
     y, _ = librosa.load(str(audio_path), sr=SR, mono=True, duration=60.0)
     win = int(seconds * SR)
     if len(y) < win:

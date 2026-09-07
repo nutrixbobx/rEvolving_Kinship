@@ -295,6 +295,8 @@ def _draw_legend(fig):
 def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
     import matplotlib
     matplotlib.use("Agg")
+    from src import env_setup
+    env_setup.register_matplotlib_fonts()
     import matplotlib.pyplot as plt
     import matplotlib.image as mpimg
     from src import render, species_profile

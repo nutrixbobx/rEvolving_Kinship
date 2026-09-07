@@ -51,6 +51,13 @@ from src.credits import format_credit  # noqa: E402
 from src import profile  # noqa: E402
 from src import ai_blurb  # noqa: E402
 from src import usage_log  # noqa: E402
+from src import env_setup  # noqa: E402
+
+# Restore what packages.txt used to install via apt, now from pip + bundled
+# files: ffmpeg on PATH for mp3 decoding, and the Noto fonts registered with
+# matplotlib so non-Latin names don't render as boxes. Both are idempotent.
+env_setup.ensure_ffmpeg()
+env_setup.register_matplotlib_fonts()
 
 st.set_page_config(
     page_title="{r}Evolving Kinship",

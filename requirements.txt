@@ -27,6 +27,9 @@ soundfile>=0.12
 
 # Audio chorus + spectrogram sound kinship tree
 librosa>=0.10
+# ffmpeg for decoding mp3 recordings, bundled as a pip wheel so we don't
+# need the apt ffmpeg (dropped packages.txt to avoid Debian mirror breakage).
+imageio-ffmpeg>=0.5
 matplotlib>=3.7
 
 # Request station + dashboard
