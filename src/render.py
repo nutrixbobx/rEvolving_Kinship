@@ -144,12 +144,30 @@ def _collapse_unary(newick_path, dated: set) -> str:
     return t.write(format=1, format_root_node=True)
 
 
+def _prune_ancestral_spine(nwk_str: str) -> str:
+    """Return the subtree rooted at the tree's last common ancestor, the
+    first node (descending from the root) that actually branches. Drops the
+    long unary ladder of deep, higher-order ancestral clades above it, which
+    is what crams the circular view and buries a small tree under a dozen
+    ancestors. Callers use this for the default view; 'show every clade'
+    keeps the full spine."""
+    from ete3 import Tree
+    t = Tree(nwk_str, format=1)
+    node = t
+    while len(node.children) == 1:
+        node = node.children[0]
+    if node is t or not node.children:
+        return nwk_str
+    return node.write(format=1, format_root_node=True)
+
+
 def _prepare(newick_path, meta: dict, pal: dict, *,
              collapse: bool, plain_visible: bool, show_dated_labels: bool,
              show_undated_labels: bool = True,
              show_scientific: bool = True,
              layout: str = "r",
-             use_scaled: bool = False):
+             use_scaled: bool = False,
+             prune_spine: bool = False):
     """Build the toytree object plus the idx-ordered style lists. The flags let
     each layout (rectangular / unrooted / circular) choose how dense to draw.
     """
@@ -160,6 +178,8 @@ def _prepare(newick_path, meta: dict, pal: dict, *,
     resolved_nwk = _resolve_newick_path(newick_path, use_scaled=use_scaled)
     nwk_str = (_collapse_unary(resolved_nwk, dated) if collapse
                else Path(resolved_nwk).read_text())
+    if prune_spine:
+        nwk_str = _prune_ancestral_spine(nwk_str)
     tre = toytree.tree(nwk_str)
     nnodes = tre.nnodes
 
@@ -226,12 +246,15 @@ def _layout_settings(layout: str, pal: dict, show_all_clades: bool = False):
     instead of twenty circles crowding a four-species tree. Flip it on to
     see every internal node again."""
     if layout == "c":
-        # Keep the full chain so the radial layout has structure to spread.
+        # Collapse the unary chain and (by default) prune the deep ancestral
+        # ladder so the radial view breathes instead of cramming a dozen
+        # ancestors into the middle. More padding, less shrink, opens it up.
         side = max(pal["w"], pal["h"])
         return dict(
-            collapse=False, plain_visible=False, show_dated_labels=False,
+            collapse=True, plain_visible=show_all_clades, show_dated_labels=True,
+            show_undated_labels=show_all_clades,
             align=True, use_edges=False, edge_type="c",
-            w=side, h=side, padding=30, shrink=90,
+            w=side, h=side, padding=55, shrink=45,
         )
     if layout == "unrooted":
         side = max(pal["w"], pal["h"])
@@ -271,6 +294,7 @@ def _draw(newick_path, meta: dict, layout: str,
         layout=layout,
         show_scientific=show_scientific,
         use_scaled=draw_scaled,
+        prune_spine=not show_all_clades,
     )
     # A time-scaled rectangular tree should not pull tip labels onto a
     # shared right edge, or the branch-length signal hides behind the

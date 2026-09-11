@@ -41,6 +41,29 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AC (prune the deep spine + interactive polish, 2026-09-11):
+  - The default toyplot views now prune the ancestral ladder above the
+    tree's last common ancestor. `render._prune_ancestral_spine` returns
+    the subtree at the first branching node, so a marigold tree shows
+    Asteraceae plus its species instead of fifteen deep-time ancestors
+    stacked toward the middle. "Show every clade" turns the full spine to
+    root back on. This is what finally opens up the circular view (which
+    also now collapses its unary chain and uses more padding, less shrink)
+    and spreads the unrooted tips instead of clustering them.
+  - Interactive tree:
+      - Hiding/showing clades, toggling labels, and focusing a clade no
+        longer reset a tree you have arranged. A `manuallyMoved` flag: once
+        you drag anything, focus keeps your positions and zoom instead of
+        reflowing and refitting. Density and label toggles were already
+        draw-only; the focus path is the one that used to yank the camera.
+      - "To LCA" button jumps straight to the last common ancestor, hiding
+        the whole deep ladder in one press. "Whole tree" restores it.
+      - Species photos are 20% larger (34px).
+      - PNG export now embeds each photo as a data URL first (fetch ->
+        blob -> dataURL), so exported images no longer break; external
+        hrefs were tainting the canvas. SVG export embeds them too.
+
+
 Session AB (layout harmony + interactive tree fixes, 2026-09-11):
   - Deep-time scaling now defaults OFF. With it on, a marigold tree (root
     at 4290 mya, genus splits near 50 mya) crushed all five tips into one
@@ -455,6 +478,10 @@ are expensive.
   layouts, wired the scientific-names + labels toggles into the drag
   tree, reversed clade-click to focus/hide-ancestors, and added optional
   draggable species photos.
+- 2026-09-11: Session AC pruned the deep ancestral spine from the default
+  tree views (Show every clade restores it), opened the circular layout,
+  and polished the drag tree (preserve arrangement on toggle/focus, To
+  LCA button, bigger photos, embedded-image PNG export).
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

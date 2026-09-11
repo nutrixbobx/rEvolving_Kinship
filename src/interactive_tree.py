@@ -1,23 +1,22 @@
 """
 Draggable, rearrangeable tree.
 
-The toyplot views (unrooted / rectangular / circular) are fixed drawings.
-This one is a live D3 canvas the visitor can arrange by hand:
+A live D3 canvas the visitor can arrange by hand:
 
   - drag any node to move it (dragging a clade carries its subtree),
-  - click a clade to focus on it and hide the deeper ancestors above it
-    (the long deep-time ladder), so a five-species tree isn't buried under
-    fifteen ancestral clades; click the focused clade again to step back
-    out, or press "Whole tree" to restore everything,
+  - click a clade to focus on it and hide the deeper ancestors above it,
+  - "To LCA" jumps to the tree's last common ancestor, hiding the whole
+    deep-time ladder above it in one press,
+  - click the focused top clade again, or "Whole tree", to step back,
   - shift-click a clade to flip its children,
   - dial the clade dots between all / dated only / none,
   - turn labels (species AND clades) on or off together,
   - optionally show a photo beside each species, which travels with it,
   - switch a rectangular and a radial layout, pan, zoom,
-  - export the current arrangement as PNG or SVG.
+  - export the current arrangement as PNG or SVG (photos embedded).
 
-It reads the same collapsed newick + node metadata the other renderers use.
-Nothing is saved server-side: this is a play space.
+Toggling visibility or focusing keeps the arrangement and zoom you set;
+only the layout buttons and the first, untouched render reframe the tree.
 
 Public entry: `build_interactive_html(newick_path, meta, tree_name, ...)`.
 """
@@ -38,7 +37,6 @@ LABEL = "#ffd97a"
 
 
 def _hierarchy(newick_path, meta: dict) -> dict:
-    """Nested dict for d3.hierarchy, from the collapsed newick."""
     from ete3 import Tree
     from src import render
 
@@ -70,12 +68,7 @@ def build_interactive_html(newick_path, meta: dict,
                            height: int = 720,
                            show_scientific: bool = True,
                            photos: dict | None = None) -> str:
-    """Self-contained draggable tree page for components.html().
-
-    show_scientific: mirror the dashboard checkbox. On, leaf labels read
-    "common name (Scientific name)"; off, just the common name.
-    photos: optional {scientific_name: image_url}. When given, a thumbnail
-    rides beside each matching species and moves with it."""
+    """Self-contained draggable tree page for components.html()."""
     data = _hierarchy(newick_path, meta)
     tokens = {
         "%%DATA%%": json.dumps(data),
@@ -141,15 +134,16 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <span class="sep"></span>
     <button id="b-clades">Clades: dated</button>
     <button id="b-labels">Labels: on</button>
+    <button id="b-lca">To LCA</button>
     <button id="b-whole">Whole tree</button>
     <span class="sep"></span>
     <button id="b-png">Export PNG</button>
     <button id="b-svg">Export SVG</button>
   </div>
   <div id="tt"></div>
-  <div id="hint">Click a clade to focus on it and hide the deeper ancestors.
-    Click the top clade again to step back out. Shift-click a clade to flip
-    it. Drag to move, scroll to zoom.</div>
+  <div id="hint">Click a clade to focus and hide the deeper ancestors.
+    "To LCA" jumps to the last common ancestor. Shift-click a clade to flip
+    it. Drag to move, scroll to zoom. Toggles keep your arrangement.</div>
   <svg id="svg"></svg>
 </div>
 <script>
@@ -165,6 +159,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     ".clbl{fill:"+C.label+";font-size:11px;font-family:Helvetica,Arial,sans-serif;}"+
     ".edge{stroke:"+C.edge+";stroke-width:1.7;fill:none;}";
   const HAS_PHOTOS = Object.keys(PHOTOS).length > 0;
+  const PHOTO_SIZE = 34;   // was 28; 20% larger per request
   const svg = d3.select("#svg");
   const wrap = document.getElementById("wrap");
   let W = wrap.clientWidth || 900, H = wrap.clientHeight || %%HEIGHT%%;
@@ -178,10 +173,19 @@ _TEMPLATE = r"""<!DOCTYPE html>
   let idc = 0;
   root.each(d => { d.cx = 0; d.cy = 0; d.__id = idc++; });
 
-  let displayRoot = root;   // re-rooting hides ancestors above this node
+  let displayRoot = root;
   let mode = "radial";
   let showLabels = true;
-  let cladeMode = "dated";  // all | dated | none
+  let cladeMode = "dated";
+  let manuallyMoved = false;   // once true, we stop reflowing on focus
+
+  // Last common ancestor of all leaves: descend from the true root while
+  // there is only one child, i.e. the top of the branching part of the tree.
+  function lca(){
+    let n = root;
+    while (n.children && n.children.length === 1) n = n.children[0];
+    return n;
+  }
 
   function layout(){
     const R0 = displayRoot;
@@ -235,7 +239,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     return t;
   }
   function labelX(d){
-    if (hasPhoto(d)) return nodeR(d) + 6 + 34;
+    if (hasPhoto(d)) return nodeR(d) + 6 + PHOTO_SIZE + 4;
     return nodeR(d) + 6;
   }
 
@@ -254,9 +258,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     const ent = sel.enter().append("g").attr("class","node");
     ent.append("circle");
     ent.each(function(d){
-      if (d.data.is_leaf && HAS_PHOTOS){
-        d3.select(this).append("image").attr("class","photo");
-      }
+      if (d.data.is_leaf && HAS_PHOTOS) d3.select(this).append("image").attr("class","photo");
     });
     ent.append("text");
     const all = ent.merge(sel);
@@ -269,14 +271,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
     all.select("image.photo")
       .attr("href", d => PHOTOS[d.data.sci] || "")
       .attr("x", d => nodeR(d) + 6)
-      .attr("y", -14)
-      .attr("width", 28).attr("height", 28)
+      .attr("y", -PHOTO_SIZE/2)
+      .attr("width", PHOTO_SIZE).attr("height", PHOTO_SIZE)
       .attr("preserveAspectRatio", "xMidYMid slice")
       .style("display", d => hasPhoto(d) ? null : "none");
     all.select("text")
       .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
-      .attr("x", labelX)
-      .attr("y", 4)
+      .attr("x", labelX).attr("y", 4)
       .style("display", d => {
         if (!showLabels) return "none";
         if (d.data.is_leaf) return null;
@@ -300,10 +301,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .on("mouseleave", () => tt.style("opacity",0));
 
     all.call(d3.drag()
-      .on("start", function(ev){ ev.sourceEvent.stopPropagation();
-        this.__dist = 0; })
+      .on("start", function(ev){ ev.sourceEvent.stopPropagation(); this.__dist = 0; })
       .on("drag", function(ev,d){
         this.__dist += Math.abs(ev.dx) + Math.abs(ev.dy);
+        if (this.__dist > 3) manuallyMoved = true;
         const set = d.descendants();
         set.forEach(n => { n.cx += ev.dx; n.cy += ev.dy; });
         gNodes.selectAll("g.node")
@@ -311,20 +312,32 @@ _TEMPLATE = r"""<!DOCTYPE html>
         drawEdges();
       })
       .on("end", function(ev,d){
-        if (this.__dist > 3) return;      // a real drag, not a click
+        if (this.__dist > 3) return;
         if (d.data.is_leaf) return;
         if (ev.sourceEvent && ev.sourceEvent.shiftKey){
           if (d.children){ d.children.reverse();
             if(d.data.children) d.data.children.reverse(); }
         } else if (d === displayRoot){
-          displayRoot = d.parent || root;   // step back out
+          setFocus(d.parent || root);
+          return;
         } else {
-          displayRoot = d;                  // focus: hide ancestors
+          setFocus(d);
+          return;
         }
-        layout(); drawEdges(); drawNodes();
-        tt.style("opacity",0);
+        // flip only: reflow just this subtree if untouched, else keep
+        if (!manuallyMoved) layout();
+        drawEdges(); drawNodes(); tt.style("opacity",0);
       }));
     sel.exit().remove();
+  }
+
+  // Change the visible subtree. Keep the user's arrangement + zoom when
+  // they have moved things; reflow + reframe only for an untouched tree.
+  function setFocus(node){
+    displayRoot = node;
+    if (!manuallyMoved){ layout(); drawEdges(); drawNodes(); fit(); }
+    else { drawEdges(); drawNodes(); }
+    tt.style("opacity",0);
   }
 
   function render(){ layout(); drawEdges(); drawNodes(); }
@@ -351,16 +364,40 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   function download(blob, name){
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
+    a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
   }
-  function exportImg(asPng){
+  async function dataUrlMap(){
+    // Fetch each photo once and turn it into a data URL so it survives
+    // being drawn into a canvas (external hrefs break the raster).
+    const map = {};
+    const urls = [...new Set(Object.values(PHOTOS))];
+    await Promise.all(urls.map(async u => {
+      try {
+        const r = await fetch(u, {mode:"cors"});
+        const b = await r.blob();
+        map[u] = await new Promise(res => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.readAsDataURL(b);
+        });
+      } catch(e) { /* leave external; may not rasterize */ }
+    }));
+    return map;
+  }
+  async function exportImg(asPng){
     fit(false);
     const NS = "http://www.w3.org/2000/svg";
     const clone = svg.node().cloneNode(true);
     clone.setAttribute("xmlns", NS);
     clone.setAttribute("width", W); clone.setAttribute("height", H);
+    if (HAS_PHOTOS){
+      const map = await dataUrlMap();
+      clone.querySelectorAll("image").forEach(im => {
+        const h = im.getAttribute("href") || im.getAttributeNS("http://www.w3.org/1999/xlink","href");
+        if (h && map[h]){ im.setAttribute("href", map[h]); }
+      });
+    }
     const bg = document.createElementNS(NS, "rect");
     bg.setAttribute("x",0); bg.setAttribute("y",0);
     bg.setAttribute("width",W); bg.setAttribute("height",H);
@@ -371,8 +408,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     clone.insertBefore(styleEl, clone.firstChild);
     const src = new XMLSerializer().serializeToString(clone);
     if (!asPng){
-      download(new Blob([src], {type:"image/svg+xml;charset=utf-8"}),
-               "kinship_tree.svg");
+      download(new Blob([src], {type:"image/svg+xml;charset=utf-8"}), "kinship_tree.svg");
       return;
     }
     const img = new Image();
@@ -383,15 +419,14 @@ _TEMPLATE = r"""<!DOCTYPE html>
       ctx.setTransform(2,0,0,2,0,0);
       ctx.drawImage(img, 0, 0);
       try { c.toBlob(function(b){ download(b, "kinship_tree.png"); }); }
-      catch(e){ alert("Photos block PNG export (browser security). Use Export SVG."); }
+      catch(e){ alert("A photo could not be embedded (its host blocks it). Use Export SVG."); }
     };
     img.onerror = function(){ alert("Could not rasterize. Try Export SVG."); };
-    img.src = "data:image/svg+xml;base64," +
-      btoa(unescape(encodeURIComponent(src)));
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(src)));
   }
 
   function setMode(m){
-    mode = m;
+    mode = m; manuallyMoved = false;
     d3.select("#b-radial").classed("on", m==="radial");
     d3.select("#b-rect").classed("on", m==="rect");
     render(); fit();
@@ -403,23 +438,26 @@ _TEMPLATE = r"""<!DOCTYPE html>
     cladeMode = cladeMode==="all" ? "dated" : (cladeMode==="dated" ? "none" : "all");
     this.textContent = "Clades: " + cladeMode;
     this.classList.toggle("on", cladeMode !== "all");
-    drawNodes();
+    drawNodes();   // visibility only, no reflow
   };
   document.getElementById("b-labels").onclick = function(){
     showLabels = !showLabels;
     this.textContent = "Labels: " + (showLabels ? "on":"off");
     this.classList.toggle("on", !showLabels);
-    drawNodes();
+    drawNodes();   // visibility only, no reflow
+  };
+  document.getElementById("b-lca").onclick = function(){
+    manuallyMoved = false; setFocus(lca());
   };
   document.getElementById("b-whole").onclick = function(){
-    displayRoot = root; render(); fit();
+    manuallyMoved = false; setFocus(root);
   };
   document.getElementById("b-png").onclick = () => exportImg(true);
   document.getElementById("b-svg").onclick = () => exportImg(false);
 
   window.addEventListener("resize", () => {
     W = wrap.clientWidth || W; H = wrap.clientHeight || H;
-    svg.attr("viewBox",[0,0,W,H]); render(); fit(false);
+    svg.attr("viewBox",[0,0,W,H]); manuallyMoved = false; render(); fit(false);
   });
 
   render(); fit(false);
