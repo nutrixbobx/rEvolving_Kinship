@@ -639,7 +639,7 @@ if active_tab == "Dashboard":
                      "whole tree around a center.")
             _can_scale = layout_name in ("Unrooted", "Rectangular")
             scale_time = st.checkbox(
-                "Scale branches to deep time (MYA)", value=True,
+                "Scale branches to deep time (MYA)", value=False,
                 disabled=not _can_scale,
                 key=f"scale_time_{pick_tree}",
                 help="Stretch every branch to its real length in millions "
@@ -664,6 +664,13 @@ if active_tab == "Dashboard":
                      "it, switch radial or rectangular, and zoom. Nothing "
                      "is saved: it is a space to find an arrangement worth "
                      "a screenshot.")
+            drag_photos = st.checkbox(
+                "Photos on the drag tree", value=False,
+                disabled=not drag_mode,
+                key=f"dragphotos_{pick_tree}",
+                help="Show a small photo beside each species in the "
+                     "interactive canvas. It travels with the species "
+                     "when you drag.")
             zoom_pct = st.slider(
                 "Zoom", min_value=50, max_value=130, value=85, step=5,
                 key=f"zoom_{pick_tree}",
@@ -714,8 +721,23 @@ if active_tab == "Dashboard":
                 if drag_mode:
                     try:
                         from src import interactive_tree
+                        _photos = {}
+                        if drag_photos:
+                            for _, _prow in df.iterrows():
+                                _psci = _prow.get("scientific_name")
+                                if not isinstance(_psci, str):
+                                    continue
+                                try:
+                                    _ppf = _cached_profile(
+                                        _psci, _prow.get("common_name"))
+                                except Exception:
+                                    _ppf = None
+                                _purl = (_ppf or {}).get("image_url")
+                                if _purl:
+                                    _photos[_psci.strip()] = _purl
                         _ihtml = interactive_tree.build_interactive_html(
-                            nwk, meta, tree_name=pick_tree, height=700)
+                            nwk, meta, tree_name=pick_tree, height=700,
+                            show_scientific=show_sci, photos=_photos)
                         components.html(_ihtml, height=720, scrolling=False)
                         st.caption(
                             "Drag species and clades to rearrange, "

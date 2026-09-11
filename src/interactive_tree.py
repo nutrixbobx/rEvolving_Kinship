@@ -4,20 +4,22 @@ Draggable, rearrangeable tree.
 The toyplot views (unrooted / rectangular / circular) are fixed drawings.
 This one is a live D3 canvas the visitor can arrange by hand:
 
-  - drag any node to move it (dragging a clade carries its whole subtree),
-  - click a clade to collapse or open its branch (declutter a busy tree),
+  - drag any node to move it (dragging a clade carries its subtree),
+  - click a clade to focus on it and hide the deeper ancestors above it
+    (the long deep-time ladder), so a five-species tree isn't buried under
+    fifteen ancestral clades; click the focused clade again to step back
+    out, or press "Whole tree" to restore everything,
   - shift-click a clade to flip its children,
   - dial the clade dots between all / dated only / none,
-  - switch a rectangular and a radial layout, pan, and zoom,
+  - turn labels (species AND clades) on or off together,
+  - optionally show a photo beside each species, which travels with it,
+  - switch a rectangular and a radial layout, pan, zoom,
   - export the current arrangement as PNG or SVG.
 
-It reads the same collapsed newick + node metadata the other renderers
-use, so a species is the same color and the same clade is dated the same
-way here as everywhere else. Nothing is saved server-side: this is a play
-space for finding an arrangement worth keeping.
+It reads the same collapsed newick + node metadata the other renderers use.
+Nothing is saved server-side: this is a play space.
 
-Public entry: `build_interactive_html(newick_path, meta, tree_name)`.
-Returns a self-contained HTML string for st.components.v1.html().
+Public entry: `build_interactive_html(newick_path, meta, tree_name, ...)`.
 """
 
 from __future__ import annotations
@@ -26,7 +28,6 @@ import json
 from pathlib import Path
 
 
-# Theme colors, kept in step with image_tree / render.
 BG = "#0e1b1a"
 EDGE = "#5f7d75"
 LEAF = "#46c79a"
@@ -37,8 +38,7 @@ LABEL = "#ffd97a"
 
 
 def _hierarchy(newick_path, meta: dict) -> dict:
-    """Nested dict for d3.hierarchy, built from the collapsed newick so the
-    long unary rank chains don't clutter the canvas."""
+    """Nested dict for d3.hierarchy, from the collapsed newick."""
     from ete3 import Tree
     from src import render
 
@@ -52,15 +52,10 @@ def _hierarchy(newick_path, meta: dict) -> dict:
         info = meta.get(name, {})
         if node.is_leaf():
             sci = info.get("scientific_name") or name.replace("_", " ")
-            return {
-                "name": name,
-                "is_leaf": True,
-                "common": info.get("common_name"),
-                "sci": sci,
-            }
+            return {"name": name, "is_leaf": True,
+                    "common": info.get("common_name"), "sci": sci}
         return {
-            "name": name,
-            "is_leaf": False,
+            "name": name, "is_leaf": False,
             "clade": render._format_clade_name(name) if name else "",
             "mya": info.get("mya"),
             "dated": name in dated,
@@ -72,11 +67,20 @@ def _hierarchy(newick_path, meta: dict) -> dict:
 
 def build_interactive_html(newick_path, meta: dict,
                            tree_name: str | None = None,
-                           height: int = 720) -> str:
-    """Self-contained draggable tree page for components.html()."""
+                           height: int = 720,
+                           show_scientific: bool = True,
+                           photos: dict | None = None) -> str:
+    """Self-contained draggable tree page for components.html().
+
+    show_scientific: mirror the dashboard checkbox. On, leaf labels read
+    "common name (Scientific name)"; off, just the common name.
+    photos: optional {scientific_name: image_url}. When given, a thumbnail
+    rides beside each matching species and moves with it."""
     data = _hierarchy(newick_path, meta)
     tokens = {
         "%%DATA%%": json.dumps(data),
+        "%%PHOTOS%%": json.dumps(photos or {}),
+        "%%SHOWSCI%%": "true" if show_scientific else "false",
         "%%TITLE%%": json.dumps(tree_name or ""),
         "%%HEIGHT%%": str(int(height)),
         "%%BG%%": BG, "%%EDGE%%": EDGE, "%%LEAF%%": LEAF,
@@ -121,6 +125,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .lbl { fill:%%TIP%%; font-size:12px; user-select:none; pointer-events:none; }
   .clbl { fill:%%LABEL%%; font-size:11px; user-select:none; pointer-events:none; }
   .edge { stroke:%%EDGE%%; stroke-width:1.7; fill:none; }
+  .photo { pointer-events:none; }
   @media (max-width: 560px) {
     #bar button { padding:5px 8px; font-size:11.5px; }
     #hint { font-size:10.5px; }
@@ -134,31 +139,32 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <button id="b-rect">Rectangular</button>
     <button id="b-fit">Fit</button>
     <span class="sep"></span>
-    <button id="b-clades" class="on">Clades: dated</button>
-    <button id="b-expand">Open all clades</button>
+    <button id="b-clades">Clades: dated</button>
     <button id="b-labels">Labels: on</button>
-    <button id="b-reset">Reset</button>
+    <button id="b-whole">Whole tree</button>
     <span class="sep"></span>
     <button id="b-png">Export PNG</button>
     <button id="b-svg">Export SVG</button>
   </div>
   <div id="tt"></div>
-  <div id="hint">Drag to move. Click a clade dot to hide or open its
-    branch. Shift-click a clade to flip it. Scroll to zoom, drag the
-    background to pan.</div>
+  <div id="hint">Click a clade to focus on it and hide the deeper ancestors.
+    Click the top clade again to step back out. Shift-click a clade to flip
+    it. Drag to move, scroll to zoom.</div>
   <svg id="svg"></svg>
 </div>
 <script>
 (function(){
   const DATA = %%DATA%%;
+  const PHOTOS = %%PHOTOS%%;
+  const SHOWSCI = %%SHOWSCI%%;
   const BG = "%%BG%%";
   const C = { edge:"%%EDGE%%", leaf:"%%LEAF%%", dated:"%%DATED%%",
               plain:"%%PLAIN%%", tip:"%%TIP%%", label:"%%LABEL%%" };
-  // Style text baked into exports so a saved SVG/PNG looks like the canvas.
   const STYLE_TEXT =
     ".lbl{fill:"+C.tip+";font-size:12px;font-family:Helvetica,Arial,sans-serif;}"+
     ".clbl{fill:"+C.label+";font-size:11px;font-family:Helvetica,Arial,sans-serif;}"+
     ".edge{stroke:"+C.edge+";stroke-width:1.7;fill:none;}";
+  const HAS_PHOTOS = Object.keys(PHOTOS).length > 0;
   const svg = d3.select("#svg");
   const wrap = document.getElementById("wrap");
   let W = wrap.clientWidth || 900, H = wrap.clientHeight || %%HEIGHT%%;
@@ -172,69 +178,69 @@ _TEMPLATE = r"""<!DOCTYPE html>
   let idc = 0;
   root.each(d => { d.cx = 0; d.cy = 0; d.__id = idc++; });
 
+  let displayRoot = root;   // re-rooting hides ancestors above this node
   let mode = "radial";
   let showLabels = true;
-  let cladeMode = "dated";   // all | dated | none  (start calm)
-
-  function countLeaves(n){
-    if(!n.children && !n._children) return 1;
-    const kids = n.children || n._children || [];
-    return kids.reduce((s,k)=>s+countLeaves(k), 0);
-  }
+  let cladeMode = "dated";  // all | dated | none
 
   function layout(){
+    const R0 = displayRoot;
     if (mode === "rect"){
-      const dx = Math.max(16, (H - 120) / (root.leaves().length + 1));
-      const tree = d3.tree().nodeSize([dx, Math.max(90,(W-320)/(root.height+1))]);
-      tree(root);
+      const dx = Math.max(16, (H - 120) / (R0.leaves().length + 1));
+      const tree = d3.tree().nodeSize([dx, Math.max(90,(W-340)/(R0.height+1))]);
+      tree(R0);
       let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
-      root.each(d => { d.cx = d.y; d.cy = d.x;
+      R0.each(d => { d.cx = d.y - R0.y; d.cy = d.x;
         minx=Math.min(minx,d.cx); maxx=Math.max(maxx,d.cx);
         miny=Math.min(miny,d.cy); maxy=Math.max(maxy,d.cy); });
       const ox = 90 - minx, oy = (H/2) - (miny+maxy)/2;
-      root.each(d => { d.cx += ox; d.cy += oy; });
+      R0.each(d => { d.cx += ox; d.cy += oy; });
     } else {
-      const R = Math.min(W,H)/2 - 90;
-      const tree = d3.tree().size([2*Math.PI, R])
+      const Rr = Math.min(W,H)/2 - 90;
+      const tree = d3.tree().size([2*Math.PI, Rr])
         .separation((a,b)=> (a.parent===b.parent?1:2)/Math.max(1,a.depth));
-      tree(root);
-      const cxC = W/2, cyC = H/2;
-      root.each(d => {
-        d.cx = cxC + d.y*Math.cos(d.x - Math.PI/2);
-        d.cy = cyC + d.y*Math.sin(d.x - Math.PI/2);
+      tree(R0);
+      const cxC = W/2, cyC = H/2, y0 = R0.y;
+      R0.each(d => {
+        const rad = d.y - y0;
+        d.cx = cxC + rad*Math.cos(d.x - Math.PI/2);
+        d.cy = cyC + rad*Math.sin(d.x - Math.PI/2);
       });
     }
   }
 
-  function isCollapsed(d){ return !!(d._children && !d.children); }
-  function cladeShown(d){
-    if (d.data.is_leaf) return true;
-    if (isCollapsed(d)) return true;      // the handle to reopen
-    if (cladeMode === "none") return false;
-    if (cladeMode === "dated") return !!d.data.dated;
-    return true;
-  }
   function nodeColor(d){
     if (d.data.is_leaf) return C.leaf;
     return d.data.dated ? C.dated : C.plain;
   }
   function nodeR(d){
     if (d.data.is_leaf) return 5;
-    const base = d.data.dated ? 7 : 5;
-    return isCollapsed(d) ? base + 3 : base;
+    return d.data.dated ? 7 : 5;
   }
+  function cladeShown(d){
+    if (d.data.is_leaf) return true;
+    if (cladeMode === "none") return false;
+    if (cladeMode === "dated") return !!d.data.dated;
+    return true;
+  }
+  function hasPhoto(d){ return d.data.is_leaf && !!PHOTOS[d.data.sci]; }
   function labelText(d){
     if (d.data.is_leaf){
+      if (SHOWSCI) return d.data.common
+        ? d.data.common + " (" + d.data.sci + ")" : d.data.sci;
       return d.data.common ? d.data.common : d.data.sci;
     }
     let t = d.data.clade || "";
     if (d.data.dated && d.data.mya != null) t += ", " + d.data.mya;
-    if (isCollapsed(d)) t += " (+" + countLeaves(d) + ")";
     return t;
+  }
+  function labelX(d){
+    if (hasPhoto(d)) return nodeR(d) + 6 + 34;
+    return nodeR(d) + 6;
   }
 
   function drawEdges(){
-    const links = root.links();
+    const links = displayRoot.links();
     const sel = gEdges.selectAll("path.edge").data(links, d => d.target.__id);
     sel.enter().append("path").attr("class","edge")
       .merge(sel)
@@ -243,27 +249,39 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
 
   function drawNodes(){
-    const nodes = root.descendants();
+    const nodes = displayRoot.descendants();
     const sel = gNodes.selectAll("g.node").data(nodes, d => d.__id);
     const ent = sel.enter().append("g").attr("class","node");
     ent.append("circle");
+    ent.each(function(d){
+      if (d.data.is_leaf && HAS_PHOTOS){
+        d3.select(this).append("image").attr("class","photo");
+      }
+    });
     ent.append("text");
     const all = ent.merge(sel);
     all.attr("transform", d => "translate("+d.cx+","+d.cy+")");
     all.select("circle")
       .attr("r", d => (d.data.is_leaf || cladeShown(d)) ? nodeR(d) : 0)
       .attr("fill", nodeColor)
-      .attr("stroke", d => isCollapsed(d) ? C.label : "#0e1b1a")
-      .attr("stroke-width", d => isCollapsed(d) ? 2 : 1);
+      .attr("stroke", d => (d === displayRoot && !d.data.is_leaf) ? C.label : "#0e1b1a")
+      .attr("stroke-width", d => (d === displayRoot && !d.data.is_leaf) ? 2 : 1);
+    all.select("image.photo")
+      .attr("href", d => PHOTOS[d.data.sci] || "")
+      .attr("x", d => nodeR(d) + 6)
+      .attr("y", -14)
+      .attr("width", 28).attr("height", 28)
+      .attr("preserveAspectRatio", "xMidYMid slice")
+      .style("display", d => hasPhoto(d) ? null : "none");
     all.select("text")
       .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
-      .attr("x", d => nodeR(d)+5)
+      .attr("x", labelX)
       .attr("y", 4)
       .style("display", d => {
-        if (!showLabels && d.data.is_leaf) return "none";
+        if (!showLabels) return "none";
         if (d.data.is_leaf) return null;
         if (!cladeShown(d)) return "none";
-        return (d.data.clade || isCollapsed(d)) ? null : "none";
+        return d.data.clade ? null : "none";
       })
       .text(labelText);
 
@@ -272,7 +290,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
           ? "<b>"+(d.data.common||d.data.sci)+"</b><br><i>"+d.data.sci+"</i>"
           : "<b>"+(d.data.clade||"clade")+"</b>"+
             (d.data.mya!=null ? "<br>"+d.data.mya+" million years since the last common ancestor" : "<br>age not set")+
-            (d.data.is_leaf?"":"<br><span style='color:#9ab3ab'>click to "+(isCollapsed(d)?"open":"hide")+"</span>");
+            "<br><span style='color:#9ab3ab'>"+
+            (d===displayRoot ? "click to step back out" : "click to focus here")+"</span>";
         tt.html(html).style("opacity",1);
         const r = wrap.getBoundingClientRect();
         tt.style("left", (ev.clientX - r.left + 12)+"px")
@@ -295,12 +314,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
         if (this.__dist > 3) return;      // a real drag, not a click
         if (d.data.is_leaf) return;
         if (ev.sourceEvent && ev.sourceEvent.shiftKey){
-          // flip children order
-          if (d.children){ d.children.reverse(); if(d.data.children) d.data.children.reverse(); }
+          if (d.children){ d.children.reverse();
+            if(d.data.children) d.data.children.reverse(); }
+        } else if (d === displayRoot){
+          displayRoot = d.parent || root;   // step back out
         } else {
-          // collapse / open
-          if (d.children){ d._children = d.children; d.children = null; }
-          else if (d._children){ d.children = d._children; d._children = null; }
+          displayRoot = d;                  // focus: hide ancestors
         }
         layout(); drawEdges(); drawNodes();
         tt.style("opacity",0);
@@ -315,11 +334,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
   svg.call(zoom);
 
   function fitTransform(){
-    const xs = root.descendants().map(d=>d.cx), ys = root.descendants().map(d=>d.cy);
+    const ds = displayRoot.descendants();
+    const xs = ds.map(d=>d.cx), ys = ds.map(d=>d.cy);
     const x0=Math.min.apply(null,xs), x1=Math.max.apply(null,xs);
     const y0=Math.min.apply(null,ys), y1=Math.max.apply(null,ys);
     const bw=Math.max(1,x1-x0), bh=Math.max(1,y1-y0);
-    const k=Math.min(6, 0.9*Math.min(W/bw, H/bh));
+    const k=Math.min(6, 0.86*Math.min(W/bw, H/bh));
     const tx=W/2 - k*(x0+x1)/2, ty=H/2 - k*(y0+y1)/2;
     return d3.zoomIdentity.translate(tx,ty).scale(k);
   }
@@ -336,12 +356,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
     document.body.appendChild(a); a.click(); a.remove();
   }
   function exportImg(asPng){
-    fit(false);   // frame everything first
+    fit(false);
     const NS = "http://www.w3.org/2000/svg";
     const clone = svg.node().cloneNode(true);
     clone.setAttribute("xmlns", NS);
-    clone.setAttribute("width", W);
-    clone.setAttribute("height", H);
+    clone.setAttribute("width", W); clone.setAttribute("height", H);
     const bg = document.createElementNS(NS, "rect");
     bg.setAttribute("x",0); bg.setAttribute("y",0);
     bg.setAttribute("width",W); bg.setAttribute("height",H);
@@ -363,7 +382,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
       const ctx = c.getContext("2d");
       ctx.setTransform(2,0,0,2,0,0);
       ctx.drawImage(img, 0, 0);
-      c.toBlob(function(b){ download(b, "kinship_tree.png"); });
+      try { c.toBlob(function(b){ download(b, "kinship_tree.png"); }); }
+      catch(e){ alert("Photos block PNG export (browser security). Use Export SVG."); }
     };
     img.onerror = function(){ alert("Could not rasterize. Try Export SVG."); };
     img.src = "data:image/svg+xml;base64," +
@@ -379,21 +399,20 @@ _TEMPLATE = r"""<!DOCTYPE html>
   document.getElementById("b-radial").onclick = () => setMode("radial");
   document.getElementById("b-rect").onclick = () => setMode("rect");
   document.getElementById("b-fit").onclick = () => fit();
-  document.getElementById("b-reset").onclick = () => { render(); fit(); };
   document.getElementById("b-clades").onclick = function(){
     cladeMode = cladeMode==="all" ? "dated" : (cladeMode==="dated" ? "none" : "all");
     this.textContent = "Clades: " + cladeMode;
     this.classList.toggle("on", cladeMode !== "all");
     drawNodes();
   };
-  document.getElementById("b-expand").onclick = function(){
-    root.each(d => { if (d._children){ d.children = d._children; d._children = null; } });
-    render(); fit();
-  };
   document.getElementById("b-labels").onclick = function(){
     showLabels = !showLabels;
     this.textContent = "Labels: " + (showLabels ? "on":"off");
+    this.classList.toggle("on", !showLabels);
     drawNodes();
+  };
+  document.getElementById("b-whole").onclick = function(){
+    displayRoot = root; render(); fit();
   };
   document.getElementById("b-png").onclick = () => exportImg(true);
   document.getElementById("b-svg").onclick = () => exportImg(false);

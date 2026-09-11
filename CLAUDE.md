@@ -41,6 +41,30 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AB (layout harmony + interactive tree fixes, 2026-09-11):
+  - Deep-time scaling now defaults OFF. With it on, a marigold tree (root
+    at 4290 mya, genus splits near 50 mya) crushed all five tips into one
+    overlapping cluster in the unrooted view and a thin spine in the
+    rectangular one. Topology spacing reads far more harmonious, so the
+    "Scale branches to deep time" checkbox starts unchecked; turn it on
+    for the time-faithful view.
+  - Interactive tree, four fixes:
+      - The Dashboard "Show scientific names" checkbox now feeds the drag
+        tree. On, a leaf reads "Common (Scientific)"; off, just the common
+        name. `build_interactive_html` takes show_scientific.
+      - Labels on/off now hides clade labels too, not only species.
+      - Clicking a clade FOCUSES on it and hides the deeper ancestors (the
+        long dated ladder), instead of collapsing its species. Click the
+        focused top clade again to step back out; "Whole tree" restores
+        everything. Implemented as a re-rootable displayRoot with a y
+        offset so the subtree lays out from the display origin.
+      - Optional species photos: a "Photos on the drag tree" checkbox on
+        the Dashboard passes {sci: image_url} into the canvas, and a
+        thumbnail rides beside each species, travelling with it on drag.
+        (External images can block PNG export for browser-security
+        reasons; the export falls back to SVG with a note.)
+
+
 Session AA (drop apt, restore ffmpeg + fonts via pip/bundle, 2026-09-02):
   - Deploys stopped depending on apt. Streamlit Cloud was failing the
     build on an expired Debian mirror Release file, and that step only
@@ -427,6 +451,10 @@ are expensive.
 - 2026-09-02: Session AA dropped packages.txt so deploys skip apt, and
   restored ffmpeg (imageio-ffmpeg pip wheel) and non-Latin fonts (bundled
   Noto, registered with matplotlib) that apt used to provide.
+- 2026-09-11: Session AB defaulted deep-time scaling off for calmer
+  layouts, wired the scientific-names + labels toggles into the drag
+  tree, reversed clade-click to focus/hide-ancestors, and added optional
+  draggable species photos.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
