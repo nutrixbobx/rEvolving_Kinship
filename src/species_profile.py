@@ -198,6 +198,24 @@ def _empty_profile(sci: str, common: str | None) -> dict:
     }
 
 
+def cached_image_url(scientific_name: str) -> str | None:
+    """Image URL from the on-disk profile cache only. Never touches the
+    network, so the interactive tree can offer photos instantly for any
+    species already looked up (kin cards, quick look) without stalling the
+    dashboard on species that aren't cached yet."""
+    try:
+        sci_key = hashlib.md5(scientific_name.encode()).hexdigest()[:10]
+        cache_path = CACHE / f"{sci_key}.json"
+        if not cache_path.exists():
+            return None
+        profile = json.loads(cache_path.read_text())
+        # Admin overrides win, same as find_profile.
+        ov = _load_overrides().get(scientific_name, {})
+        return ov.get("image_url") or profile.get("image_url") or None
+    except Exception:
+        return None
+
+
 def find_profile(scientific_name: str, common_name: str | None = None,
                  force_refresh: bool = False) -> dict | None:
     """Return a merged profile dict. Cached on disk and merged with overrides."""

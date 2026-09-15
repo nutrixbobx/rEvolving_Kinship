@@ -41,6 +41,37 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AD (interactive tree v3: one menu, no overlap, real unrooted, 2026-09-15):
+  - One grouped menu inside the canvas now carries every control (Layout:
+    Unrooted / Radial / Rectangular; Show: Clades, Labels, Latin names,
+    Photos; View: To LCA, Whole tree, Fit; Export: PNG, SVG). When the
+    interactive view is on (now the default), the Dashboard side panel
+    steps back to just the toggle, so nothing needs a Streamlit rerun and
+    an arrangement is never wiped by a checkbox. The fixed toyplot
+    controls (layout radio, deep-time scaling, show every clade, zoom)
+    appear only when interactive is off.
+  - Nothing overlaps and zoom never balloons or shrinks things: dots,
+    labels, and photos are counter-scaled (transform scale(1/k)) so zoom
+    changes spacing, not element size; edges use non-scaling stroke.
+    Labels are decluttered greedily in screen space (focused root, then
+    species top-to-bottom, then clades by age) and re-run on zoom, so
+    zooming in reveals more names; hover always works. Labels point
+    outward from the parent in the round layouts, so a fan never
+    crosses itself. Fit zoom is clamped to [0.45, 2.4].
+  - A true equal-angle Unrooted layout (default), distinct from Radial.
+    It uses short steps along unary ladders and long steps at branch
+    points, so a deep spine stays compact while the species fan gets
+    room. Verified on a marigold tree with a 15-clade spine: all 20
+    labels visible, zero collisions.
+  - Photos come from the on-disk profile cache only via the new
+    `species_profile.cached_image_url()`, so the dashboard never blocks
+    on network; the in-canvas Photos toggle shows them instantly for any
+    species already looked up. Latin names are a client toggle too.
+  - Export fix: an explicit xmlns on the cloned SVG duplicated the
+    serializer's own and produced an invalid file. Now the namespace is
+    injected only if missing. Photos are still embedded as data URLs.
+
+
 Session AC (prune the deep spine + interactive polish, 2026-09-11):
   - The default toyplot views now prune the ancestral ladder above the
     tree's last common ancestor. `render._prune_ancestral_spine` returns
@@ -482,6 +513,10 @@ are expensive.
   tree views (Show every clade restores it), opened the circular layout,
   and polished the drag tree (preserve arrangement on toggle/focus, To
   LCA button, bigger photos, embedded-image PNG export).
+- 2026-09-15: Session AD shipped interactive tree v3: one in-canvas menu
+  (side panel steps back), counter-scaled non-overlapping labels that
+  reveal on zoom, a true equal-angle Unrooted layout, disk-cache photos,
+  and the export xmlns fix.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

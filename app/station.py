@@ -631,52 +631,56 @@ if active_tab == "Dashboard":
                                        mime="text/plain",
                                        use_container_width=True,
                                        key=f"nwk_top_{pick_tree}")
-            layout_name = st.radio(
-                "Layout", list(render_mod.LAYOUTS.keys()), index=0,
-                help="Unrooted shows kinship without implying a "
-                     "direction, and is the most honest starting view. "
-                     "Rectangular reads left to right. Circular fans the "
-                     "whole tree around a center.")
-            _can_scale = layout_name in ("Unrooted", "Rectangular")
-            scale_time = st.checkbox(
-                "Scale branches to deep time (MYA)", value=False,
-                disabled=not _can_scale,
-                key=f"scale_time_{pick_tree}",
-                help="Stretch every branch to its real length in millions "
-                     "of years since the last common ancestor, log-adjusted "
-                     "so a 500-million-year split doesn't dwarf a "
-                     "5-million-year one. Off draws every branch at even "
-                     "depth. Circular always draws even.")
-            use_scaled_view = bool(scale_time) and _can_scale
-            show_sci = st.checkbox("Show scientific names", value=True)
-            show_all_clades = st.checkbox(
-                "Show every clade", value=False,
-                key=f"allclades_{pick_tree}",
-                help="Off (the default) keeps the tree calm: only the "
-                     "species and the dated clades show, so a four-species "
-                     "tree isn't buried under twenty circles. On draws "
-                     "every internal node and its label.")
+            # The interactive canvas carries its own complete menu, so when
+            # it is on, the side panel steps back to just this toggle. That
+            # keeps one place to play and means no Streamlit rerun (which
+            # would wipe an arrangement) is ever needed while arranging.
             drag_mode = st.checkbox(
-                "Drag to arrange (interactive)", value=False,
+                "Interactive: drag to arrange", value=True,
                 key=f"dragmode_{pick_tree}",
-                help="Open a live canvas where you can drag any species "
-                     "or clade to move it, double-click a clade to flip "
-                     "it, switch radial or rectangular, and zoom. Nothing "
-                     "is saved: it is a space to find an arrangement worth "
-                     "a screenshot.")
-            drag_photos = st.checkbox(
-                "Photos on the drag tree", value=False,
-                disabled=not drag_mode,
-                key=f"dragphotos_{pick_tree}",
-                help="Show a small photo beside each species in the "
-                     "interactive canvas. It travels with the species "
-                     "when you drag.")
-            zoom_pct = st.slider(
-                "Zoom", min_value=50, max_value=130, value=85, step=5,
-                key=f"zoom_{pick_tree}",
-                help="100% = native; lower = fits more in view; "
-                     "higher = closer detail.",
-                format="%d%%")
+                help="A live canvas with one menu inside it: layout "
+                     "(unrooted, radial, rectangular), clades, labels, "
+                     "Latin names, photos, focus on a clade, and export. "
+                     "Drag anything to move it. Turn this off for the "
+                     "fixed drawings with deep-time branch scaling.")
+            if drag_mode:
+                st.caption("Every control lives inside the canvas. Drag "
+                           "nodes to arrange, click a clade to focus, "
+                           "scroll to zoom, and export from the menu.")
+                layout_name = "Unrooted"
+                show_sci = True
+                show_all_clades = False
+                use_scaled_view = False
+                zoom_pct = 100
+            else:
+                layout_name = st.radio(
+                    "Layout", list(render_mod.LAYOUTS.keys()), index=0,
+                    help="Unrooted shows kinship without implying a "
+                         "direction. Rectangular reads left to right. "
+                         "Circular fans the tree around a center.")
+                _can_scale = layout_name in ("Unrooted", "Rectangular")
+                scale_time = st.checkbox(
+                    "Scale branches to deep time (MYA)", value=False,
+                    disabled=not _can_scale,
+                    key=f"scale_time_{pick_tree}",
+                    help="Stretch every branch to its real length in "
+                         "millions of years since the last common "
+                         "ancestor, log-adjusted so a 500-million-year "
+                         "split doesn't dwarf a 5-million-year one.")
+                use_scaled_view = bool(scale_time) and _can_scale
+                show_sci = st.checkbox("Show scientific names", value=True)
+                show_all_clades = st.checkbox(
+                    "Show every clade", value=False,
+                    key=f"allclades_{pick_tree}",
+                    help="Off keeps the tree to its species and the "
+                         "dated clades from the last common ancestor "
+                         "down. On draws the full deep-time spine and "
+                         "every internal node.")
+                zoom_pct = st.slider(
+                    "Zoom", min_value=50, max_value=130, value=85, step=5,
+                    key=f"zoom_{pick_tree}",
+                    help="100% = native; lower fits more in view.",
+                    format="%d%%")
             st.caption(f"{len(df)} species, {n_dated} dated node(s). "
                        "Legend + 'mya' explanation are inside every "
                        "exported tree. Hover any node for its details.")
@@ -721,20 +725,19 @@ if active_tab == "Dashboard":
                 if drag_mode:
                     try:
                         from src import interactive_tree
+                        # Photos come from the on-disk profile cache only,
+                        # so this never blocks the dashboard on network.
+                        # Species get a photo once they've been looked up
+                        # (kin cards, quick look); the canvas toggles them.
                         _photos = {}
-                        if drag_photos:
-                            for _, _prow in df.iterrows():
-                                _psci = _prow.get("scientific_name")
-                                if not isinstance(_psci, str):
-                                    continue
-                                try:
-                                    _ppf = _cached_profile(
-                                        _psci, _prow.get("common_name"))
-                                except Exception:
-                                    _ppf = None
-                                _purl = (_ppf or {}).get("image_url")
-                                if _purl:
-                                    _photos[_psci.strip()] = _purl
+                        for _, _prow in df.iterrows():
+                            _psci = _prow.get("scientific_name")
+                            if not isinstance(_psci, str):
+                                continue
+                            _purl = species_profile.cached_image_url(
+                                _psci.strip())
+                            if _purl:
+                                _photos[_psci.strip()] = _purl
                         _ihtml = interactive_tree.build_interactive_html(
                             nwk, meta, tree_name=pick_tree, height=700,
                             show_scientific=show_sci, photos=_photos)
