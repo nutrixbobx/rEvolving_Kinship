@@ -1927,9 +1927,11 @@ if active_tab == "Range map":
     theme.section_heading("Where these kin live", kicker="Range map")
     st.markdown(
         "Occurrence density for each species in your tree, drawn from "
-        "[GBIF](https://www.gbif.org/) onto one map. You can see where the "
-        "ranges overlap and where they don't. Drag to pan, scroll to zoom, "
-        "and toggle species on or off in the top-right panel."
+        "[GBIF](https://www.gbif.org/) onto one map, so you can see where "
+        "ranges overlap and where they don't. The menu inside the map does "
+        "the rest: toggle or solo a species, hover a name to spotlight it, "
+        "switch a dark or light basemap, soften the dots, or press Tour to "
+        "walk through the species one at a time."
     )
 
     map_trees = _cached_list_trees_for_dashboard()
@@ -1959,8 +1961,12 @@ if active_tab == "Range map":
             st.session_state.setdefault(_ver_key, 0)
             st.session_state.setdefault(_def_key, True)
             with st.expander(
-                    f"Show / hide species ({len(species_for_map)})",
+                    f"Limit which species load ({len(species_for_map)})",
                     expanded=False):
+                st.caption("Toggling here reloads the map. For quick "
+                           "show / hide, solo, and the tour, use the "
+                           "menu inside the map instead. Trim the list "
+                           "here mainly to speed up a very large tree.")
                 _bcols = st.columns(2)
                 if _bcols[0].button("Show all", key=f"mapall_{map_pick}",
                                     use_container_width=True):

@@ -41,6 +41,25 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AE (range map, same play-space feel as the tree, 2026-09-15):
+  - `gbif_map.build_map_html` rewritten on a token template (no f-string
+    brace doubling) with one grouped menu inside the map, top-left, so
+    nothing needs a Streamlit rerun:
+      Species: checkbox + color swatch + quick-look link + "solo" per
+        species; All / None; hover a row to spotlight that species and
+        dim the rest.
+      Map: Dark / Light basemap (light_all, for reading and annotating),
+        Softer / Bolder dots (GridLayer opacity), Reset view, and Tour.
+      Tour walks through the species one at a time, each shown alone with
+        its name on a banner (3.6s), then restores all. Solo, All, or None
+        stops it.
+  - CARTO key rides on both basemaps via a single JS var. Species links
+    still carry the remember-me token.
+  - The Streamlit-side species checkboxes stay but are reframed as "Limit
+    which species load", for trimming very large trees; the in-map menu
+    is the play surface. Range map tab copy updated to match.
+
+
 Session AD (interactive tree v3: one menu, no overlap, real unrooted, 2026-09-15):
   - One grouped menu inside the canvas now carries every control (Layout:
     Unrooted / Radial / Rectangular; Show: Clades, Labels, Latin names,
@@ -517,6 +536,9 @@ are expensive.
   (side panel steps back), counter-scaled non-overlapping labels that
   reveal on zoom, a true equal-angle Unrooted layout, disk-cache photos,
   and the export xmlns fix.
+- 2026-09-15: Session AE gave the range map one in-map menu (species
+  toggle/solo/spotlight, dark/light basemap, dot weight, Tour, reset)
+  to match the interactive tree.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
