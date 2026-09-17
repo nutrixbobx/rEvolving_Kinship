@@ -125,6 +125,7 @@ def build_photo_audio_tree(tree_name: str,
 
     import toytree
     nwk_str = render._collapse_unary(nwk_path, dated)
+    nwk_str = render._prune_ancestral_spine(nwk_str)
     tre = toytree.tree(nwk_str)
     pos, max_depth, n = image_tree._layout(tre)
     tips = list(tre.get_tip_labels())
@@ -174,7 +175,7 @@ def build_photo_audio_tree(tree_name: str,
         rows[tip].get("audio") and rows[tip]["audio"].get("path")
         for tip in tips)
 
-    tree_l, tree_b, tree_h = 0.02, 0.08, 0.80
+    tree_l = 0.02
     # Photo width scales inversely with tip count (sparse -> big).
     # When there's no spec column, photos can be bigger since they get
     # all the space that used to belong to spec.
@@ -184,6 +185,15 @@ def build_photo_audio_tree(tree_name: str,
     else:
         photo_w = max(0.12, min(0.22, 0.22 - 0.008 * max(n - 5, 0)))
         tree_w = 0.42 - (photo_w - 0.13) * 0.4
+    # Header owns the top ~8%, legend + credit strip own the bottom ~11%.
+    # Photos are centered on their tips, so the tip range is pulled in by
+    # half a photo on each end. That guarantees every photo (and the
+    # spectrogram strip beside it) stays inside the band, whatever n is.
+    _band_top, _band_bot = 0.905, 0.125
+    _pitch0 = (_band_top - _band_bot) / max(n - 1, 1)
+    h = min(_pitch0 * 0.78, photo_w * 1.6, 0.17)
+    tree_b = _band_bot + h / 2
+    tree_h = (_band_top - h / 2) - tree_b
     ax_tree = fig.add_axes([tree_l, tree_b, tree_w, tree_h])
     clade_entries = image_tree._draw_tree(
         ax_tree, tre, pos, meta, dated, max_depth, n)
@@ -212,11 +222,7 @@ def build_photo_audio_tree(tree_name: str,
         if n <= 1:
             return tree_b + tree_h / 2
         return tree_b + tree_h - (i / (n - 1)) * tree_h
-    # Row height in figure coords: half the spacing between two tips
-    row_pitch_fig = tree_h / max(n - 1, 1)
-    # Cap scales with photo_w so wide photos are also tall (roughly square).
-    _photo_h_cap = photo_w * 1.6
-    h = min(row_pitch_fig * 0.85, _photo_h_cap)
+    # h (photo height) was fixed above, before the band was sized.
 
     for i, tip in enumerate(tips):
         info = meta.get(tip, {})

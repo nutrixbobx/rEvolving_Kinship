@@ -240,6 +240,13 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
       <button id="b-tour">Tour ▶</button><button id="b-reset">Reset view</button>
     </div>
   </div>
+  <div class="grp">
+    <div class="gl"><span>Export</span></div>
+    <div class="btns">
+      <button id="b-png">PNG of this view</button>
+      <button id="b-csv">Species CSV</button>
+    </div>
+  </div>
 </div>
 <div id="banner"><b id="bn-name"></b><i id="bn-sci"></i></div>
 <script>
@@ -252,10 +259,11 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
 
   var base = {
     dark:  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'+CARTO,
-             { attribution:'&copy; OpenStreetMap, &copy; CARTO', maxZoom:18, subdomains:'abcd' }),
+             { attribution:'&copy; OpenStreetMap, &copy; CARTO', maxZoom:18, subdomains:'abcd', crossOrigin:true }),
     light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'+CARTO,
-             { attribution:'&copy; OpenStreetMap, &copy; CARTO', maxZoom:18, subdomains:'abcd' })
+             { attribution:'&copy; OpenStreetMap, &copy; CARTO', maxZoom:18, subdomains:'abcd', crossOrigin:true })
   };
+  var isDark = true;
   base.dark.addTo(map);
 
   // Density tile recolored to the species' legend color (alpha = density).
@@ -338,6 +346,7 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
     document.getElementById('b-dark').classList.toggle('on', which==='dark');
     document.getElementById('b-light').classList.toggle('on', which==='light');
     document.body.style.background = which==='dark' ? '#0e1b1a' : '#eaf3fb';
+    isDark = which==='dark';
   }
   document.getElementById('b-dark').onclick = function(){ setBase('dark'); };
   document.getElementById('b-light').onclick = function(){ setBase('light'); };
@@ -378,6 +387,67 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
     species.forEach(function(s){ setOn(s.scientific_name, true); });
   }
   document.getElementById('b-tour').onclick = function(){ tourTimer ? stopTour() : startTour(); };
+
+  // ---------- export ----------
+  function download(blob, name){
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function exportPng(){
+    // Compose exactly what is on screen: every loaded tile (basemap <img>
+    // and our recolored density canvases) at its screen position, then a
+    // legend of the species currently shown. Basemap tiles are requested
+    // with crossOrigin so the canvas stays exportable.
+    var mapEl = document.getElementById('map'); var r = mapEl.getBoundingClientRect();
+    var c = document.createElement('canvas'); c.width = Math.round(r.width*2); c.height = Math.round(r.height*2);
+    var ctx = c.getContext('2d'); ctx.scale(2,2);
+    ctx.fillStyle = isDark ? '#0e1b1a' : '#eaf3fb'; ctx.fillRect(0,0,r.width,r.height);
+    var tiles = mapEl.querySelectorAll('.leaflet-tile-loaded');
+    var failed = 0;
+    tiles.forEach(function(t){
+      var tr = t.getBoundingClientRect(); var layerEl = t.closest('.leaflet-layer');
+      var op = layerEl && layerEl.style.opacity !== '' ? parseFloat(layerEl.style.opacity) : 1;
+      ctx.globalAlpha = isNaN(op) ? 1 : op;
+      try { ctx.drawImage(t, tr.left - r.left, tr.top - r.top, tr.width, tr.height); } catch(e){ failed++; }
+    });
+    ctx.globalAlpha = 1;
+    // legend
+    var shown = species.filter(function(s){ return on[s.scientific_name]; });
+    var pad = 10, rowH = 18, w = 0;
+    ctx.font = '12px Helvetica, Arial, sans-serif';
+    shown.forEach(function(s){ var t = (s.common_name ? s.common_name + '  ' : '') + s.scientific_name; w = Math.max(w, ctx.measureText(t).width); });
+    var lh = shown.length*rowH + pad*2 + 16, lw = w + 34 + pad*2;
+    var lx = r.width - lw - 12, ly = r.height - lh - 12;
+    ctx.fillStyle = isDark ? 'rgba(14,27,26,0.92)' : 'rgba(255,255,255,0.92)';
+    ctx.fillRect(lx, ly, lw, lh);
+    ctx.strokeStyle = isDark ? '#26403b' : '#c8d6e2'; ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = isDark ? '#9ab3ab' : '#4a5d6a'; ctx.font = '10px Helvetica, Arial, sans-serif';
+    ctx.fillText('WHERE THESE KIN LIVE  ·  GBIF occurrence density', lx+pad, ly+pad+8);
+    ctx.font = '12px Helvetica, Arial, sans-serif';
+    shown.forEach(function(s, i){
+      var y = ly + pad + 16 + i*rowH + 12;
+      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(lx+pad+7, y-4, 6, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = isDark ? '#e8f3ef' : '#1f2d36';
+      ctx.fillText((s.common_name ? s.common_name + '  ' : ''), lx+pad+22, y);
+      var cw = ctx.measureText(s.common_name ? s.common_name + '  ' : '').width;
+      ctx.font = 'italic 12px Helvetica, Arial, sans-serif';
+      ctx.fillText(s.scientific_name, lx+pad+22+cw, y);
+      ctx.font = '12px Helvetica, Arial, sans-serif';
+    });
+    ctx.fillStyle = isDark ? '#7f978f' : '#6b7d8a'; ctx.font = '10px Helvetica, Arial, sans-serif';
+    ctx.fillText('© OpenStreetMap, © CARTO · Occurrence data © GBIF', 10, r.height - 8);
+    try { c.toBlob(function(b){ if (b) download(b, 'range_map.png'); else alert('Export failed. Try again after the tiles finish loading.'); }); }
+    catch(e){ alert('The basemap blocked export in this browser. The static composite in Outputs is the fallback.'); }
+    if (failed) console.warn('tiles skipped in export:', failed);
+  }
+  function exportCsv(){
+    var rows = [['common_name','scientific_name','gbif_taxon_key','color','shown']];
+    species.forEach(function(s){ rows.push([s.common_name||'', s.scientific_name, s.gbif_key, s.color, on[s.scientific_name] ? 'yes':'no']); });
+    var csv = rows.map(function(r){ return r.map(function(v){ v = String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }).join(','); }).join('\n');
+    download(new Blob([csv], {type:'text/csv;charset=utf-8'}), 'range_map_species.csv');
+  }
+  document.getElementById('b-png').onclick = exportPng;
+  document.getElementById('b-csv').onclick = exportCsv;
 })();
 </script>
 </body>

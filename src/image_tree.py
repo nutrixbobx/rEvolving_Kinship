@@ -316,6 +316,9 @@ def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
 
     import toytree
     nwk_str = render._collapse_unary(nwk_path, dated)
+    # Same view as the interactive canvas: from the last common
+    # ancestor down, so the poster isn't a ladder of deep ancestors.
+    nwk_str = render._prune_ancestral_spine(nwk_str)
     tre = toytree.tree(nwk_str)
     pos, max_depth, n = _layout(tre)
     tips = list(tre.get_tip_labels())

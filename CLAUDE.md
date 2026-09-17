@@ -41,6 +41,41 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AF (the tree is the interactive tree; exports everywhere; clean
+composites; sweep, 2026-09-16):
+  - Dashboard: the side "Interactive" checkbox is gone. The live D3 canvas
+    IS the tree. Its menu now also has a Size group (Photos and Text
+    sliders), "Scientific names" (renamed from Latin; the name renders as
+    an italic <tspan class="sci">, on canvas and in exports), and Save
+    view / Reset in the View group. Save writes the whole state (layout,
+    toggles, sizes, focus, every node position, zoom) to localStorage
+    keyed by tree title and it restores on the next load, so a rerun or a
+    reload no longer loses an arrangement; Reset clears it. The toyplot
+    controls (layout radio, deep-time branch lengths, every clade to the
+    root, Build SVG / PNG) live in one collapsed "Fixed drawings for
+    print" expander under the canvas, horizontal and compact.
+  - Range map: Export group inside the map. "PNG of this view" composes
+    every loaded tile (basemap <img> tiles now load with crossOrigin so
+    the canvas stays clean, plus our density canvases) at its screen
+    position, respects the dark/light basemap and softer/bolder dot
+    opacity, and draws a legend of the species currently shown with the
+    scientific name in italics, plus attribution. "Species CSV" exports
+    the list with GBIF keys, colors, and shown state.
+  - Composites inherit the interactive view: T1 photo tree and the
+    photo-spectral tree now prune the deep ancestral spine above the LCA
+    (`render._prune_ancestral_spine`), so the poster shows the same tree
+    the canvas does. In the photo-spectral tree the content band is now
+    derived from the photo height (tips pulled in by half a photo on each
+    end), which guarantees every photo and spectrogram stays between the
+    header band and the legend + credit footer. Verified by render: the
+    top photo used to climb into the title.
+  - Sweep: no dangling drag_mode / drag_photos / zoom_pct references, no
+    duplicate widget keys across station / library / profile, all
+    modules compile, tree v4 and map JS verified headless (jsdom): italic
+    tspans, sliders, save -> reload -> restore -> reset cycle, To LCA,
+    exports.
+
+
 Session AE (range map, same play-space feel as the tree, 2026-09-15):
   - `gbif_map.build_map_html` rewritten on a token template (no f-string
     brace doubling) with one grouped menu inside the map, top-left, so
@@ -539,6 +574,11 @@ are expensive.
 - 2026-09-15: Session AE gave the range map one in-map menu (species
   toggle/solo/spotlight, dark/light basemap, dot weight, Tour, reset)
   to match the interactive tree.
+- 2026-09-16: Session AF made the interactive canvas the only live tree
+  (side toggle removed, fixed builds in an expander), added size sliders,
+  italic scientific names, Save/Reset view, range map PNG + CSV export,
+  LCA-pruned composites with a guaranteed header/footer band, and a
+  dead-code / duplicate-key sweep.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

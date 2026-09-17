@@ -631,56 +631,10 @@ if active_tab == "Dashboard":
                                        mime="text/plain",
                                        use_container_width=True,
                                        key=f"nwk_top_{pick_tree}")
-            # The interactive canvas carries its own complete menu, so when
-            # it is on, the side panel steps back to just this toggle. That
-            # keeps one place to play and means no Streamlit rerun (which
-            # would wipe an arrangement) is ever needed while arranging.
-            drag_mode = st.checkbox(
-                "Interactive: drag to arrange", value=True,
-                key=f"dragmode_{pick_tree}",
-                help="A live canvas with one menu inside it: layout "
-                     "(unrooted, radial, rectangular), clades, labels, "
-                     "Latin names, photos, focus on a clade, and export. "
-                     "Drag anything to move it. Turn this off for the "
-                     "fixed drawings with deep-time branch scaling.")
-            if drag_mode:
-                st.caption("Every control lives inside the canvas. Drag "
-                           "nodes to arrange, click a clade to focus, "
-                           "scroll to zoom, and export from the menu.")
-                layout_name = "Unrooted"
-                show_sci = True
-                show_all_clades = False
-                use_scaled_view = False
-                zoom_pct = 100
-            else:
-                layout_name = st.radio(
-                    "Layout", list(render_mod.LAYOUTS.keys()), index=0,
-                    help="Unrooted shows kinship without implying a "
-                         "direction. Rectangular reads left to right. "
-                         "Circular fans the tree around a center.")
-                _can_scale = layout_name in ("Unrooted", "Rectangular")
-                scale_time = st.checkbox(
-                    "Scale branches to deep time (MYA)", value=False,
-                    disabled=not _can_scale,
-                    key=f"scale_time_{pick_tree}",
-                    help="Stretch every branch to its real length in "
-                         "millions of years since the last common "
-                         "ancestor, log-adjusted so a 500-million-year "
-                         "split doesn't dwarf a 5-million-year one.")
-                use_scaled_view = bool(scale_time) and _can_scale
-                show_sci = st.checkbox("Show scientific names", value=True)
-                show_all_clades = st.checkbox(
-                    "Show every clade", value=False,
-                    key=f"allclades_{pick_tree}",
-                    help="Off keeps the tree to its species and the "
-                         "dated clades from the last common ancestor "
-                         "down. On draws the full deep-time spine and "
-                         "every internal node.")
-                zoom_pct = st.slider(
-                    "Zoom", min_value=50, max_value=130, value=85, step=5,
-                    key=f"zoom_{pick_tree}",
-                    help="100% = native; lower fits more in view.",
-                    format="%d%%")
+            st.caption(
+                "The tree below is live: every control sits inside it. "
+                "Drag to arrange, click a clade to focus, scroll to zoom, "
+                "and use Save view to keep an arrangement on this device.")
             st.caption(f"{len(df)} species, {n_dated} dated node(s). "
                        "Legend + 'mya' explanation are inside every "
                        "exported tree. Hover any node for its details.")
@@ -722,73 +676,84 @@ if active_tab == "Dashboard":
 
         with view:
             if nwk.exists() and meta:
-                if drag_mode:
-                    try:
-                        from src import interactive_tree
-                        # Photos come from the on-disk profile cache only,
-                        # so this never blocks the dashboard on network.
-                        # Species get a photo once they've been looked up
-                        # (kin cards, quick look); the canvas toggles them.
-                        _photos = {}
-                        for _, _prow in df.iterrows():
-                            _psci = _prow.get("scientific_name")
-                            if not isinstance(_psci, str):
-                                continue
-                            _purl = species_profile.cached_image_url(
-                                _psci.strip())
-                            if _purl:
-                                _photos[_psci.strip()] = _purl
-                        _ihtml = interactive_tree.build_interactive_html(
-                            nwk, meta, tree_name=pick_tree, height=700,
-                            show_scientific=show_sci, photos=_photos)
-                        components.html(_ihtml, height=720, scrolling=False)
-                        st.caption(
-                            "Drag species and clades to rearrange, "
-                            "double-click a clade to flip it, switch radial "
-                            "or rectangular, scroll to zoom. This canvas is "
-                            "for exploring; the downloads below still use "
-                            "the fixed layouts.")
-                    except Exception as _iexc:
-                        st.warning(
-                            f"Interactive view unavailable: {_iexc}")
-                else:
-                    html = render_mod.render_html(
-                        nwk, meta, layout=render_mod.LAYOUTS[layout_name],
-                        show_scientific=show_sci, tree_name=pick_tree,
-                        zoom=zoom_pct / 100.0,
-                        use_scaled=use_scaled_view,
-                        show_all_clades=show_all_clades,
-                    )
-                    components.html(html, height=740, scrolling=True)
+                try:
+                    from src import interactive_tree
+                    # Photos come from the on-disk profile cache only, so
+                    # this never blocks the dashboard on network. A species
+                    # gets a photo once it has been looked up anywhere.
+                    _photos = {}
+                    for _, _prow in df.iterrows():
+                        _psci = _prow.get("scientific_name")
+                        if not isinstance(_psci, str):
+                            continue
+                        _purl = species_profile.cached_image_url(_psci.strip())
+                        if _purl:
+                            _photos[_psci.strip()] = _purl
+                    _ihtml = interactive_tree.build_interactive_html(
+                        nwk, meta, tree_name=pick_tree, height=720,
+                        show_scientific=True, photos=_photos)
+                    components.html(_ihtml, height=740, scrolling=False)
+                except Exception as _iexc:
+                    st.warning(f"Interactive tree unavailable: {_iexc}")
 
-                # Download the current layout (SVG + PNG)
-                dl_cols = st.columns(2)
-                with dl_cols[0]:
-                    if st.button(f"Build {layout_name} SVG / PNG",
-                                 key=f"dl_build_{pick_tree}_{layout_name}"):
-                        layout_code = render_mod.LAYOUTS[layout_name]
-                        out = render_mod.render_files(
-                            nwk, meta,
-                            f"{stem}_tree_{layout_name.lower()}",
-                            layout=layout_code, tree_name=pick_tree,
-                            use_scaled=use_scaled_view,
-                            show_all_clades=show_all_clades)
-                        usage_log.log_event("render_tree", pick_tree)
-                        st.success("Files ready below.")
-                        st.rerun()
-                with dl_cols[1]:
-                    svg_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.svg"
-                    png_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.png"
-                    if svg_p.exists():
-                        st.download_button(
-                            f"SVG ({layout_name})", svg_p.read_bytes(),
-                            file_name=svg_p.name, mime="image/svg+xml",
-                            key=f"dl_svg_{pick_tree}_{layout_name}")
-                    if png_p.exists():
-                        st.download_button(
-                            f"PNG ({layout_name})", png_p.read_bytes(),
-                            file_name=png_p.name, mime="image/png",
-                            key=f"dl_png_{pick_tree}_{layout_name}")
+                # Fixed drawings for print: the same pruned, dated-clade
+                # view as the canvas, plus optional deep-time branch
+                # scaling, rendered by toyplot to SVG + PNG.
+                with st.expander("Fixed drawings for print (SVG / PNG)",
+                                 expanded=False):
+                    _fx = st.columns([1.2, 1, 1])
+                    with _fx[0]:
+                        layout_name = st.radio(
+                            "Layout", list(render_mod.LAYOUTS.keys()),
+                            index=0, horizontal=True,
+                            key=f"fixed_layout_{pick_tree}")
+                    with _fx[1]:
+                        _can_scale = layout_name in ("Unrooted", "Rectangular")
+                        scale_time = st.checkbox(
+                            "Deep-time branch lengths", value=False,
+                            disabled=not _can_scale,
+                            key=f"scale_time_{pick_tree}",
+                            help="Stretch branches to millions of years "
+                                 "since the last common ancestor, "
+                                 "log-adjusted.")
+                        use_scaled_view = bool(scale_time) and _can_scale
+                    with _fx[2]:
+                        show_all_clades = st.checkbox(
+                            "Every clade to the root", value=False,
+                            key=f"allclades_{pick_tree}",
+                            help="Off keeps the drawing from the last "
+                                 "common ancestor down with dated clades. "
+                                 "On draws the full deep-time spine.")
+                    dl_cols = st.columns(2)
+                    with dl_cols[0]:
+                        if st.button(f"Build {layout_name} SVG / PNG",
+                                     key=f"dl_build_{pick_tree}_{layout_name}",
+                                     use_container_width=True):
+                            layout_code = render_mod.LAYOUTS[layout_name]
+                            render_mod.render_files(
+                                nwk, meta,
+                                f"{stem}_tree_{layout_name.lower()}",
+                                layout=layout_code, tree_name=pick_tree,
+                                use_scaled=use_scaled_view,
+                                show_all_clades=show_all_clades)
+                            usage_log.log_event("render_tree", pick_tree)
+                            st.success("Files ready.")
+                            st.rerun()
+                    with dl_cols[1]:
+                        svg_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.svg"
+                        png_p = config.OUTPUT_DIR / f"{stem}_tree_{layout_name.lower()}.png"
+                        if svg_p.exists():
+                            st.download_button(
+                                f"SVG ({layout_name})", svg_p.read_bytes(),
+                                file_name=svg_p.name, mime="image/svg+xml",
+                                key=f"dl_svg_{pick_tree}_{layout_name}",
+                                use_container_width=True)
+                        if png_p.exists():
+                            st.download_button(
+                                f"PNG ({layout_name})", png_p.read_bytes(),
+                                file_name=png_p.name, mime="image/png",
+                                key=f"dl_png_{pick_tree}_{layout_name}",
+                                use_container_width=True)
                 # Short note under the tree, generated or LLM-written
                 try:
                     b = ai_blurb.blurb_for_tree(pick_tree)

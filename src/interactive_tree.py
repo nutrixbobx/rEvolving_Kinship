@@ -101,11 +101,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
   html, body { margin:0; padding:0; background:%%BG%%;
     font-family: Helvetica, Arial, sans-serif; }
   #wrap { position:relative; width:100%; height:%%HEIGHT%%px;
-    background:%%BG%%; border-radius:10px; overflow:hidden; }
+    background:%%BG%%; border-radius:10px; overflow:hidden;
+    --lbl:12.5px; --clbl:11px; }
   #bar { position:absolute; top:8px; left:8px; right:8px; z-index:5;
     display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start; }
   .grp { display:flex; align-items:center; gap:4px; flex-wrap:wrap;
-    background:rgba(14,27,26,0.82); border:1px solid #26403b;
+    background:rgba(14,27,26,0.85); border:1px solid #26403b;
     border-radius:9px; padding:4px 6px 4px 4px; }
   .gl { font-size:10px; letter-spacing:.12em; text-transform:uppercase;
     color:#7f978f; padding:0 6px 0 4px; user-select:none; }
@@ -115,8 +116,15 @@ _TEMPLATE = r"""<!DOCTYPE html>
     padding:5px 9px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .grp button:hover { border-color:#3a5a54; }
   .grp button.on { background:%%LABEL%%; color:#0e1b1a; font-weight:600; }
+  .grp label { display:flex; align-items:center; gap:5px; color:%%TIP%%;
+    font-size:11.5px; padding:0 4px; white-space:nowrap; }
+  .grp input[type=range] { width:84px; accent-color:%%LABEL%%; margin:0; }
   #hint { position:absolute; bottom:8px; left:12px; right:12px; z-index:5;
     color:#7f978f; font-size:11px; line-height:1.4; }
+  #toast { position:absolute; left:50%; bottom:40px; transform:translateX(-50%);
+    z-index:7; background:rgba(14,27,26,0.95); color:%%LABEL%%; border:1px solid #26403b;
+    border-radius:8px; padding:7px 14px; font-size:12.5px; opacity:0; pointer-events:none;
+    transition:opacity .25s; }
   #tt { position:absolute; z-index:6; pointer-events:none; opacity:0;
     background:rgba(14,27,26,0.96); color:%%TIP%%; border:1px solid #26403b;
     border-radius:7px; padding:6px 9px; font-size:12px; max-width:260px;
@@ -124,14 +132,15 @@ _TEMPLATE = r"""<!DOCTYPE html>
   svg { width:100%; height:100%; display:block; cursor:grab; }
   svg:active { cursor:grabbing; }
   .node { cursor:move; }
-  .lbl { fill:%%TIP%%; font-size:12.5px; user-select:none; pointer-events:none; }
-  .clbl { fill:%%LABEL%%; font-size:11px; user-select:none; pointer-events:none; }
-  .edge { stroke:%%EDGE%%; stroke-width:1.6; fill:none;
-    vector-effect: non-scaling-stroke; }
+  .lbl { fill:%%TIP%%; font-size:var(--lbl); user-select:none; pointer-events:none; }
+  .clbl { fill:%%LABEL%%; font-size:var(--clbl); user-select:none; pointer-events:none; }
+  .sci { font-style:italic; }
+  .edge { stroke:%%EDGE%%; stroke-width:1.6; fill:none; vector-effect: non-scaling-stroke; }
   .photo { pointer-events:none; }
   @media (max-width: 640px) {
     .grp button { padding:4px 7px; font-size:11px; }
     .gl { display:none; }
+    .grp input[type=range] { width:64px; }
     #hint { font-size:10px; }
   }
 </style>
@@ -146,35 +155,38 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <div class="grp"><span class="gl">Show</span>
       <button id="b-clades" class="on">Clades: dated</button>
       <button id="b-labels" class="on">Labels</button>
-      <button id="b-latin">Latin names</button>
+      <button id="b-latin">Scientific names</button>
       <button id="b-photos">Photos</button></div>
+    <div class="grp"><span class="gl">Size</span>
+      <label>Photos <input id="r-photo" type="range" min="22" max="90" value="34"></label>
+      <label>Text <input id="r-text" type="range" min="9" max="22" step="0.5" value="12.5"></label></div>
     <div class="grp"><span class="gl">View</span>
       <button id="b-lca">To LCA</button>
       <button id="b-whole">Whole tree</button>
-      <button id="b-fit">Fit</button></div>
+      <button id="b-fit">Fit</button>
+      <button id="b-save">Save view</button>
+      <button id="b-reset">Reset</button></div>
     <div class="grp"><span class="gl">Export</span>
       <button id="b-png">PNG</button>
       <button id="b-svg">SVG</button></div>
   </div>
   <div id="tt"></div>
+  <div id="toast"></div>
   <div id="hint">Click a clade to focus and hide its deeper ancestors; click
     the top clade to step back. Shift-click flips a clade. Drag to move,
-    scroll to zoom. Zooming in reveals more clade names.</div>
+    scroll to zoom. Save view keeps your arrangement on this device.</div>
   <svg id="svg"></svg>
 </div>
 <script>
 (function(){
   const DATA = %%DATA%%;
   const PHOTOS = %%PHOTOS%%;
+  const TITLE = %%TITLE%%;
   const BG = "%%BG%%";
   const C = { edge:"%%EDGE%%", leaf:"%%LEAF%%", dated:"%%DATED%%",
               plain:"%%PLAIN%%", tip:"%%TIP%%", label:"%%LABEL%%" };
-  const STYLE_TEXT =
-    ".lbl{fill:"+C.tip+";font-size:12.5px;font-family:Helvetica,Arial,sans-serif;}"+
-    ".clbl{fill:"+C.label+";font-size:11px;font-family:Helvetica,Arial,sans-serif;}"+
-    ".edge{stroke:"+C.edge+";stroke-width:1.6;fill:none;}";
   const HAS_PHOTOS = Object.keys(PHOTOS).length > 0;
-  const PHOTO_SIZE = 34;
+  const KEY = "rk_view:" + TITLE;
   const svg = d3.select("#svg");
   const wrap = document.getElementById("wrap");
   let W = wrap.clientWidth || 900, H = wrap.clientHeight || %%HEIGHT%%;
@@ -183,24 +195,42 @@ _TEMPLATE = r"""<!DOCTYPE html>
   const gEdges = viewport.append("g");
   const gNodes = viewport.append("g");
   const tt = d3.select("#tt");
+  const $ = id => document.getElementById(id);
 
   const root = d3.hierarchy(DATA, d => d.children);
   let idc = 0;
   root.each(d => { d.cx = 0; d.cy = 0; d.__id = idc++; });
 
+  // ---------- state ----------
   let displayRoot = root;
   let mode = "unrooted";
   let showLabels = true;
   let showSci = %%SHOWSCI%%;
   let showPhotos = false;
   let cladeMode = "dated";
+  let photoSize = 34;
+  let textSize = 12.5;
   let manuallyMoved = false;
-  let k = 1;   // current zoom scale, used for counter-scaling + declutter
+  let k = 1;
 
+  function styleText(){
+    return ".lbl{fill:"+C.tip+";font-size:"+textSize+"px;font-family:Helvetica,Arial,sans-serif;}"+
+           ".clbl{fill:"+C.label+";font-size:"+(textSize*0.88).toFixed(1)+"px;font-family:Helvetica,Arial,sans-serif;}"+
+           ".sci{font-style:italic;}"+
+           ".edge{stroke:"+C.edge+";stroke-width:1.6;fill:none;}";
+  }
+  function applySizes(){
+    wrap.style.setProperty("--lbl", textSize+"px");
+    wrap.style.setProperty("--clbl", (textSize*0.88).toFixed(1)+"px");
+  }
   function lca(){
     let n = root;
     while (n.children && n.children.length === 1) n = n.children[0];
     return n;
+  }
+  function toast(msg){
+    const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
+    clearTimeout(t.__h); t.__h = setTimeout(() => t.style.opacity = 0, 1600);
   }
 
   // ---------- layouts ----------
@@ -227,12 +257,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       d.cy = cyC + rad*Math.sin(d.x - Math.PI/2);
     });
   }
-  // Equal-angle unrooted: every subtree gets a wedge proportional to its
-  // leaf count, so the drawing has no implied top and reads as kinship.
   function layoutUnrooted(R0){
-    // A long unary ladder (one child per node) should stay compact so it
-    // doesn't push the species fan into a corner; real branch points get
-    // room so the leaves have space for their labels.
     const SPINE = 18, BRANCH = 96;
     function rec(node, a0, span, x, y){
       node.cx = x; node.cy = y;
@@ -255,7 +280,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     else layoutUnrooted(displayRoot);
   }
 
-  // ---------- styling helpers ----------
+  // ---------- styling ----------
   function nodeColor(d){ return d.data.is_leaf ? C.leaf : (d.data.dated ? C.dated : C.plain); }
   function nodeR(d){ return d.data.is_leaf ? 5 : (d.data.dated ? 7 : 5); }
   function cladeShown(d){
@@ -265,23 +290,31 @@ _TEMPLATE = r"""<!DOCTYPE html>
     return true;
   }
   function hasPhoto(d){ return showPhotos && d.data.is_leaf && !!PHOTOS[d.data.sci]; }
+  // plain string, for width estimates only
   function labelText(d){
     if (d.data.is_leaf){
-      if (showSci) return d.data.common ? d.data.common + " (" + d.data.sci + ")" : d.data.sci;
-      return d.data.common ? d.data.common : d.data.sci;
+      if (d.data.common) return showSci ? d.data.common + " (" + d.data.sci + ")" : d.data.common;
+      return d.data.sci;
     }
     let t = d.data.clade || "";
     if (d.data.dated && d.data.mya != null) t += ", " + d.data.mya;
     return t;
   }
-  // Which side a label sits on: outward from the parent in the round
-  // layouts (so a leaf on the left reads to the left), always right in
-  // rectangular. Keeps fan labels from crossing each other.
+  // the real label: scientific name in italics via tspan
+  function setLabel(el, d){
+    while (el.firstChild) el.removeChild(el.firstChild);
+    const NS = "http://www.w3.org/2000/svg";
+    function span(txt, cls){ const t = document.createElementNS(NS,"tspan"); if (cls) t.setAttribute("class", cls); t.textContent = txt; el.appendChild(t); }
+    if (d.data.is_leaf){
+      if (d.data.common){ span(d.data.common); if (showSci){ span(" ("); span(d.data.sci, "sci"); span(")"); } }
+      else span(d.data.sci, "sci");
+    } else span(labelText(d));
+  }
   function side(d){
     if (mode === "rect" || !d.parent) return 1;
     return (d.cx - d.parent.cx) < -1 ? -1 : 1;
   }
-  function labelX(d){ return nodeR(d) + 6 + (hasPhoto(d) ? PHOTO_SIZE + 4 : 0); }
+  function labelX(d){ return nodeR(d) + 6 + (hasPhoto(d) ? photoSize + 4 : 0); }
   function labelWanted(d){
     if (!showLabels) return false;
     if (d.data.is_leaf) return true;
@@ -311,16 +344,16 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .attr("stroke-width", d => (d === displayRoot && !d.data.is_leaf) ? 2 : 1);
     all.select("image.photo")
       .attr("href", d => PHOTOS[d.data.sci] || "")
-      .attr("x", d => side(d) > 0 ? nodeR(d) + 6 : -(nodeR(d) + 6 + PHOTO_SIZE))
-      .attr("y", -PHOTO_SIZE/2)
-      .attr("width", PHOTO_SIZE).attr("height", PHOTO_SIZE)
+      .attr("x", d => side(d) > 0 ? nodeR(d) + 6 : -(nodeR(d) + 6 + photoSize))
+      .attr("y", -photoSize/2)
+      .attr("width", photoSize).attr("height", photoSize)
       .attr("preserveAspectRatio", "xMidYMid slice")
       .style("display", d => hasPhoto(d) ? null : "none");
     all.select("text")
       .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
       .attr("x", d => side(d) * labelX(d)).attr("y", 4)
       .attr("text-anchor", d => side(d) > 0 ? "start" : "end")
-      .text(labelText);
+      .each(function(d){ setLabel(this, d); });
 
     all.on("mousemove", function(ev,d){
         const html = d.data.is_leaf
@@ -339,7 +372,6 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .on("drag", function(ev,d){
         this.__dist += Math.abs(ev.dx) + Math.abs(ev.dy);
         if (this.__dist > 3) manuallyMoved = true;
-        // pointer delta is in screen px; convert to canvas units
         const ddx = ev.dx / k, ddy = ev.dy / k;
         d.descendants().forEach(n => { n.cx += ddx; n.cy += ddy; });
         gNodes.selectAll("g.node").attr("transform", nodeTransform);
@@ -351,7 +383,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
         if (ev.sourceEvent && ev.sourceEvent.shiftKey){
           if (d.children){ d.children.reverse(); if (d.data.children) d.data.children.reverse(); }
           if (!manuallyMoved) layout();
-          drawEdges(); drawNodes(); declutter(); tt.style("opacity",0);
+          drawEdges(); drawNodes(); tt.style("opacity",0);
         } else if (d === displayRoot){ setFocus(d.parent || root); }
         else { setFocus(d); }
       }));
@@ -359,24 +391,19 @@ _TEMPLATE = r"""<!DOCTYPE html>
     declutter();
   }
 
-  // Greedy label decluttering in SCREEN space. Species labels always draw;
-  // clade labels are placed by age (deep landmarks first) and skipped when
-  // they would overlap anything already placed. Re-run on zoom.
   function declutter(){
     const t = d3.zoomTransform(svg.node());
     const placed = [];
+    const cw = textSize * 0.55, ch = textSize * 0.65;
     function box(d){
       const sx = d.cx*t.k + t.x, sy = d.cy*t.k + t.y;
-      const w = labelText(d).length * (d.data.is_leaf ? 6.9 : 6.1) + 6;
+      const w = labelText(d).length * (d.data.is_leaf ? cw : cw*0.9) + 6;
       const x0 = side(d) > 0 ? sx + labelX(d) - 2 : sx - labelX(d) - w + 2;
-      return [x0, sy-8, x0+w, sy+8];
+      return [x0, sy-ch, x0+w, sy+ch];
     }
     function hits(b){ return placed.some(p => !(b[2]<p[0] || b[0]>p[2] || b[3]<p[1] || b[1]>p[3])); }
     const want = displayRoot.descendants().filter(labelWanted);
     const show = new Set();
-    // focused root first, then species (top to bottom on screen), then
-    // clades by age. Anything that would overlap something already placed
-    // waits for a closer zoom; its dot and hover stay.
     const order = []
       .concat(want.filter(d => d === displayRoot))
       .concat(want.filter(d => d.data.is_leaf && d !== displayRoot).sort((a,b) => a.cy - b.cy))
@@ -394,7 +421,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
   function render(){ layout(); drawEdges(); drawNodes(); }
 
-  // ---------- zoom (counter-scaled) ----------
+  // ---------- zoom ----------
   let rafPending = false;
   const zoom = d3.zoom().scaleExtent([0.25, 5])
     .on("zoom", ev => {
@@ -404,24 +431,67 @@ _TEMPLATE = r"""<!DOCTYPE html>
       if (!rafPending){ rafPending = true; requestAnimationFrame(() => { rafPending = false; declutter(); }); }
     });
   svg.call(zoom);
-
   function fitTransform(){
     const ds = displayRoot.descendants();
     const xs = ds.map(d=>d.cx), ys = ds.map(d=>d.cy);
     const x0=Math.min.apply(null,xs), x1=Math.max.apply(null,xs);
     const y0=Math.min.apply(null,ys), y1=Math.max.apply(null,ys);
     const bw=Math.max(1,x1-x0), bh=Math.max(1,y1-y0);
-    // leave room for labels on the right + top bar; clamp so a tiny tree
-    // never balloons and a deep one never becomes a speck
-    let kk = 0.80*Math.min((W-220)/bw, (H-150)/bh);
+    let kk = 0.80*Math.min((W-220)/bw, (H-170)/bh);
     kk = Math.max(0.45, Math.min(2.4, kk));
-    const tx = W/2 - kk*(x0+x1)/2 - 40, ty = H/2 - kk*(y0+y1)/2 + 20;
+    const tx = W/2 - kk*(x0+x1)/2 - 40, ty = H/2 - kk*(y0+y1)/2 + 30;
     return d3.zoomIdentity.translate(tx,ty).scale(kk);
   }
   function fit(animate){
     const t = fitTransform();
     if (animate === false) svg.call(zoom.transform, t);
     else svg.transition().duration(420).call(zoom.transform, t);
+  }
+
+  // ---------- save / restore ----------
+  function syncButtons(){
+    ["unrooted","radial","rect"].forEach(x => d3.select("#b-"+x).classed("on", x===mode));
+    $("b-clades").textContent = "Clades: " + cladeMode;
+    $("b-clades").classList.toggle("on", cladeMode !== "none");
+    $("b-labels").classList.toggle("on", showLabels);
+    $("b-latin").classList.toggle("on", showSci);
+    $("b-photos").classList.toggle("on", showPhotos);
+    $("r-photo").value = photoSize; $("r-text").value = textSize;
+    applySizes();
+  }
+  function saveView(){
+    try {
+      const z = d3.zoomTransform(svg.node());
+      const st = { mode, cladeMode, showLabels, showSci, showPhotos, photoSize, textSize,
+                   root: displayRoot.__id, pos: {}, z: {k:z.k, x:z.x, y:z.y} };
+      root.each(d => { st.pos[d.__id] = [Math.round(d.cx*10)/10, Math.round(d.cy*10)/10]; });
+      localStorage.setItem(KEY, JSON.stringify(st));
+      toast("View saved on this device");
+    } catch(e){ toast("Could not save here"); }
+  }
+  function restoreView(){
+    try {
+      const raw = localStorage.getItem(KEY); if (!raw) return false;
+      const st = JSON.parse(raw);
+      mode = st.mode || mode; cladeMode = st.cladeMode || cladeMode;
+      showLabels = !!st.showLabels; showSci = !!st.showSci;
+      showPhotos = !!st.showPhotos && HAS_PHOTOS;
+      photoSize = st.photoSize || photoSize; textSize = st.textSize || textSize;
+      layout();
+      root.each(d => { const p = st.pos && st.pos[d.__id]; if (p){ d.cx = p[0]; d.cy = p[1]; } });
+      displayRoot = root.descendants().find(d => d.__id === st.root) || root;
+      manuallyMoved = true;
+      syncButtons(); drawEdges(); drawNodes();
+      if (st.z) svg.call(zoom.transform, d3.zoomIdentity.translate(st.z.x, st.z.y).scale(st.z.k));
+      else fit(false);
+      return true;
+    } catch(e){ return false; }
+  }
+  function resetView(){
+    try { localStorage.removeItem(KEY); } catch(e){}
+    mode = "unrooted"; cladeMode = "dated"; showLabels = true; showSci = %%SHOWSCI%%;
+    showPhotos = false; photoSize = 34; textSize = 12.5; displayRoot = root; manuallyMoved = false;
+    syncButtons(); render(); fit(); toast("Back to the default view");
   }
 
   // ---------- export ----------
@@ -442,35 +512,34 @@ _TEMPLATE = r"""<!DOCTYPE html>
     return map;
   }
   async function exportImg(asPng){
-    fit(false);
     const NS = "http://www.w3.org/2000/svg";
     const clone = svg.node().cloneNode(true);
     clone.setAttribute("width", W); clone.setAttribute("height", H);
+    clone.querySelectorAll("text").forEach(t => { if (t.style.display === "none") t.remove(); });
     if (HAS_PHOTOS && showPhotos){
       const map = await dataUrlMap();
       clone.querySelectorAll("image").forEach(im => {
         const h = im.getAttribute("href");
+        if (im.style.display === "none"){ im.remove(); return; }
         if (h && map[h]) im.setAttribute("href", map[h]);
       });
-    }
+    } else clone.querySelectorAll("image").forEach(im => im.remove());
     const bg = document.createElementNS(NS, "rect");
     bg.setAttribute("x",0); bg.setAttribute("y",0);
     bg.setAttribute("width",W); bg.setAttribute("height",H); bg.setAttribute("fill", BG);
     clone.insertBefore(bg, clone.firstChild);
     const styleEl = document.createElementNS(NS, "style");
-    styleEl.textContent = STYLE_TEXT;
+    styleEl.textContent = styleText();
     clone.insertBefore(styleEl, clone.firstChild);
     let src = new XMLSerializer().serializeToString(clone);
-    // The serializer normally emits the SVG namespace itself; adding it by
-    // hand as well produced a duplicate attribute and an invalid file.
-    // Inject it only when it is genuinely missing.
     if (!/^<svg[^>]*\sxmlns=/.test(src)) src = src.replace(/^<svg/, '<svg xmlns="'+NS+'"');
-    if (!asPng){ download(new Blob([src], {type:"image/svg+xml;charset=utf-8"}), "kinship_tree.svg"); return; }
+    const stem = (TITLE || "kinship_tree").replace(/[^\w\-]+/g, "_");
+    if (!asPng){ download(new Blob([src], {type:"image/svg+xml;charset=utf-8"}), stem+"_tree.svg"); return; }
     const img = new Image();
     img.onload = function(){
       const c = document.createElement("canvas"); c.width = W*2; c.height = H*2;
       const ctx = c.getContext("2d"); ctx.setTransform(2,0,0,2,0,0); ctx.drawImage(img, 0, 0);
-      try { c.toBlob(function(b){ download(b, "kinship_tree.png"); }); }
+      try { c.toBlob(function(b){ download(b, stem+"_tree.png"); }); }
       catch(e){ alert("A photo's host blocked embedding. Use Export SVG."); }
     };
     img.onerror = function(){ alert("Could not rasterize. Try Export SVG."); };
@@ -478,45 +547,40 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
 
   // ---------- menu wiring ----------
-  function setMode(m){
-    mode = m; manuallyMoved = false;
-    ["unrooted","radial","rect"].forEach(x => d3.select("#b-"+x).classed("on", x===m));
-    render(); fit();
-  }
-  const $ = id => document.getElementById(id);
+  function setMode(m){ mode = m; manuallyMoved = false; syncButtons(); render(); fit(); }
   $("b-unrooted").onclick = () => setMode("unrooted");
   $("b-radial").onclick = () => setMode("radial");
   $("b-rect").onclick = () => setMode("rect");
   $("b-clades").onclick = function(){
     cladeMode = cladeMode==="dated" ? "all" : (cladeMode==="all" ? "none" : "dated");
-    this.textContent = "Clades: " + cladeMode;
-    this.classList.toggle("on", cladeMode !== "none");
-    drawNodes();
+    syncButtons(); drawNodes();
   };
-  $("b-labels").onclick = function(){
-    showLabels = !showLabels; this.classList.toggle("on", showLabels); drawNodes();
-  };
-  $("b-latin").onclick = function(){
-    showSci = !showSci; this.classList.toggle("on", showSci); drawNodes();
-  };
+  $("b-labels").onclick = function(){ showLabels = !showLabels; syncButtons(); drawNodes(); };
+  $("b-latin").onclick = function(){ showSci = !showSci; syncButtons(); drawNodes(); };
   $("b-photos").onclick = function(){
-    if (!HAS_PHOTOS){ alert("No photos are cached for this tree yet. Load kin cards once on the Dashboard, then rebuild the interactive view."); return; }
-    showPhotos = !showPhotos; this.classList.toggle("on", showPhotos); drawNodes();
+    if (!HAS_PHOTOS){ toast("No photos cached yet: open Quick look or Load kin cards once, then rebuild"); return; }
+    showPhotos = !showPhotos; syncButtons(); drawNodes();
   };
+  $("r-photo").oninput = function(){ photoSize = +this.value; drawNodes(); };
+  $("r-text").oninput = function(){ textSize = +this.value; applySizes(); drawNodes(); };
   $("b-lca").onclick = () => { manuallyMoved = false; setFocus(lca()); };
   $("b-whole").onclick = () => { manuallyMoved = false; setFocus(root); };
   $("b-fit").onclick = () => fit();
+  $("b-save").onclick = saveView;
+  $("b-reset").onclick = resetView;
   $("b-png").onclick = () => exportImg(true);
   $("b-svg").onclick = () => exportImg(false);
-  if (showSci) $("b-latin").classList.add("on");
   if (!HAS_PHOTOS) $("b-photos").style.opacity = 0.45;
 
   window.addEventListener("resize", () => {
     W = wrap.clientWidth || W; H = wrap.clientHeight || H;
-    svg.attr("viewBox",[0,0,W,H]); manuallyMoved = false; render(); fit(false);
+    svg.attr("viewBox",[0,0,W,H]);
+    if (!manuallyMoved){ render(); fit(false); } else { drawEdges(); drawNodes(); }
   });
 
-  render(); fit(false);
+  syncButtons();
+  render();
+  if (!restoreView()) fit(false);
 })();
 </script>
 </body>
