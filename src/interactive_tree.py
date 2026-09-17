@@ -27,7 +27,12 @@ Public entry: `build_interactive_html(newick_path, meta, tree_name, ...)`.
 from __future__ import annotations
 
 import json
+import urllib.parse
 from pathlib import Path
+
+
+def _q(v: str) -> str:
+    return urllib.parse.quote(v, safe="")
 
 
 BG = "#0e1b1a"
@@ -71,7 +76,12 @@ def build_interactive_html(newick_path, meta: dict,
                            height: int = 720,
                            show_scientific: bool = True,
                            photos: dict | None = None,
-                           names: dict | None = None) -> str:
+                           names: dict | None = None,
+                           can_share: bool = False,
+                           signed_in: bool = False,
+                           initial_view: str | None = None,
+                           initial_scope: str | None = None,
+                           keep_params: dict | None = None) -> str:
     """Self-contained draggable tree page for components.html().
 
     show_scientific sets the initial state of the in-canvas toggle.
@@ -79,7 +89,13 @@ def build_interactive_html(newick_path, meta: dict,
       more than one, the canvas shows arrows to pick a preferred photo.
     names: {scientific_name: [{"t": text, "l": lang, "c": category}, ...]}
       from the Library, so a visitor can click a species and cycle through
-      every name it goes by."""
+      every name it goes by.
+    can_share: this reader may write the tree's shared view (admin/editor).
+    signed_in: this reader has an account, so they get a personal view.
+    initial_view / initial_scope: the saved view JSON to open with, and
+      whether it came from this person ("me") or the tree ("all").
+    keep_params: query params to carry through the save round trip, above
+      all the ?s= session token. Losing it would sign the person out."""
     data = _hierarchy(newick_path, meta)
     # Normalize photos to a list per species so the canvas has one shape.
     photo_lists: dict[str, list[str]] = {}
@@ -93,6 +109,13 @@ def build_interactive_html(newick_path, meta: dict,
         "%%PHOTOS%%": json.dumps(photo_lists),
         "%%NAMES%%": json.dumps(names or {}),
         "%%SHOWSCI%%": "true" if show_scientific else "false",
+        "%%CANSHARE%%": "true" if can_share else "false",
+        "%%SIGNEDIN%%": "true" if signed_in else "false",
+        "%%INITVIEW%%": initial_view if initial_view else "null",
+        "%%INITSCOPE%%": json.dumps(initial_scope or ""),
+        "%%KEEP%%": json.dumps("".join(
+            "&" + _q(str(k)) + "=" + _q(str(v))
+            for k, v in (keep_params or {}).items() if v)),
         "%%TITLE%%": json.dumps(tree_name or ""),
         "%%HEIGHT%%": str(int(height)),
         "%%BG%%": BG, "%%EDGE%%": EDGE, "%%LEAF%%": LEAF,
@@ -198,7 +221,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       <button id="b-lca">To LCA</button>
       <button id="b-whole">Whole tree</button>
       <button id="b-fit">Fit</button>
-      <button id="b-save">Save view</button>
+      <button id="b-save">Save view…</button>
       <button id="b-reset">Reset</button></div>
     <div class="grp"><span class="gl">Export</span>
       <button id="b-png">PNG</button>
@@ -209,6 +232,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <div class="ph"><span>Clade names</span>
       <span><button id="cp-dated">Dated</button><button id="cp-all">All</button><button id="cp-none">None</button></span></div>
     <div class="list" id="cp-list"></div>
+  </div>
+  <div class="pop" id="savepop" style="width:268px;">
+    <div class="ph"><span>Save this arrangement</span><button id="sv-close">Close</button></div>
+    <div class="list" id="sv-list"></div>
   </div>
   <div class="pop" id="namepop">
     <div class="ph"><span id="np-title">Names</span><button id="np-close">Close</button></div>
@@ -232,6 +259,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
   const C = { edge:"%%EDGE%%", leaf:"%%LEAF%%", dated:"%%DATED%%",
               plain:"%%PLAIN%%", tip:"%%TIP%%", label:"%%LABEL%%" };
   const HAS_PHOTOS = Object.keys(PHOTOS).length > 0;
+  const CAN_SHARE = %%CANSHARE%%;
+  const SIGNED_IN = %%SIGNEDIN%%;
+  const INIT_VIEW = %%INITVIEW%%;
+  const INIT_SCOPE = %%INITSCOPE%%;
+  const KEEP = %%KEEP%%;
   const KEY = "rk_view:" + TITLE;
   const svg = d3.select("#svg");
   const wrap = document.getElementById("wrap");
@@ -573,7 +605,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
   function closeNamePop(){ $("namepop").style.display = "none"; namePopFor = null; }
   $("np-close").onclick = closeNamePop;
-  svg.on("mousedown.pop", closeNamePop);
+  svg.on("mousedown.pop", () => { closeNamePop(); $("savepop").style.display = "none"; });
 
   // ---------- zoom ----------
   let rafPending = false;
@@ -612,21 +644,79 @@ _TEMPLATE = r"""<!DOCTYPE html>
     $("r-photo").value = photoSize; $("r-text").value = textSize;
     applySizes();
   }
-  function saveView(){
-    try {
-      const z = d3.zoomTransform(svg.node());
-      const st = { mode, showLabels, showSci, showPhotos, photoSize, textSize,
-                   clades: [...cladeOn], photoIdx, nameIdx,
-                   root: displayRoot.__id, pos: {}, z: {k:z.k, x:z.x, y:z.y} };
-      root.each(d => { st.pos[d.__id] = [Math.round(d.cx*10)/10, Math.round(d.cy*10)/10]; });
-      localStorage.setItem(KEY, JSON.stringify(st));
-      toast("View saved on this device");
-    } catch(e){ toast("Could not save here"); }
+  // The current arrangement, as a compact object. withPos=false drops node
+  // positions, which are the bulky part, for when a URL round trip needs to
+  // stay inside a safe length.
+  function viewState(withPos){
+    const z = d3.zoomTransform(svg.node());
+    const st = { v: 1, mode, showLabels, showSci, showPhotos,
+                 photoSize, textSize, clades: [...cladeOn],
+                 photoIdx, nameIdx, root: displayRoot.__id,
+                 z: {k: +z.k.toFixed(3), x: Math.round(z.x), y: Math.round(z.y)} };
+    if (withPos){
+      st.pos = {};
+      root.each(d => { st.pos[d.__id] = [Math.round(d.cx), Math.round(d.cy)]; });
+    }
+    return st;
   }
-  function restoreView(){
+  function saveLocal(){
     try {
-      const raw = localStorage.getItem(KEY); if (!raw) return false;
-      const st = JSON.parse(raw);
+      localStorage.setItem(KEY, JSON.stringify(viewState(true)));
+      toast("Saved on this device");
+    } catch(e){ toast("Could not save in this browser"); }
+  }
+  // Hand the view to Streamlit through the address bar. The component runs
+  // in a same-origin iframe, so navigating the top window is allowed (the
+  // range map's species links already rely on it). KEEP carries the ?s=
+  // session token through, or the round trip would sign the person out.
+  function saveRemote(scope){
+    let st = viewState(true);
+    let enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(st)))));
+    if (enc.length > 1700){            // too long for a comfortable URL
+      st = viewState(false);
+      enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(st)))));
+      if (enc.length > 1700){
+        saveLocal();
+        toast("This tree is too big to publish; saved on this device");
+        return;
+      }
+      toast(scope === "all" ? "Publishing settings (positions stayed local)"
+                            : "Saving settings (positions stayed local)");
+      saveLocal();                      // keep the exact positions here
+    }
+    try {
+      // Navigating reloads the app, which starts a fresh Streamlit session,
+      // so the tree name rides along too: session_state is empty on arrival.
+      window.top.location.search = "?rk_view=" + enc + "&rk_scope=" + scope
+        + "&rk_tree=" + encodeURIComponent(TITLE) + KEEP;
+    } catch(e){ saveLocal(); }
+  }
+  function openSavePop(){
+    const list = $("sv-list"); list.innerHTML = "";
+    const opts = [];
+    if (CAN_SHARE) opts.push({k:"all", t:"Save for everyone",
+      m:"the tree opens like this for every visitor"});
+    if (SIGNED_IN) opts.push({k:"me", t:"Save for me",
+      m:"follows your account on any device"});
+    opts.push({k:"local", t:"Save on this device",
+      m:"this browser only, no account needed"});
+    opts.forEach(o => {
+      const row = document.createElement("div");
+      row.className = "it";
+      row.innerHTML = '<span>'+o.t+'</span><span class="meta">'+o.m+'</span>';
+      row.addEventListener("click", () => {
+        $("savepop").style.display = "none";
+        if (o.k === "local") saveLocal(); else saveRemote(o.k);
+      });
+      list.appendChild(row);
+    });
+    const pop = $("savepop");
+    pop.style.display = "block";
+    pop.style.left = "auto"; pop.style.right = "8px"; pop.style.top = "54px";
+  }
+  $("sv-close").onclick = () => { $("savepop").style.display = "none"; };
+  function applyState(st){
+    try {
       mode = st.mode || mode;
       showLabels = !!st.showLabels; showSci = !!st.showSci;
       showPhotos = !!st.showPhotos && HAS_PHOTOS;
@@ -643,6 +733,20 @@ _TEMPLATE = r"""<!DOCTYPE html>
       else fit(false);
       return true;
     } catch(e){ return false; }
+  }
+  // Load order: a view saved for this person, else the tree's shared view
+  // (both arrive from the database as INIT_VIEW), else whatever this browser
+  // has, else the default layout.
+  function loadInitial(){
+    if (INIT_VIEW && applyState(INIT_VIEW)){
+      if (INIT_SCOPE === "all") toast("Showing the shared view for this tree");
+      return true;
+    }
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw && applyState(JSON.parse(raw))) return true;
+    } catch(e){}
+    return false;
   }
   function resetView(){
     try { localStorage.removeItem(KEY); } catch(e){}
@@ -729,7 +833,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   $("b-lca").onclick = () => { manuallyMoved = false; setFocus(lca()); };
   $("b-whole").onclick = () => { manuallyMoved = false; setFocus(root); };
   $("b-fit").onclick = () => fit();
-  $("b-save").onclick = saveView;
+  $("b-save").onclick = openSavePop;
   $("b-reset").onclick = resetView;
   $("b-png").onclick = () => exportImg(true);
   $("b-svg").onclick = () => exportImg(false);
@@ -744,7 +848,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   buildCladePanel();
   syncButtons();
   render();
-  if (!restoreView()) fit(false);
+  if (!loadInitial()) fit(false);
 })();
 </script>
 </body>

@@ -363,6 +363,79 @@ if not auth.is_named():
     theme.render_footer(tree_settings.PROJECT_SLOGAN)
     st.stop()
 
+# ---------------------------------------------------------------------------
+# Saved interactive-tree views arriving from the canvas.
+#
+# The canvas lives in an iframe, so it hands its arrangement over through the
+# address bar (?rk_view=<base64>&rk_scope=me|all). We validate it, write it to
+# the tier the person is allowed to write, then strip the params and rerun so
+# the URL doesn't stay huge and a refresh doesn't re-save.
+# ---------------------------------------------------------------------------
+def _consume_incoming_view() -> None:
+    raw = st.query_params.get("rk_view")
+    if not raw:
+        return
+    raw = raw[0] if isinstance(raw, list) else raw
+    scope = st.query_params.get("rk_scope") or "me"
+    scope = scope[0] if isinstance(scope, list) else scope
+    # The save navigates the top window, which reloads the app into a brand
+    # new Streamlit session, so session_state is empty here. The tree name
+    # comes in on the URL; session_state is only a fallback.
+    tree_name = st.query_params.get("rk_tree")
+    tree_name = tree_name[0] if isinstance(tree_name, list) else tree_name
+    if not tree_name:
+        tree_name = st.session_state.get("sticky_dash_tree")
+    for key in ("rk_view", "rk_scope", "rk_tree"):
+        try:
+            del st.query_params[key]
+        except Exception:
+            pass
+    if not tree_name:
+        return
+    import base64 as _b64
+    import json as _json
+    try:
+        payload = _b64.b64decode(raw).decode("utf-8")
+        parsed = _json.loads(payload)          # validate before storing
+        if not isinstance(parsed, dict):
+            raise ValueError("view is not an object")
+        if len(payload) > 200_000:
+            raise ValueError("view too large")
+    except Exception as exc:
+        st.warning(f"That saved view could not be read ({exc}).")
+        return
+    me = auth.active_contributor_id()
+    if scope == "all":
+        if not auth.is_editor_or_admin():
+            st.warning("Only editors and admins can set the shared view.")
+            return
+        ok = db.save_tree_view(tree_name, payload,
+                               contributor_id=None, updated_by=me)
+        msg = "Shared view saved. Everyone opens this tree like this now."
+    else:
+        if not me or auth.is_guest():
+            st.info("Sign in to keep a view on your account. Saved in this "
+                    "browser instead.")
+            return
+        ok = db.save_tree_view(tree_name, payload, contributor_id=me,
+                               updated_by=me)
+        msg = "Saved to your account. It follows you on any device."
+    if ok:
+        usage_log.log_event("save_tree_view", f"{tree_name}:{scope}")
+        st.session_state["_view_saved_msg"] = msg
+        # Land back on the tree they were arranging, and on the Dashboard,
+        # rather than whatever the fresh session defaults to.
+        st.session_state["sticky_dash_tree"] = tree_name
+        st.session_state["active_tab"] = "Dashboard"
+    else:
+        st.warning("Could not save the view. The tree_view table may need "
+                   "db/tree_view_migration.sql applied.")
+    st.rerun()
+
+
+_consume_incoming_view()
+
+
 theme.app_header("{r}Evolving Kinship", tree_settings.PROJECT_SLOGAN)
 # Custom tab navigation: a radio backed by session_state. st.tabs()
 # resets to the first tab on every st.rerun() (a known Streamlit
@@ -727,10 +800,45 @@ if active_tab == "Dashboard":
                                 _names[_rowd["scientific_name"]] = _opts
                     except Exception as _nexc:
                         print(f"tree names unavailable: {_nexc}")
+                    # Saved view: this person's own if they have one, else
+                    # the tree's shared view. Guests get neither and fall
+                    # back to whatever their browser holds.
+                    _me = auth.active_contributor_id()
+                    _sv = db.get_tree_view(
+                        pick_tree,
+                        contributor_id=None if auth.is_guest() else _me)
+                    _keep = {}
+                    try:
+                        _tok = auth._read_session_token()
+                        if _tok:
+                            _keep["s"] = _tok
+                    except Exception:
+                        pass
                     _ihtml = interactive_tree.build_interactive_html(
                         nwk, meta, tree_name=pick_tree, height=720,
-                        show_scientific=True, photos=_photos, names=_names)
+                        show_scientific=True, photos=_photos, names=_names,
+                        can_share=auth.is_editor_or_admin(),
+                        signed_in=bool(_me) and not auth.is_guest(),
+                        initial_view=(_sv or {}).get("json"),
+                        initial_scope=(_sv or {}).get("scope"),
+                        keep_params=_keep)
                     components.html(_ihtml, height=740, scrolling=False)
+                    _msg = st.session_state.pop("_view_saved_msg", None)
+                    if _msg:
+                        st.success(_msg)
+                    if auth.is_editor_or_admin():
+                        _vc = st.columns([3, 1])
+                        with _vc[1]:
+                            if st.button("Clear shared view",
+                                         key=f"clrshared_{pick_tree}",
+                                         use_container_width=True,
+                                         help="Remove the tree's shared "
+                                              "arrangement so visitors see "
+                                              "the default layout again."):
+                                db.delete_tree_view(pick_tree,
+                                                    contributor_id=None)
+                                st.success("Shared view cleared.")
+                                st.rerun()
                 except Exception as _iexc:
                     st.warning(f"Interactive tree unavailable: {_iexc}")
 

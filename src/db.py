@@ -2134,6 +2134,129 @@ def set_tree_species_display_name(tree_name: str,
         return int(result.rowcount or 0)
 
 
+# ---------------------------------------------------------------------------
+# Saved interactive-tree views (after db/tree_view_migration.sql)
+#
+# contributor_id NULL = the shared view for a tree, written by admins and
+# editors. contributor_id set = that person's own view, which wins for them.
+# Every function here tolerates the migration not being applied yet, so the
+# dashboard keeps working and simply falls back to browser-local saving.
+# ---------------------------------------------------------------------------
+def save_tree_view(tree_name: str, view_json: str,
+                   contributor_id: str | None = None,
+                   updated_by: str | None = None) -> bool:
+    """Upsert the shared view (contributor_id=None) or one person's view.
+    Returns True when a row landed."""
+    if not tree_name or not view_json:
+        return False
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT tree_id FROM tree WHERE name = :tn LIMIT 1"),
+                {"tn": tree_name}).fetchone()
+            if not row:
+                return False
+            tid = row[0]
+            # Partial unique indexes can't back ON CONFLICT with a NULL
+            # column, so do it explicitly: update, and insert when nothing
+            # was there.
+            if contributor_id:
+                res = conn.execute(text("""
+                    UPDATE tree_view
+                    SET view_json = :v, updated_at = CURRENT_TIMESTAMP,
+                        updated_by = :ub
+                    WHERE tree_id = :t AND contributor_id = :c
+                """), {"v": view_json, "ub": updated_by or contributor_id,
+                       "t": tid, "c": contributor_id})
+            else:
+                res = conn.execute(text("""
+                    UPDATE tree_view
+                    SET view_json = :v, updated_at = CURRENT_TIMESTAMP,
+                        updated_by = :ub
+                    WHERE tree_id = :t AND contributor_id IS NULL
+                """), {"v": view_json, "ub": updated_by, "t": tid})
+            if int(res.rowcount or 0) == 0:
+                # view_id is supplied here rather than leaning on
+                # gen_random_uuid(), so the offline SQLite mode works too.
+                import uuid as _uuid
+                conn.execute(text("""
+                    INSERT INTO tree_view
+                        (view_id, tree_id, contributor_id, view_json,
+                         updated_by)
+                    VALUES (:vid, :t, :c, :v, :ub)
+                """), {"vid": str(_uuid.uuid4()), "t": tid,
+                       "c": contributor_id, "v": view_json,
+                       "ub": updated_by or contributor_id})
+        return True
+    except Exception as exc:
+        print(f"save_tree_view skipped ({exc.__class__.__name__}): {exc}")
+        return False
+
+
+def get_tree_view(tree_name: str,
+                  contributor_id: str | None = None) -> dict | None:
+    """Best view for this reader: their own if they have one, else the
+    shared one. Returns {"json": str, "scope": "me"|"all",
+    "updated_at": ...} or None."""
+    if not tree_name:
+        return None
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            if contributor_id:
+                row = conn.execute(text("""
+                    SELECT view_json, updated_at FROM tree_view tv
+                    JOIN tree t ON t.tree_id = tv.tree_id
+                    WHERE t.name = :tn AND tv.contributor_id = :c
+                    LIMIT 1
+                """), {"tn": tree_name, "c": contributor_id}).fetchone()
+                if row:
+                    return {"json": row[0], "scope": "me",
+                            "updated_at": row[1]}
+            row = conn.execute(text("""
+                SELECT view_json, updated_at FROM tree_view tv
+                JOIN tree t ON t.tree_id = tv.tree_id
+                WHERE t.name = :tn AND tv.contributor_id IS NULL
+                LIMIT 1
+            """), {"tn": tree_name}).fetchone()
+            if row:
+                return {"json": row[0], "scope": "all",
+                        "updated_at": row[1]}
+        return None
+    except Exception as exc:
+        print(f"get_tree_view skipped ({exc.__class__.__name__}): {exc}")
+        return None
+
+
+def delete_tree_view(tree_name: str,
+                     contributor_id: str | None = None) -> bool:
+    """Drop the shared view (contributor_id=None) or one person's view."""
+    if not tree_name:
+        return False
+    engine = get_engine()
+    try:
+        with engine.begin() as conn:
+            if contributor_id:
+                res = conn.execute(text("""
+                    DELETE FROM tree_view
+                    WHERE tree_id IN (SELECT tree_id FROM tree
+                                      WHERE name = :tn)
+                      AND contributor_id = :c
+                """), {"tn": tree_name, "c": contributor_id})
+            else:
+                res = conn.execute(text("""
+                    DELETE FROM tree_view
+                    WHERE tree_id IN (SELECT tree_id FROM tree
+                                      WHERE name = :tn)
+                      AND contributor_id IS NULL
+                """), {"tn": tree_name})
+        return int(res.rowcount or 0) > 0
+    except Exception as exc:
+        print(f"delete_tree_view skipped ({exc.__class__.__name__}): {exc}")
+        return False
+
+
 def get_user_must_change_password(contributor_id: str) -> bool:
     """Defensive read of the must_change_password flag. Returns False when
     the column doesn't exist yet (forgot_password_migration not applied).

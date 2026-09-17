@@ -41,6 +41,51 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AH (saved views in three tiers, 2026-09-17):
+  - NEW MIGRATION: `db/tree_view_migration.sql` (row 7 in MIGRATIONS.md).
+    Creates `tree_view`. contributor_id IS NULL = the tree's shared view
+    (one per tree, partial unique index); contributor_id set = that
+    person's own view (one per tree per person). Apply it in Supabase, or
+    saving falls back to browser-local with a warning.
+  - Tiers, and who may write which:
+      shared  — admins and editors only. Everyone opens the tree like this.
+      personal — any signed-in, non-guest account. Follows them anywhere.
+      device  — anyone, including guests, in localStorage as before.
+    Load precedence is personal, then shared, then this browser, then the
+    default layout. `db.save_tree_view / get_tree_view / delete_tree_view`,
+    all tolerant of the migration being absent.
+  - "Save view…" now opens a small menu offering only the tiers the reader
+    is allowed, so a guest sees just "Save on this device". Editors also
+    get a "Clear shared view" button beside the canvas.
+  - How the canvas talks back: it is in an iframe, so it navigates the top
+    window to ?rk_view=<base64>&rk_scope=me|all&rk_tree=<name>, which
+    `_consume_incoming_view()` validates, writes, and strips before
+    rerunning. Two things that had to be right: the ?s= session token
+    rides along via keep_params (losing it signs the person out, the same
+    trap the range map species links hit), and the tree name travels on
+    the URL because navigating reloads the app into a FRESH Streamlit
+    session where session_state is empty. The handler runs before the tab
+    radio is created so it may restore the tab and tree pick.
+  - Size guard: positions are dropped from the URL payload if the encoded
+    state would exceed 1700 chars, and the exact positions are kept in
+    localStorage instead, with a toast saying so. A real arrangement of a
+    small tree came to ~410 chars.
+  - Portability fix found by testing on SQLite (the offline gallery mode):
+    `gen_random_uuid()`, `DELETE ... USING`, and `now()` are all
+    Postgres-only. The view_id is now generated in Python, the delete uses
+    a subquery, and the timestamp uses CURRENT_TIMESTAMP.
+  - Verified end to end: admin arranges (radial, no clade names, 17px),
+    saves for everyone, URL is parsed and stored, and a guest then opens
+    to exactly that view with only the device-save option. Plus tier
+    precedence, idempotent re-save (no duplicate rows), and delete
+    falling back to shared, all against a live SQLite database.
+  - Note: this saves the ARRANGEMENT, including which Library name each
+    species shows in the canvas. It still does not write
+    `tree_species.display_name_id`, so the PDF and posters keep using the
+    tree's own display names. That is the remaining piece if Maya wants a
+    name chosen in the canvas to reach the report.
+
+
 Session AG (photos arrive with the build; per-clade names; pick photos and
 names in the canvas, 2026-09-17):
   - Kin cards warm automatically. `pipeline.warm_kin_cards(df)` fetches
@@ -620,6 +665,10 @@ are expensive.
 - 2026-09-17: Session AG warmed kin cards into the build, added per-clade
   name checkboxes, made labels/photos drag handles, and added in-canvas
   photo cycling and a Library name picker.
+- 2026-09-17: Session AH added tiered saved views (shared / personal /
+  device) with db/tree_view_migration.sql, role-gated save menu, an
+  iframe round trip that keeps the session token, and SQLite portability
+  fixes.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
