@@ -185,6 +185,7 @@ def _empty_profile(sci: str, common: str | None) -> dict:
         "scientific_name": sci,
         "common_name": common,
         "image_url": None,
+        "image_candidates": [],
         "image_path": None,
         "image_attribution": None,
         "image_license": None,
@@ -214,6 +215,30 @@ def cached_image_url(scientific_name: str) -> str | None:
         return ov.get("image_url") or profile.get("image_url") or None
     except Exception:
         return None
+
+
+def cached_image_candidates(scientific_name: str) -> list[str]:
+    """Up to three image URLs for this species from the on-disk cache only.
+    Never touches the network. The chosen image_url leads, then any other
+    CC candidates, so the interactive tree can offer arrows to pick one."""
+    try:
+        sci_key = hashlib.md5(scientific_name.encode()).hexdigest()[:10]
+        cache_path = CACHE / f"{sci_key}.json"
+        if not cache_path.exists():
+            return []
+        profile = json.loads(cache_path.read_text())
+        ov = _load_overrides().get(scientific_name, {})
+        urls: list[str] = []
+        lead = ov.get("image_url") or profile.get("image_url")
+        if lead:
+            urls.append(lead)
+        for c in (profile.get("image_candidates") or []):
+            u = c.get("url") if isinstance(c, dict) else c
+            if u and u not in urls:
+                urls.append(u)
+        return urls[:3]
+    except Exception:
+        return []
 
 
 def find_profile(scientific_name: str, common_name: str | None = None,
@@ -316,6 +341,26 @@ def find_profile(scientific_name: str, common_name: str | None = None,
                     if _is_cc_license(cand.get("license_code")):
                         photo = cand
                         break
+            # Up to three CC-licensed candidates so the interactive tree can
+            # offer a choice. Commercial-CC first (safe for prints), then
+            # any CC. The chosen `photo` above stays the default.
+            _cands = []
+            for _tier in (_is_commercial_cc_license, _is_cc_license):
+                for cand in all_photos:
+                    if not _tier(cand.get("license_code")):
+                        continue
+                    _u = cand.get("medium_url") or cand.get("square_url")
+                    if not _u or any(c["url"] == _u for c in _cands):
+                        continue
+                    _cands.append({
+                        "url": _u,
+                        "attribution": cand.get("attribution"),
+                        "license": cand.get("license_code"),
+                    })
+                    if len(_cands) >= 3:
+                        break
+                if len(_cands) >= 3:
+                    break
             wiki_title = (inat.get("preferred_common_name")
                           or inat.get("name") or scientific_name)
             wiki = _wiki_summary(wiki_title)
@@ -324,6 +369,7 @@ def find_profile(scientific_name: str, common_name: str | None = None,
                 "scientific_name": inat.get("name") or scientific_name,
                 "common_name": inat.get("preferred_common_name") or common_name,
                 "image_url": photo.get("medium_url") or photo.get("square_url"),
+                "image_candidates": _cands,
                 "image_attribution": photo.get("attribution"),
                 "image_license": photo.get("license_code"),
                 "summary": (

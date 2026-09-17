@@ -178,6 +178,13 @@ def _cached_read_tree(tree_name):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_tree_names(tree_name):
+    """Library names per species for this tree. Short TTL so a name added
+    in the Library shows up in the interactive tree shortly after."""
+    return db.list_tree_species_with_names(tree_name)
+
+
 def _cached_tree_species_picker(tree_name):
     """Cache the per-tree name picker. The query is a 1-shot scan of
     tree_species + species_name; caching it 60s removes a noticeable hit
@@ -246,7 +253,15 @@ def _ensure_tree_built(tree_name: str) -> bool:
         return True
     try:
         from src import tree as _tree_mod
-        _tree_mod.build_tree(tree_name)
+        _res = _tree_mod.build_tree(tree_name)
+        # Warm photos + recordings straight away, so an auto-built tree
+        # arrives with its images instead of needing a manual kin-card
+        # load and a refresh.
+        try:
+            from src import pipeline as _pl
+            _pl.warm_kin_cards(_res["df"])
+        except Exception as _wexc:
+            print(f"kin card warm skipped: {_wexc}")
         return nwk.exists() and meta_path.exists()
     except Exception as _exc:
         st.error(f"Auto tree build failed: {_exc}")
@@ -612,9 +627,10 @@ if active_tab == "Dashboard":
                              key=f"build_top_{pick_tree}",
                              use_container_width=True):
                     with loading.spinner_with_tip("Resolving taxonomy, building the tree, "
-                                    "rendering, and sonifying. The first "
-                                    "ever run also downloads the NCBI "
-                                    "taxonomy (~5 min)."):
+                                    "fetching every species' photo and "
+                                    "recording, rendering, and sonifying. "
+                                    "The first ever run also downloads the "
+                                    "NCBI taxonomy (~5 min)."):
                         try:
                             from src import pipeline
                             pipeline.run(pick_tree)
@@ -686,12 +702,34 @@ if active_tab == "Dashboard":
                         _psci = _prow.get("scientific_name")
                         if not isinstance(_psci, str):
                             continue
-                        _purl = species_profile.cached_image_url(_psci.strip())
-                        if _purl:
-                            _photos[_psci.strip()] = _purl
+                        _pc = species_profile.cached_image_candidates(
+                            _psci.strip())
+                        if _pc:
+                            _photos[_psci.strip()] = _pc
+                    # Every name each species goes by, from the Library, so
+                    # a visitor can click a species and cycle through them.
+                    _names = {}
+                    try:
+                        for _rowd in _cached_tree_names(pick_tree):
+                            _opts = []
+                            for _nid, _lab in _rowd.get("choices", []):
+                                if _nid is None:
+                                    continue          # the default entry
+                                _txt = _lab.split("  · ")[0]
+                                _meta = (_lab.split("  · ")[1]
+                                         if "  · " in _lab else "")
+                                _lang = _meta.split("/")[0] if _meta else ""
+                                _cat = (_meta.split("/")[1].replace(" ★", "")
+                                        if "/" in _meta else "")
+                                _opts.append({"t": _txt, "l": _lang,
+                                              "c": _cat})
+                            if _opts:
+                                _names[_rowd["scientific_name"]] = _opts
+                    except Exception as _nexc:
+                        print(f"tree names unavailable: {_nexc}")
                     _ihtml = interactive_tree.build_interactive_html(
                         nwk, meta, tree_name=pick_tree, height=720,
-                        show_scientific=True, photos=_photos)
+                        show_scientific=True, photos=_photos, names=_names)
                     components.html(_ihtml, height=740, scrolling=False)
                 except Exception as _iexc:
                     st.warning(f"Interactive tree unavailable: {_iexc}")

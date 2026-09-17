@@ -41,6 +41,44 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AG (photos arrive with the build; per-clade names; pick photos and
+names in the canvas, 2026-09-17):
+  - Kin cards warm automatically. `pipeline.warm_kin_cards(df)` fetches
+    every species' profile (photo, summary, credits) and recording in
+    parallel, and runs as step 1b of `pipeline.run` AND inside
+    `_ensure_tree_built`. So a tree arrives with its images instead of
+    needing a manual "Load kin cards" then a go-back-and-refresh.
+    Per-species failures are non-fatal.
+  - Per-clade name checkboxes. The "Clades…" button opens a panel listing
+    every clade (sorted oldest first, with its age) with a checkbox each,
+    plus Dated / All / None presets. Replaces the old three-way cycle, so
+    you can name exactly the handful you want, the way the range map does
+    species. Ticked set persists in the saved view.
+  - The whole node is a drag handle. `pointer-events:none` came off the
+    labels and photos, so dragging a name or a picture moves its node.
+  - Photo choice. `species_profile` now stores up to three CC-licensed
+    candidates per species (commercial-CC first), read back without
+    network by `cached_image_candidates()`. The canvas draws ‹ 1/3 › under
+    a photo when there is a choice; the arrows stop propagation so they
+    never start a drag. The pick persists in the saved view and is
+    stripped from exports (it is UI, not artwork).
+  - Name picker. Every Library name for a species (via
+    `db.list_tree_species_with_names`, cached 120s) is passed in; clicking
+    a species opens a popup listing the default plus each name with its
+    language and category, and choosing one relabels it in the tree.
+    Clade click still focuses, so click means "pick a name" on species and
+    "focus" on clades. The choice persists in the saved view.
+  - Note: the name pick is a view-level choice (per device, in the saved
+    view), not a write to `tree_species.display_name_id`. Wiring it to the
+    DB needs an iframe-to-Streamlit round-trip; worth doing next now that
+    Save view makes a rerun survivable.
+  - Verified headless (jsdom): 16-row clade panel with presets, label is
+    hit-testable, arrows cycle 1/3 -> 2/3 and stay hidden for single-photo
+    species, name popup lists default + 3 names and relabels, and a full
+    save -> reload -> restore -> reset cycle carries clades, photoIdx, and
+    nameIdx. Plus a unit test of warm_kin_cards.
+
+
 Session AF (the tree is the interactive tree; exports everywhere; clean
 composites; sweep, 2026-09-16):
   - Dashboard: the side "Interactive" checkbox is gone. The live D3 canvas
@@ -579,6 +617,9 @@ are expensive.
   italic scientific names, Save/Reset view, range map PNG + CSV export,
   LCA-pruned composites with a guaranteed header/footer band, and a
   dead-code / duplicate-key sweep.
+- 2026-09-17: Session AG warmed kin cards into the build, added per-clade
+  name checkboxes, made labels/photos drag handles, and added in-canvas
+  photo cycling and a Library name picker.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

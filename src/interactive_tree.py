@@ -70,15 +70,28 @@ def build_interactive_html(newick_path, meta: dict,
                            tree_name: str | None = None,
                            height: int = 720,
                            show_scientific: bool = True,
-                           photos: dict | None = None) -> str:
+                           photos: dict | None = None,
+                           names: dict | None = None) -> str:
     """Self-contained draggable tree page for components.html().
-    show_scientific sets the initial state of the in-canvas Latin toggle.
-    photos: {scientific_name: image_url}; the in-canvas Photos toggle
-    shows or hides them without a rerun."""
+
+    show_scientific sets the initial state of the in-canvas toggle.
+    photos: {scientific_name: url} or {scientific_name: [url, ...]}. With
+      more than one, the canvas shows arrows to pick a preferred photo.
+    names: {scientific_name: [{"t": text, "l": lang, "c": category}, ...]}
+      from the Library, so a visitor can click a species and cycle through
+      every name it goes by."""
     data = _hierarchy(newick_path, meta)
+    # Normalize photos to a list per species so the canvas has one shape.
+    photo_lists: dict[str, list[str]] = {}
+    for sci, val in (photos or {}).items():
+        if isinstance(val, str):
+            photo_lists[sci] = [val]
+        elif val:
+            photo_lists[sci] = [u for u in val if u][:3]
     tokens = {
         "%%DATA%%": json.dumps(data),
-        "%%PHOTOS%%": json.dumps(photos or {}),
+        "%%PHOTOS%%": json.dumps(photo_lists),
+        "%%NAMES%%": json.dumps(names or {}),
         "%%SHOWSCI%%": "true" if show_scientific else "false",
         "%%TITLE%%": json.dumps(tree_name or ""),
         "%%HEIGHT%%": str(int(height)),
@@ -110,8 +123,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     border-radius:9px; padding:4px 6px 4px 4px; }
   .gl { font-size:10px; letter-spacing:.12em; text-transform:uppercase;
     color:#7f978f; padding:0 6px 0 4px; user-select:none; }
-  .grp button {
-    background:transparent; color:%%TIP%%;
+  .grp button { background:transparent; color:%%TIP%%;
     border:1px solid transparent; border-radius:6px;
     padding:5px 9px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .grp button:hover { border-color:#3a5a54; }
@@ -119,29 +131,51 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .grp label { display:flex; align-items:center; gap:5px; color:%%TIP%%;
     font-size:11.5px; padding:0 4px; white-space:nowrap; }
   .grp input[type=range] { width:84px; accent-color:%%LABEL%%; margin:0; }
+  .pop { position:absolute; z-index:8; background:rgba(14,27,26,0.97);
+    border:1px solid #26403b; border-radius:10px; padding:8px;
+    color:%%TIP%%; font-size:12px; box-shadow:0 6px 22px rgba(0,0,0,.55);
+    display:none; }
+  .pop .ph { display:flex; align-items:center; justify-content:space-between;
+    gap:10px; margin:0 2px 6px 2px; }
+  .pop .ph span { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#7f978f; }
+  .pop .ph button { background:transparent; border:1px solid #26403b; color:%%TIP%%;
+    border-radius:6px; padding:2px 7px; font-size:11px; cursor:pointer; }
+  .pop .ph button:hover { border-color:%%LABEL%%; color:%%LABEL%%; }
+  .pop .list { max-height:220px; overflow:auto; }
+  .pop .it { display:flex; align-items:center; gap:7px; padding:4px 6px;
+    border-radius:6px; cursor:pointer; white-space:nowrap; }
+  .pop .it:hover { background:rgba(255,255,255,.07); }
+  .pop .it.sel { background:%%LABEL%%; color:#0e1b1a; font-weight:600; }
+  .pop .it .meta { color:#9ab3ab; font-size:10.5px; }
+  .pop .it.sel .meta { color:#3a3a1a; }
+  .pop .it input { margin:0; accent-color:%%LABEL%%; }
+  #cladepop { top:54px; left:8px; width:250px; }
+  #namepop { width:250px; }
   #hint { position:absolute; bottom:8px; left:12px; right:12px; z-index:5;
     color:#7f978f; font-size:11px; line-height:1.4; }
   #toast { position:absolute; left:50%; bottom:40px; transform:translateX(-50%);
-    z-index:7; background:rgba(14,27,26,0.95); color:%%LABEL%%; border:1px solid #26403b;
-    border-radius:8px; padding:7px 14px; font-size:12.5px; opacity:0; pointer-events:none;
-    transition:opacity .25s; }
+    z-index:9; background:rgba(14,27,26,0.95); color:%%LABEL%%; border:1px solid #26403b;
+    border-radius:8px; padding:7px 14px; font-size:12.5px; opacity:0;
+    pointer-events:none; transition:opacity .25s; }
   #tt { position:absolute; z-index:6; pointer-events:none; opacity:0;
     background:rgba(14,27,26,0.96); color:%%TIP%%; border:1px solid #26403b;
     border-radius:7px; padding:6px 9px; font-size:12px; max-width:260px;
     transition:opacity .12s; box-shadow:0 3px 12px rgba(0,0,0,.5); }
   svg { width:100%; height:100%; display:block; cursor:grab; }
   svg:active { cursor:grabbing; }
+  /* The whole node group is a drag handle: dot, name, and photo alike. */
   .node { cursor:move; }
-  .lbl { fill:%%TIP%%; font-size:var(--lbl); user-select:none; pointer-events:none; }
-  .clbl { fill:%%LABEL%%; font-size:var(--clbl); user-select:none; pointer-events:none; }
+  .lbl { fill:%%TIP%%; font-size:var(--lbl); user-select:none; }
+  .clbl { fill:%%LABEL%%; font-size:var(--clbl); user-select:none; }
   .sci { font-style:italic; }
   .edge { stroke:%%EDGE%%; stroke-width:1.6; fill:none; vector-effect: non-scaling-stroke; }
-  .photo { pointer-events:none; }
+  .pnav text { fill:%%LABEL%%; font-size:11px; cursor:pointer; user-select:none; }
+  .pnav .cnt { fill:#9ab3ab; font-size:9.5px; cursor:default; }
   @media (max-width: 640px) {
     .grp button { padding:4px 7px; font-size:11px; }
     .gl { display:none; }
     .grp input[type=range] { width:64px; }
-    #hint { font-size:10px; }
+    #hint { display:none; }
   }
 </style>
 </head>
@@ -153,12 +187,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
       <button id="b-radial">Radial</button>
       <button id="b-rect">Rectangular</button></div>
     <div class="grp"><span class="gl">Show</span>
-      <button id="b-clades" class="on">Clades: dated</button>
+      <button id="b-clades">Clades…</button>
       <button id="b-labels" class="on">Labels</button>
       <button id="b-latin">Scientific names</button>
       <button id="b-photos">Photos</button></div>
     <div class="grp"><span class="gl">Size</span>
-      <label>Photos <input id="r-photo" type="range" min="22" max="90" value="34"></label>
+      <label>Photos <input id="r-photo" type="range" min="22" max="110" value="34"></label>
       <label>Text <input id="r-text" type="range" min="9" max="22" step="0.5" value="12.5"></label></div>
     <div class="grp"><span class="gl">View</span>
       <button id="b-lca">To LCA</button>
@@ -170,17 +204,29 @@ _TEMPLATE = r"""<!DOCTYPE html>
       <button id="b-png">PNG</button>
       <button id="b-svg">SVG</button></div>
   </div>
+
+  <div class="pop" id="cladepop">
+    <div class="ph"><span>Clade names</span>
+      <span><button id="cp-dated">Dated</button><button id="cp-all">All</button><button id="cp-none">None</button></span></div>
+    <div class="list" id="cp-list"></div>
+  </div>
+  <div class="pop" id="namepop">
+    <div class="ph"><span id="np-title">Names</span><button id="np-close">Close</button></div>
+    <div class="list" id="np-list"></div>
+  </div>
+
   <div id="tt"></div>
   <div id="toast"></div>
-  <div id="hint">Click a clade to focus and hide its deeper ancestors; click
-    the top clade to step back. Shift-click flips a clade. Drag to move,
-    scroll to zoom. Save view keeps your arrangement on this device.</div>
+  <div id="hint">Drag a dot, a name, or a photo to move that node. Click a
+    species to pick which of its names shows; click a clade to focus and
+    hide its deeper ancestors. Arrows under a photo choose another picture.</div>
   <svg id="svg"></svg>
 </div>
 <script>
 (function(){
   const DATA = %%DATA%%;
   const PHOTOS = %%PHOTOS%%;
+  const NAMES = %%NAMES%%;
   const TITLE = %%TITLE%%;
   const BG = "%%BG%%";
   const C = { edge:"%%EDGE%%", leaf:"%%LEAF%%", dated:"%%DATED%%",
@@ -200,6 +246,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   const root = d3.hierarchy(DATA, d => d.children);
   let idc = 0;
   root.each(d => { d.cx = 0; d.cy = 0; d.__id = idc++; });
+  const allClades = root.descendants().filter(d => !d.data.is_leaf && d.data.clade);
 
   // ---------- state ----------
   let displayRoot = root;
@@ -207,11 +254,26 @@ _TEMPLATE = r"""<!DOCTYPE html>
   let showLabels = true;
   let showSci = %%SHOWSCI%%;
   let showPhotos = false;
-  let cladeMode = "dated";
   let photoSize = 34;
   let textSize = 12.5;
   let manuallyMoved = false;
   let k = 1;
+  // Which clade names are ticked, by clade key. Starts at the dated ones.
+  let cladeOn = new Set(allClades.filter(d => d.data.dated).map(d => d.data.name));
+  // Per-species choices: which photo, and which Library name.
+  const photoIdx = {}, nameIdx = {};
+
+  function photoList(d){ return (d.data.is_leaf && PHOTOS[d.data.sci]) || []; }
+  function nameList(d){ return (d.data.is_leaf && NAMES[d.data.sci]) || []; }
+  function chosenPhoto(d){
+    const L = photoList(d); if (!L.length) return null;
+    return L[(photoIdx[d.data.sci] || 0) % L.length];
+  }
+  function chosenName(d){
+    const L = nameList(d), i = nameIdx[d.data.sci];
+    if (i != null && i >= 0 && L[i]) return L[i].t;
+    return d.data.common || null;
+  }
 
   function styleText(){
     return ".lbl{fill:"+C.tip+";font-size:"+textSize+"px;font-family:Helvetica,Arial,sans-serif;}"+
@@ -223,14 +285,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
     wrap.style.setProperty("--lbl", textSize+"px");
     wrap.style.setProperty("--clbl", (textSize*0.88).toFixed(1)+"px");
   }
-  function lca(){
-    let n = root;
-    while (n.children && n.children.length === 1) n = n.children[0];
-    return n;
-  }
+  function lca(){ let n = root; while (n.children && n.children.length === 1) n = n.children[0]; return n; }
   function toast(msg){
     const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
-    clearTimeout(t.__h); t.__h = setTimeout(() => t.style.opacity = 0, 1600);
+    clearTimeout(t.__h); t.__h = setTimeout(() => t.style.opacity = 0, 1800);
   }
 
   // ---------- layouts ----------
@@ -251,11 +309,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .separation((a,b)=> (a.parent===b.parent?1:2)/Math.max(1,a.depth));
     tree(R0);
     const cxC = W/2, cyC = H/2, y0 = R0.y;
-    R0.each(d => {
-      const rad = d.y - y0;
+    R0.each(d => { const rad = d.y - y0;
       d.cx = cxC + rad*Math.cos(d.x - Math.PI/2);
-      d.cy = cyC + rad*Math.sin(d.x - Math.PI/2);
-    });
+      d.cy = cyC + rad*Math.sin(d.x - Math.PI/2); });
   }
   function layoutUnrooted(R0){
     const SPINE = 18, BRANCH = 96;
@@ -283,30 +339,25 @@ _TEMPLATE = r"""<!DOCTYPE html>
   // ---------- styling ----------
   function nodeColor(d){ return d.data.is_leaf ? C.leaf : (d.data.dated ? C.dated : C.plain); }
   function nodeR(d){ return d.data.is_leaf ? 5 : (d.data.dated ? 7 : 5); }
-  function cladeShown(d){
-    if (d.data.is_leaf) return true;
-    if (cladeMode === "none") return false;
-    if (cladeMode === "dated") return !!d.data.dated;
-    return true;
-  }
-  function hasPhoto(d){ return showPhotos && d.data.is_leaf && !!PHOTOS[d.data.sci]; }
-  // plain string, for width estimates only
+  function cladeShown(d){ return d.data.is_leaf ? true : cladeOn.has(d.data.name); }
+  function hasPhoto(d){ return showPhotos && !!chosenPhoto(d); }
   function labelText(d){
     if (d.data.is_leaf){
-      if (d.data.common) return showSci ? d.data.common + " (" + d.data.sci + ")" : d.data.common;
+      const nm = chosenName(d);
+      if (nm) return showSci ? nm + " (" + d.data.sci + ")" : nm;
       return d.data.sci;
     }
     let t = d.data.clade || "";
     if (d.data.dated && d.data.mya != null) t += ", " + d.data.mya;
     return t;
   }
-  // the real label: scientific name in italics via tspan
   function setLabel(el, d){
     while (el.firstChild) el.removeChild(el.firstChild);
     const NS = "http://www.w3.org/2000/svg";
     function span(txt, cls){ const t = document.createElementNS(NS,"tspan"); if (cls) t.setAttribute("class", cls); t.textContent = txt; el.appendChild(t); }
     if (d.data.is_leaf){
-      if (d.data.common){ span(d.data.common); if (showSci){ span(" ("); span(d.data.sci, "sci"); span(")"); } }
+      const nm = chosenName(d);
+      if (nm){ span(nm); if (showSci){ span(" ("); span(d.data.sci, "sci"); span(")"); } }
       else span(d.data.sci, "sci");
     } else span(labelText(d));
   }
@@ -333,7 +384,16 @@ _TEMPLATE = r"""<!DOCTYPE html>
     const sel = gNodes.selectAll("g.node").data(displayRoot.descendants(), d => d.__id);
     const ent = sel.enter().append("g").attr("class","node");
     ent.append("circle");
-    ent.each(function(d){ if (d.data.is_leaf && HAS_PHOTOS) d3.select(this).append("image").attr("class","photo"); });
+    ent.each(function(d){
+      if (!d.data.is_leaf) return;
+      const g = d3.select(this);
+      if (HAS_PHOTOS) g.append("image").attr("class","photo");
+      // photo chooser: ‹ n/m ›, only drawn when there is a choice
+      const nav = g.append("g").attr("class","pnav");
+      nav.append("text").attr("class","prev").text("‹");
+      nav.append("text").attr("class","cnt");
+      nav.append("text").attr("class","next").text("›");
+    });
     ent.append("text");
     const all = ent.merge(sel);
     all.attr("transform", nodeTransform);
@@ -343,21 +403,43 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .attr("stroke", d => (d === displayRoot && !d.data.is_leaf) ? C.label : "#0e1b1a")
       .attr("stroke-width", d => (d === displayRoot && !d.data.is_leaf) ? 2 : 1);
     all.select("image.photo")
-      .attr("href", d => PHOTOS[d.data.sci] || "")
+      .attr("href", d => chosenPhoto(d) || "")
       .attr("x", d => side(d) > 0 ? nodeR(d) + 6 : -(nodeR(d) + 6 + photoSize))
       .attr("y", -photoSize/2)
       .attr("width", photoSize).attr("height", photoSize)
       .attr("preserveAspectRatio", "xMidYMid slice")
       .style("display", d => hasPhoto(d) ? null : "none");
+    all.select("g.pnav")
+      .style("display", d => (hasPhoto(d) && photoList(d).length > 1) ? null : "none")
+      .attr("transform", d => {
+        const x = side(d) > 0 ? nodeR(d) + 6 : -(nodeR(d) + 6 + photoSize);
+        return "translate("+(x + photoSize/2)+","+(photoSize/2 + 12)+")";
+      });
+    all.select("g.pnav .prev").attr("x", -photoSize/2 + 4).attr("y", 0);
+    all.select("g.pnav .next").attr("x", photoSize/2 - 8).attr("y", 0);
+    all.select("g.pnav .cnt").attr("text-anchor","middle").attr("y", 0)
+      .text(d => { const L = photoList(d); return ((photoIdx[d.data.sci]||0) % L.length + 1) + "/" + L.length; });
     all.select("text")
       .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
       .attr("x", d => side(d) * labelX(d)).attr("y", 4)
       .attr("text-anchor", d => side(d) > 0 ? "start" : "end")
       .each(function(d){ setLabel(this, d); });
 
+    // photo arrows: their own click targets, and they must not start a drag
+    all.selectAll("g.pnav .prev, g.pnav .next")
+      .on("mousedown", function(ev){ ev.stopPropagation(); })
+      .on("click", function(ev, d){
+        ev.stopPropagation();
+        const L = photoList(d); if (L.length < 2) return;
+        const step = d3.select(this).classed("next") ? 1 : -1;
+        photoIdx[d.data.sci] = (((photoIdx[d.data.sci]||0) + step) % L.length + L.length) % L.length;
+        drawNodes();
+      });
+
     all.on("mousemove", function(ev,d){
         const html = d.data.is_leaf
-          ? "<b>"+(d.data.common||d.data.sci)+"</b><br><i>"+d.data.sci+"</i>"
+          ? "<b>"+(chosenName(d)||d.data.sci)+"</b><br><i>"+d.data.sci+"</i>"
+            + (nameList(d).length ? "<br><span style='color:#9ab3ab'>click for "+nameList(d).length+" name"+(nameList(d).length>1?"s":"")+" from the Library</span>" : "")
           : "<b>"+(d.data.clade||"clade")+"</b>"+
             (d.data.mya!=null ? "<br>"+d.data.mya+" million years since the last common ancestor" : "<br>age not set")+
             "<br><span style='color:#9ab3ab'>"+(d===displayRoot ? "click to step back out" : "click to focus here")+"</span>";
@@ -379,7 +461,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       })
       .on("end", function(ev,d){
         if (this.__dist > 3){ declutter(); return; }
-        if (d.data.is_leaf) return;
+        if (d.data.is_leaf){ openNamePop(ev, d); return; }
         if (ev.sourceEvent && ev.sourceEvent.shiftKey){
           if (d.children){ d.children.reverse(); if (d.data.children) d.data.children.reverse(); }
           if (!manuallyMoved) layout();
@@ -410,7 +492,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .concat(want.filter(d => !d.data.is_leaf && d !== displayRoot)
         .sort((a,b) => ((b.data.mya||0) - (a.data.mya||0)) || (a.depth - b.depth)));
     order.forEach(d => { const b = box(d); if (d === displayRoot || !hits(b)){ placed.push(b); show.add(d.__id); } });
-    gNodes.selectAll("g.node text").style("display", d => show.has(d.__id) ? null : "none");
+    gNodes.selectAll("g.node text.lbl, g.node text.clbl").style("display", d => show.has(d.__id) ? null : "none");
   }
 
   function setFocus(node){
@@ -420,6 +502,78 @@ _TEMPLATE = r"""<!DOCTYPE html>
     tt.style("opacity",0);
   }
   function render(){ layout(); drawEdges(); drawNodes(); }
+
+  // ---------- clade name panel ----------
+  function buildCladePanel(){
+    const list = $("cp-list"); list.innerHTML = "";
+    allClades.slice().sort((a,b) => (b.data.mya||0) - (a.data.mya||0)).forEach(d => {
+      const row = document.createElement("div");
+      row.className = "it" ;
+      row.innerHTML = '<input type="checkbox"'+(cladeOn.has(d.data.name)?" checked":"")+'>'
+        + '<span>'+d.data.clade+'</span>'
+        + '<span class="meta">'+(d.data.mya!=null ? d.data.mya+" mya" : "no age")+'</span>';
+      row.querySelector("input").addEventListener("change", function(){
+        if (this.checked) cladeOn.add(d.data.name); else cladeOn.delete(d.data.name);
+        drawNodes();
+      });
+      row.addEventListener("click", function(ev){
+        if (ev.target.tagName === "INPUT") return;
+        const cb = row.querySelector("input"); cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event("change"));
+      });
+      list.appendChild(row);
+    });
+  }
+  function syncCladePanel(){
+    $("cp-list").querySelectorAll(".it").forEach((row, i) => {
+      const sorted = allClades.slice().sort((a,b) => (b.data.mya||0) - (a.data.mya||0));
+      row.querySelector("input").checked = cladeOn.has(sorted[i].data.name);
+    });
+  }
+  function cladePreset(which){
+    cladeOn = new Set(
+      which === "all" ? allClades.map(d => d.data.name)
+      : which === "dated" ? allClades.filter(d => d.data.dated).map(d => d.data.name)
+      : []);
+    syncCladePanel(); drawNodes();
+  }
+  $("cp-all").onclick = () => cladePreset("all");
+  $("cp-dated").onclick = () => cladePreset("dated");
+  $("cp-none").onclick = () => cladePreset("none");
+
+  // ---------- name picker ----------
+  let namePopFor = null;
+  function openNamePop(ev, d){
+    const L = nameList(d);
+    if (!L.length){ toast("No Library names for this species yet"); return; }
+    namePopFor = d;
+    $("np-title").textContent = d.data.sci;
+    const list = $("np-list"); list.innerHTML = "";
+    const rows = [{t: d.data.common || d.data.sci, l:"", c:"default", i:-1}]
+      .concat(L.map((n,i) => ({t:n.t, l:n.l, c:n.c, i:i})));
+    const cur = (nameIdx[d.data.sci] == null ? -1 : nameIdx[d.data.sci]);
+    rows.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "it" + (r.i === cur ? " sel" : "");
+      row.innerHTML = '<span>'+r.t+'</span><span class="meta">'
+        + (r.c === "default" ? "default" : [r.l, r.c].filter(Boolean).join(" / ")) + '</span>';
+      row.addEventListener("click", () => {
+        if (r.i < 0) delete nameIdx[d.data.sci]; else nameIdx[d.data.sci] = r.i;
+        closeNamePop(); drawNodes();
+      });
+      list.appendChild(row);
+    });
+    const r = wrap.getBoundingClientRect();
+    const pop = $("namepop");
+    pop.style.display = "block";
+    const px = Math.min(Math.max(8, ev.sourceEvent.clientX - r.left + 12), r.width - 262);
+    const py = Math.min(Math.max(8, ev.sourceEvent.clientY - r.top + 10), r.height - 120);
+    pop.style.left = px + "px"; pop.style.top = py + "px";
+    tt.style("opacity", 0);
+  }
+  function closeNamePop(){ $("namepop").style.display = "none"; namePopFor = null; }
+  $("np-close").onclick = closeNamePop;
+  svg.on("mousedown.pop", closeNamePop);
 
   // ---------- zoom ----------
   let rafPending = false;
@@ -451,8 +605,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   // ---------- save / restore ----------
   function syncButtons(){
     ["unrooted","radial","rect"].forEach(x => d3.select("#b-"+x).classed("on", x===mode));
-    $("b-clades").textContent = "Clades: " + cladeMode;
-    $("b-clades").classList.toggle("on", cladeMode !== "none");
+    $("b-clades").classList.toggle("on", cladeOn.size > 0);
     $("b-labels").classList.toggle("on", showLabels);
     $("b-latin").classList.toggle("on", showSci);
     $("b-photos").classList.toggle("on", showPhotos);
@@ -462,7 +615,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
   function saveView(){
     try {
       const z = d3.zoomTransform(svg.node());
-      const st = { mode, cladeMode, showLabels, showSci, showPhotos, photoSize, textSize,
+      const st = { mode, showLabels, showSci, showPhotos, photoSize, textSize,
+                   clades: [...cladeOn], photoIdx, nameIdx,
                    root: displayRoot.__id, pos: {}, z: {k:z.k, x:z.x, y:z.y} };
       root.each(d => { st.pos[d.__id] = [Math.round(d.cx*10)/10, Math.round(d.cy*10)/10]; });
       localStorage.setItem(KEY, JSON.stringify(st));
@@ -473,15 +627,18 @@ _TEMPLATE = r"""<!DOCTYPE html>
     try {
       const raw = localStorage.getItem(KEY); if (!raw) return false;
       const st = JSON.parse(raw);
-      mode = st.mode || mode; cladeMode = st.cladeMode || cladeMode;
+      mode = st.mode || mode;
       showLabels = !!st.showLabels; showSci = !!st.showSci;
       showPhotos = !!st.showPhotos && HAS_PHOTOS;
       photoSize = st.photoSize || photoSize; textSize = st.textSize || textSize;
+      if (Array.isArray(st.clades)) cladeOn = new Set(st.clades);
+      Object.assign(photoIdx, st.photoIdx || {});
+      Object.assign(nameIdx, st.nameIdx || {});
       layout();
       root.each(d => { const p = st.pos && st.pos[d.__id]; if (p){ d.cx = p[0]; d.cy = p[1]; } });
       displayRoot = root.descendants().find(d => d.__id === st.root) || root;
       manuallyMoved = true;
-      syncButtons(); drawEdges(); drawNodes();
+      syncButtons(); syncCladePanel(); drawEdges(); drawNodes();
       if (st.z) svg.call(zoom.transform, d3.zoomIdentity.translate(st.z.x, st.z.y).scale(st.z.k));
       else fit(false);
       return true;
@@ -489,9 +646,14 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
   function resetView(){
     try { localStorage.removeItem(KEY); } catch(e){}
-    mode = "unrooted"; cladeMode = "dated"; showLabels = true; showSci = %%SHOWSCI%%;
-    showPhotos = false; photoSize = 34; textSize = 12.5; displayRoot = root; manuallyMoved = false;
-    syncButtons(); render(); fit(); toast("Back to the default view");
+    mode = "unrooted"; showLabels = true; showSci = %%SHOWSCI%%;
+    showPhotos = false; photoSize = 34; textSize = 12.5;
+    cladeOn = new Set(allClades.filter(d => d.data.dated).map(d => d.data.name));
+    Object.keys(photoIdx).forEach(kk => delete photoIdx[kk]);
+    Object.keys(nameIdx).forEach(kk => delete nameIdx[kk]);
+    displayRoot = root; manuallyMoved = false;
+    closeNamePop();
+    syncButtons(); syncCladePanel(); render(); fit(); toast("Back to the default view");
   }
 
   // ---------- export ----------
@@ -502,7 +664,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   }
   async function dataUrlMap(){
     const map = {};
-    const urls = [...new Set(Object.values(PHOTOS))];
+    const urls = [...new Set([].concat.apply([], Object.values(PHOTOS)))];
     await Promise.all(urls.map(async u => {
       try {
         const r = await fetch(u, {mode:"cors"}); const b = await r.blob();
@@ -516,6 +678,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     const clone = svg.node().cloneNode(true);
     clone.setAttribute("width", W); clone.setAttribute("height", H);
     clone.querySelectorAll("text").forEach(t => { if (t.style.display === "none") t.remove(); });
+    clone.querySelectorAll("g.pnav").forEach(g => g.remove());   // UI, not artwork
     if (HAS_PHOTOS && showPhotos){
       const map = await dataUrlMap();
       clone.querySelectorAll("image").forEach(im => {
@@ -552,13 +715,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
   $("b-radial").onclick = () => setMode("radial");
   $("b-rect").onclick = () => setMode("rect");
   $("b-clades").onclick = function(){
-    cladeMode = cladeMode==="dated" ? "all" : (cladeMode==="all" ? "none" : "dated");
-    syncButtons(); drawNodes();
+    const p = $("cladepop");
+    p.style.display = p.style.display === "block" ? "none" : "block";
   };
   $("b-labels").onclick = function(){ showLabels = !showLabels; syncButtons(); drawNodes(); };
   $("b-latin").onclick = function(){ showSci = !showSci; syncButtons(); drawNodes(); };
   $("b-photos").onclick = function(){
-    if (!HAS_PHOTOS){ toast("No photos cached yet: open Quick look or Load kin cards once, then rebuild"); return; }
+    if (!HAS_PHOTOS){ toast("No photos cached yet: rebuild the tree to fetch them"); return; }
     showPhotos = !showPhotos; syncButtons(); drawNodes();
   };
   $("r-photo").oninput = function(){ photoSize = +this.value; drawNodes(); };
@@ -578,6 +741,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     if (!manuallyMoved){ render(); fit(false); } else { drawEdges(); drawNodes(); }
   });
 
+  buildCladePanel();
   syncButtons();
   render();
   if (!restoreView()) fit(false);
