@@ -41,6 +41,35 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AI (crash fixes from the live app, 2026-09-21):
+  - "Interactive tree unavailable: no attribute cached_image_candidates".
+    The remote had the function; Streamlit's watcher had reloaded
+    station.py while keeping an older `species_profile` in memory. The
+    call is now a getattr with a fallback to `cached_image_url`, so a
+    half-reloaded module degrades to one photo per species instead of
+    taking the whole tree down. A reboot of the app also clears it.
+  - "PDF build failed: Cannot open resource ..._tree_unrooted.png".
+    `render_files` swallowed BOTH rasterizer failures silently (cairosvg
+    needs system cairo, which a host may not have), and `_ensure_tree_png`
+    then returned a path to a file that was never written. Both failures
+    now print what went wrong, and `image_tree.build_plain_tree_png()` is
+    a dependable matplotlib fallback (no photos, no network, no SVG
+    rasterizer) that the report uses when the PNG is still missing.
+    Verified by forcing ImportError on both rasterizers: the PDF gets a
+    clean numbered-clade tree instead of crashing.
+  - T2 composite could not render: `photo_tip_tree` called `render_files`
+    without out_dir (so it wrote to config.OUTPUT_DIR) and then read the
+    SVG back from out_dir, raising "render_files did not produce the
+    unrooted SVG" whenever those differed. out_dir is threaded through
+    now. T1 was fine in isolation and both build clean on an 8-species
+    animals-plus-plants tree.
+  - Range map composite legend is multi-column: column width comes from
+    the widest label, entries fill down then across. Ten species went from
+    ten sparse rows (244px) to three columns (90px), giving the map back
+    its vertical space.
+  - Dropped "(rectangular)" from the T1 heading.
+
+
 Session AH (saved views in three tiers, 2026-09-17):
   - NEW MIGRATION: `db/tree_view_migration.sql` (row 7 in MIGRATIONS.md).
     Creates `tree_view`. contributor_id IS NULL = the tree's shared view
@@ -669,6 +698,10 @@ are expensive.
   device) with db/tree_view_migration.sql, role-gated save menu, an
   iframe round trip that keeps the session token, and SQLite portability
   fixes.
+- 2026-09-21: Session AI fixed the live crashes: defensive photo lookup,
+  a guaranteed matplotlib hero image for the PDF with loud rasterizer
+  errors, T2's out_dir mismatch, a multi-column range map legend, and
+  the T1 label.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

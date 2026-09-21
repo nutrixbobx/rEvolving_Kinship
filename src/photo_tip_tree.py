@@ -197,7 +197,12 @@ def build_photo_tip_tree(tree_name: str,
     # Render the unrooted SVG via the existing pipeline (so we get the
     # same header band + clade nodes + colors).
     out_stem = f"{stem}_photo_tips_base"
+    # out_dir, not the default: render_files writes to config.OUTPUT_DIR
+    # unless told otherwise, and we read the SVG back from out_dir. When a
+    # caller passed a different out_dir those diverged and this raised
+    # "render_files did not produce the unrooted SVG".
     render.render_files(nwk_path, meta, out_stem, layout="unrooted",
+                         out_dir=out_dir,
                          tree_name=tree_name, skip_footer=True)
     base_svg_path = out_dir / f"{out_stem}.svg"
     if not base_svg_path.exists():

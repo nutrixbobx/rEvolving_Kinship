@@ -215,21 +215,22 @@ def _density_layer_world(gbif_key: int, style: str,
 
 def _species_legend_strip(mapped: list[dict], width: int,
                           paper=(14, 27, 26, 255)):
-    """Color-swatch + species label per row, drawn on the same paper as
-    the map so the legend reads whether the map is dark or warm-white."""
+    """Color swatch + species label per entry, laid out in as many columns
+    as the width comfortably allows. A one-per-row list wasted most of a
+    1024px-wide composite and pushed the map up; twelve species now fit in
+    three short columns instead of twelve near-empty rows.
+
+    Drawn on the same paper as the map so it reads on dark or warm-white."""
     from PIL import Image, ImageDraw, ImageFont
     n = len(mapped)
     if n == 0:
         return None
     bg = tuple(paper[:3])
-    # Pick text color that contrasts the paper (dark ink on light, light
-    # ink on dark).
     text_col = (60, 40, 40) if sum(bg) > 384 else (232, 243, 239)
     row_h = 22
     pad = 12
-    height = n * row_h + 2 * pad
-    strip = Image.new("RGB", (width, height), bg)
-    draw = ImageDraw.Draw(strip)
+    swatch_w = 24
+
     try:
         font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
@@ -237,15 +238,37 @@ def _species_legend_strip(mapped: list[dict], width: int,
         from src import env_setup
         _fp = env_setup.bundled_font_path()
         font = ImageFont.truetype(_fp, 13) if _fp else ImageFont.load_default()
-    for i, sp in enumerate(mapped):
-        y = pad + i * row_h + row_h // 2
-        color = sp.get("color", "#ff2a1a")
-        col = tuple(int(color.lstrip("#")[j:j+2], 16) for j in (0, 2, 4))
-        draw.ellipse((pad, y - 7, pad + 14, y + 7), fill=col)
+
+    def label_for(sp):
         common = sp.get("common_name")
         sci = sp.get("scientific_name", "")
-        lab = f"{common} ({sci})" if common else sci
-        draw.text((pad + 24, y - 8), lab, fill=text_col, font=font)
+        return f"{common} ({sci})" if common else sci
+
+    # Widest label decides the column width, so nothing is clipped.
+    probe = Image.new("RGB", (8, 8))
+    pd = ImageDraw.Draw(probe)
+    longest = 0
+    for sp in mapped:
+        try:
+            longest = max(longest, int(pd.textlength(label_for(sp), font=font)))
+        except Exception:
+            longest = max(longest, len(label_for(sp)) * 7)
+    col_w = min(max(220, longest + swatch_w + pad * 2), width - pad * 2)
+    n_cols = max(1, min(n, (width - pad) // col_w))
+    rows = (n + n_cols - 1) // n_cols
+
+    height = rows * row_h + 2 * pad
+    strip = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(strip)
+    for i, sp in enumerate(mapped):
+        col, row = divmod(i, rows)          # fill down, then across
+        x = pad + col * col_w
+        y = pad + row * row_h + row_h // 2
+        color = sp.get("color", "#ff2a1a")
+        rgb = tuple(int(color.lstrip("#")[j:j+2], 16) for j in (0, 2, 4))
+        draw.ellipse((x, y - 7, x + 14, y + 7), fill=rgb)
+        draw.text((x + swatch_w, y - 8), label_for(sp), fill=text_col,
+                  font=font)
     return strip
 
 

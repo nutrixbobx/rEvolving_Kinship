@@ -292,6 +292,56 @@ def _draw_legend(fig):
 
 
 
+def build_plain_tree_png(tree_name: str,
+                        out_dir: Path | None = None) -> Path:
+    """Draw the tree to PNG with matplotlib: no photos, no network, no SVG
+    rasterizer. This is the dependable fallback for the kinship report when
+    neither cairosvg nor toyplot.png can produce an image on the host, which
+    otherwise took the whole PDF down."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from src import env_setup
+    env_setup.register_matplotlib_fonts()
+    import matplotlib.pyplot as plt
+    from src import render
+
+    out_dir = out_dir or config.OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    from src.tree import _safe as _safe_stem
+    stem = _safe_stem(tree_name).lower()
+
+    meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
+    nwk_path = config.OUTPUT_DIR / f"{stem}_named_tree.nwk"
+    if not (meta_path.exists() and nwk_path.exists()):
+        raise FileNotFoundError(f"Build {tree_name} first.")
+    meta = render.load_meta(meta_path)
+    dated = {k for k, v in meta.items()
+             if not v.get("is_leaf") and v.get("mya") is not None}
+
+    import toytree
+    nwk_str = render._collapse_unary(nwk_path, dated)
+    nwk_str = render._prune_ancestral_spine(nwk_str)
+    tre = toytree.tree(nwk_str)
+    pos, max_depth, n = _layout(tre)
+
+    fig_w = 14
+    fig_h = max(6, 0.62 * n + 2.4)
+    fig = plt.figure(figsize=(fig_w, fig_h), facecolor=BG)
+    draw_header(fig, tree_name)
+    ax = fig.add_axes([0.03, 0.10, 0.74, 0.80])
+    entries = _draw_tree(ax, tre, pos, meta, dated, max_depth, n)
+    _draw_clade_legend(fig, entries, left=0.79, width=0.19,
+                       bottom=0.10, height=0.80)
+    fig.text(0.5, 0.012,
+             "CC BY-SA Maya \u00b7 Shared Rivers \u00b7 {r}Evolving Kinship",
+             color="#6b7d76", fontsize=8, ha="center", va="bottom")
+    out = out_dir / f"{stem}_tree_plain.png"
+    fig.savefig(str(out), facecolor=BG, dpi=130)
+    plt.close(fig)
+    print(f"wrote {out.name} (matplotlib fallback)")
+    return out
+
+
 def build_image_tree(tree_name: str, out_dir: Path | None = None) -> Path:
     import matplotlib
     matplotlib.use("Agg")

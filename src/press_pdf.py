@@ -210,7 +210,15 @@ def _ensure_tree_png(tree_name: str) -> Path:
             nwk, meta, f"{stem}_tree_unrooted",
             layout="unrooted", tree_name=tree_name,
         )
-    return png_path
+    if png_path.exists():
+        return png_path
+    # The SVG rasterizers can be unavailable on a given host (cairosvg
+    # needs system cairo). Rather than hand ReportLab a path to a file
+    # that was never written, draw the tree with matplotlib instead.
+    print("  unrooted PNG missing after render_files; "
+          "falling back to the matplotlib tree")
+    from src import image_tree
+    return image_tree.build_plain_tree_png(tree_name)
 
 
 def _tree_blurb(tree_name: str) -> str:

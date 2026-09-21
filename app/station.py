@@ -775,8 +775,18 @@ if active_tab == "Dashboard":
                         _psci = _prow.get("scientific_name")
                         if not isinstance(_psci, str):
                             continue
-                        _pc = species_profile.cached_image_candidates(
-                            _psci.strip())
+                        # getattr, not a direct call: Streamlit's watcher
+                        # sometimes reloads station.py while leaving an
+                        # older src module in memory, and an AttributeError
+                        # here would take the whole tree down.
+                        _getc = getattr(species_profile,
+                                        "cached_image_candidates", None)
+                        if _getc is not None:
+                            _pc = _getc(_psci.strip())
+                        else:
+                            _u = species_profile.cached_image_url(
+                                _psci.strip())
+                            _pc = [_u] if _u else []
                         if _pc:
                             _photos[_psci.strip()] = _pc
                     # Every name each species goes by, from the Library, so
@@ -992,7 +1002,7 @@ if active_tab == "Dashboard":
               st.markdown("### Tree variants")
               _tree_cols = st.columns(2)
               with _tree_cols[0]:
-                  st.markdown("**T1 — Photo-Spectral Tree** (rectangular)")
+                  st.markdown("**T1 — Photo-Spectral Tree**")
                   photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
                   if photo_audio.exists():
                       st.image(photo_audio.read_bytes())

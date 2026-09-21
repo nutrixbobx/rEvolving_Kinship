@@ -949,19 +949,25 @@ def render_files(newick_path, meta: dict, out_stem: str,
 
     png_path = out_dir / f"{out_stem}.png"
     s = _layout_settings(layout, _LIGHT)
+    # Both rasterizers used to fail silently, which is how the kinship
+    # report ended up handing ReportLab a path to a file that was never
+    # written ("Cannot open resource ..."). Say what went wrong instead.
     try:
         import cairosvg
         cairosvg.svg2png(bytestring=svg.encode("utf-8"),
                          write_to=str(png_path),
                          output_width=s["w"], output_height=s["h"])
         print(f"rendered {out_stem}.png")
-    except Exception:
+    except Exception as _cexc:
+        print(f"  cairosvg could not rasterize {out_stem}: "
+              f"{_cexc.__class__.__name__}: {_cexc}")
         try:
             import toyplot.png
             toyplot.png.render(canvas, str(png_path))
             print(f"rendered {out_stem}.png (toyplot)")
-        except Exception:
-            pass
+        except Exception as _texc:
+            print(f"  toyplot.png also failed for {out_stem}: "
+                  f"{_texc.__class__.__name__}: {_texc}")
     return svg_path
 
 
