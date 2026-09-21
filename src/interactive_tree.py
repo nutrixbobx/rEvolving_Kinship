@@ -193,6 +193,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .sci { font-style:italic; }
   .edge { stroke:%%EDGE%%; stroke-width:1.6; fill:none; vector-effect: non-scaling-stroke; }
   .pnav text { fill:%%LABEL%%; font-size:11px; cursor:pointer; user-select:none; }
+  /* specificity guard: a node label keeps its own size wherever it sits */
+  text.nlab.lbl { font-size:var(--lbl); }
+  text.nlab.clbl { font-size:var(--clbl); }
   .pnav .cnt { fill:#9ab3ab; font-size:9.5px; cursor:default; }
   @media (max-width: 640px) {
     .grp button { padding:4px 7px; font-size:11px; }
@@ -429,7 +432,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
       nav.append("text").attr("class","cnt");
       nav.append("text").attr("class","next").text("›");
     });
-    ent.append("text");
+    // .nlab, and selected by that class below. A bare select("text")
+    // returns the first <text> DESCENDANT, which for a species is the
+    // chevron inside g.pnav: the name was being written into the photo
+    // nav, and ".pnav text" (class+type) outbids ".lbl" (class), pinning
+    // species labels at 11px so the Species slider did nothing.
+    ent.append("text").attr("class", "nlab");
     const all = ent.merge(sel);
     all.attr("transform", nodeTransform);
     all.select("circle")
@@ -453,9 +461,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
     all.select("g.pnav .prev").attr("x", -photoSize/2 + 4).attr("y", 0);
     all.select("g.pnav .next").attr("x", photoSize/2 - 8).attr("y", 0);
     all.select("g.pnav .cnt").attr("text-anchor","middle").attr("y", 0)
-      .text(d => { const L = photoList(d); return ((photoIdx[d.data.sci]||0) % L.length + 1) + "/" + L.length; });
-    all.select("text")
-      .attr("class", d => d.data.is_leaf ? "lbl" : "clbl")
+      .text(d => { const L = photoList(d); if (!L.length) return "";
+        return ((photoIdx[d.data.sci]||0) % L.length + 1) + "/" + L.length; });
+    all.select("text.nlab")
+      .attr("class", d => "nlab " + (d.data.is_leaf ? "lbl" : "clbl"))
       .attr("x", d => side(d) * labelX(d)).attr("y", 4)
       .attr("text-anchor", d => side(d) > 0 ? "start" : "end")
       .each(function(d){ setLabel(this, d); });
@@ -528,7 +537,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       .concat(want.filter(d => !d.data.is_leaf && d !== displayRoot)
         .sort((a,b) => ((b.data.mya||0) - (a.data.mya||0)) || (a.depth - b.depth)));
     order.forEach(d => { const b = box(d); if (d === displayRoot || !hits(b)){ placed.push(b); show.add(d.__id); } });
-    gNodes.selectAll("g.node text.lbl, g.node text.clbl").style("display", d => show.has(d.__id) ? null : "none");
+    gNodes.selectAll("g.node text.nlab").style("display", d => show.has(d.__id) ? null : "none");
   }
 
   function setFocus(node){

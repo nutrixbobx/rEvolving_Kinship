@@ -41,6 +41,28 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AM (the species size slider, 2026-09-21):
+  - Cause: `all.select("text")` returns the first <text> DESCENDANT of the
+    node group, and for a species that is the chevron inside g.pnav (the
+    photo chooser is appended before the label). So the species name was
+    being written into the photo-nav group, and `.pnav text` (class +
+    type) outranks `.lbl` (class alone) in CSS, pinning species labels at
+    11px. The Species slider updated --lbl correctly; nothing was
+    listening. Clade labels sit outside g.pnav, which is exactly why
+    those resized fine and it read as "only clades work".
+  - Fix: the label gets its own class at creation (`text.nlab`) and is
+    selected by it, so it can never be confused with the nav chevrons. A
+    `text.nlab.lbl` / `text.nlab.clbl` specificity guard keeps a label at
+    its own size wherever it sits. Declutter targets `.nlab` too.
+  - Same fix cleared a cosmetic bug it exposed: the photo counter printed
+    "NaN/0" for species with no photos (0 % 0), hidden but present in the
+    DOM and in exports. It renders empty now.
+  - Verified: label is its own element, nothing stranded in g.pnav, both
+    sliders move their own variable, the counter reads 1/2 for a
+    two-photo species and empty for none, and Labels-off still hides
+    everything.
+
+
 Session AL (unique map colors, last cairosvg trap, composite bands, 2026-09-21):
   - Map colors were genuinely broken, not just close: `GBIF_STYLES` held
     six entries and the assignment cycled with a modulo, so a seventh
@@ -794,6 +816,9 @@ are expensive.
 - 2026-09-21: Session AL gave every species a unique color (the palette
   used to repeat after six), closed the last cairosvg PNG trap, and put
   header/footer bands with attribution on the range map composite.
+- 2026-09-21: Session AM fixed the species size slider: the label was
+  being written into the photo-nav group, where a more specific CSS rule
+  pinned it at 11px.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
