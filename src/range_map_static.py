@@ -361,15 +361,33 @@ def build_range_map(tree_name: str,
 
     # Open notes band under everything on the outline map.
     notes_h = 220 if outline else 0
-    title_h = 60
+    # Explicit bands, the same discipline as the T1 posters: a header the
+    # map can never climb into, the map and legend in the middle, and the
+    # attribution in a footer of its own. Every band's height is decided
+    # before anything is drawn, so nothing can overlap anything else.
+    from src import tree_settings
+    header_h = 86
+    footer_h = 30
     pad = 12
-    total_h = title_h + world_visible_h + pad + legend_h + notes_h
+    total_h = (header_h + world_visible_h + pad + legend_h
+               + notes_h + footer_h)
     final = Image.new("RGBA", (CANVAS_W, total_h), paper)
     draw = ImageDraw.Draw(final)
-    draw.text((16, 12), f"Range map, {tree_name}", fill=ink,
-              font=title_font)
-    draw.text((16, 40), subtitle, fill=sub_ink, font=sub_font)
-    y = title_h
+
+    # --- header band ---
+    try:
+        mark_font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 15)
+    except Exception:
+        mark_font = sub_font
+    draw.text((16, 10), tree_settings.PROJECT_MARK, fill=ink, font=mark_font)
+    draw.text((16, 32), f"Range map, {tree_name}", fill=ink, font=title_font)
+    draw.text((16, 62), subtitle, fill=sub_ink, font=sub_font)
+    draw.line([(16, header_h - 6), (CANVAS_W - 16, header_h - 6)],
+              fill=sub_ink, width=1)
+
+    # --- content ---
+    y = header_h
     final.paste(world_cropped, (0, y), world_cropped)
     y += world_visible_h + pad
     if legend:
@@ -377,10 +395,18 @@ def build_range_map(tree_name: str,
         y += legend_h
     if notes_h:
         draw.text((16, y + 10), "Notes", fill=sub_ink, font=sub_font)
-        # Faint ruled lines to write on.
         for ly in range(y + 40, y + notes_h - 10, 34):
             draw.line([(16, ly), (CANVAS_W - 16, ly)],
                       fill=(200, 214, 226, 255), width=1)
+        y += notes_h
+
+    # --- footer band ---
+    draw.line([(16, y + 4), (CANVAS_W - 16, y + 4)], fill=sub_ink, width=1)
+    draw.text((16, y + 10),
+              "Map data \u00a9 OpenStreetMap, \u00a9 CARTO  \u00b7  "
+              "Occurrence data \u00a9 GBIF and its contributors  \u00b7  "
+              "blank means undocumented, not absent",
+              fill=sub_ink, font=sub_font)
 
     suffix = "range_outline" if outline else "range_map"
     out_path = out_dir / f"{stem}_{suffix}.png"

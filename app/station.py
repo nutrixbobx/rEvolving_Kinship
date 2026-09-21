@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import traceback
+import shutil
 import sys
 from pathlib import Path
 
@@ -910,6 +911,25 @@ if active_tab == "Dashboard":
                                 layout=layout_code, tree_name=pick_tree,
                                 use_scaled=use_scaled_view,
                                 show_all_clades=show_all_clades)
+                            # The SVG always lands; the PNG only does when
+                            # the host can rasterize SVG (cairosvg needs
+                            # system cairo). Draw it with matplotlib
+                            # instead of leaving a download button that
+                            # points at nothing.
+                            _pngp = (config.OUTPUT_DIR /
+                                     f"{stem}_tree_{layout_name.lower()}.png")
+                            if not _pngp.exists():
+                                try:
+                                    from src import image_tree as _it
+                                    _fb = _it.build_plain_tree_png(pick_tree)
+                                    shutil.copyfile(_fb, _pngp)
+                                    st.info("PNG drawn with the matplotlib "
+                                            "renderer (this host cannot "
+                                            "rasterize SVG).")
+                                except Exception as _fexc:
+                                    st.warning(
+                                        "SVG is ready; the PNG could not be "
+                                        f"produced here ({_fexc}).")
                             usage_log.log_event("render_tree", pick_tree)
                             st.success("Files ready.")
                             st.rerun()

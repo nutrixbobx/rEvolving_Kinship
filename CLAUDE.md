@@ -41,6 +41,36 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AL (unique map colors, last cairosvg trap, composite bands, 2026-09-21):
+  - Map colors were genuinely broken, not just close: `GBIF_STYLES` held
+    six entries and the assignment cycled with a modulo, so a seventh
+    species was drawn in EXACTLY the same color as the first. Replaced by
+    `gbif_map.species_palette(n)`: eight hand-picked, well-separated seed
+    colors, then evenly spread hues with lightness and saturation varied
+    on a short cycle. One distinct color per species at any count, still
+    deterministic by alphabetical rank so the live map and the static
+    composite always agree. Measured minimum pairwise CIE-Lab distance:
+    ~30 at 8 species, ~25 at 12, ~12 at 20. I tried generating in LCh for
+    perceptual evenness and measured it: it came out WORSE (gamut
+    clamping plus same-lightness neighbours), so HSL stayed. Past about a
+    dozen no palette keeps categorical colors reliably apart, which is
+    what hover-to-spotlight, solo, and the tour are for.
+  - Careless slice edit deleted `_get`, `_load_cache`, `_save_cache`, and
+    `get_gbif_key` while swapping the palette in; caught by a test that
+    exercised the real resolve path, restored verbatim from HEAD. Worth
+    remembering: index-slice replacements in this file span helpers.
+  - Last cairosvg trap closed. "Fixed drawings for print" wrote the SVG
+    and, on a host without cairo, silently no PNG, leaving a download
+    button pointing at nothing. It now falls back to
+    `image_tree.build_plain_tree_png` and says so.
+  - Range map composite got the T1 band treatment: a header carrying the
+    project mark, title, and subtitle above a rule; the map and legend in
+    the middle; and the OpenStreetMap / CARTO / GBIF attribution in its
+    own footer band (it was only in the Streamlit caption before, so a
+    downloaded composite carried no credit). Every band height is fixed
+    before drawing, so nothing can overlap.
+
+
 Session AK (T2 rebuilt in matplotlib, split text sliders, one tree picker,
 2026-09-21):
   - T2 "built but not coming up" explained: `photo_tip_tree` produced its
@@ -761,6 +791,9 @@ are expensive.
   now scrubs on read so existing trees heal without a rebuild.
 - 2026-09-21: Session AK rebuilt T2 in matplotlib (no cairosvg), split the
   species and clade text sliders, and unified the tree picker across tabs.
+- 2026-09-21: Session AL gave every species a unique color (the palette
+  used to repeat after six), closed the last cairosvg PNG trap, and put
+  header/footer bands with attribution on the range map composite.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
