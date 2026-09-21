@@ -447,6 +447,27 @@ active_tab = st.radio(
     "Section", _TAB_NAMES, key="active_tab", horizontal=True,
     label_visibility="collapsed")
 
+# One tree picker for the whole app, directly under the tabs. It used to be
+# rendered separately inside the Dashboard and again inside the Range map,
+# each with its own key, so switching tabs could land you on a different
+# tree than the one you were working on. Both tabs now read this single
+# sticky value (state key "dash_tree"), which is also the key the saved-view
+# round trip restores.
+_ACTIVE_TREE = None
+if active_tab in ("Dashboard", "Range map"):
+    _all_trees = _cached_list_trees_for_dashboard()
+    if not _all_trees.empty:
+        _tcol, _fcol = st.columns([4, 1])
+        with _tcol:
+            _ACTIVE_TREE = _sticky_pick(
+                "Pick a tree", _all_trees["tree_name"].tolist(),
+                state_key="dash_tree",
+                help="Stays put as you move between the Dashboard and the "
+                     "Range map.")
+        with _fcol:
+            if _ACTIVE_TREE:
+                _fav_toggle_for_tree(_ACTIVE_TREE)
+
 # ---------------------------------------------------------------------------
 # Request station (the kiosk)
 # ---------------------------------------------------------------------------
@@ -626,10 +647,7 @@ if active_tab == "Dashboard":
                 "After that, every other section comes alive: hover the tips, listen to "
                 "each species, download the press files, mix a meditation track."
             )
-        pick_tree = _sticky_pick("Pick a tree",
-                                  trees["tree_name"].tolist(),
-                                  state_key="dash_tree")
-        _fav_toggle_for_tree(pick_tree)
+        pick_tree = _ACTIVE_TREE or trees["tree_name"].tolist()[0]
 
         # Tree personalization right under T0 (the picker) so the
         # admin-customization fields are co-located with the tree they
@@ -2060,9 +2078,7 @@ if active_tab == "Range map":
         st.info("Add species in the Request station tab first, then build a "
                 "tree. Once a tree exists, its range map shows up here.")
     else:
-        map_pick = st.selectbox("Pick a tree",
-                                map_trees["tree_name"].tolist(),
-                                key="map_tree_pick")
+        map_pick = _ACTIVE_TREE or map_trees["tree_name"].tolist()[0]
         from src import gbif_map
         try:
             species_for_map = gbif_map.species_for_tree(map_pick)

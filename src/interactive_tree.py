@@ -216,7 +216,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
       <button id="b-photos">Photos</button></div>
     <div class="grp"><span class="gl">Size</span>
       <label>Photos <input id="r-photo" type="range" min="22" max="110" value="34"></label>
-      <label>Text <input id="r-text" type="range" min="9" max="22" step="0.5" value="12.5"></label></div>
+      <label>Species <input id="r-text" type="range" min="9" max="26" step="0.5" value="12.5"></label>
+      <label>Clades <input id="r-clade" type="range" min="7" max="22" step="0.5" value="11"></label></div>
     <div class="grp"><span class="gl">View</span>
       <button id="b-lca">To LCA</button>
       <button id="b-whole">Whole tree</button>
@@ -287,7 +288,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
   let showSci = %%SHOWSCI%%;
   let showPhotos = false;
   let photoSize = 34;
-  let textSize = 12.5;
+  let textSize = 12.5;    // species labels
+  let cladeSize = 11;     // clade labels, on their own slider
   let manuallyMoved = false;
   let k = 1;
   // Which clade names are ticked, by clade key. Starts at the dated ones.
@@ -309,14 +311,15 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   function styleText(){
     return ".lbl{fill:"+C.tip+";font-size:"+textSize+"px;font-family:Helvetica,Arial,sans-serif;}"+
-           ".clbl{fill:"+C.label+";font-size:"+(textSize*0.88).toFixed(1)+"px;font-family:Helvetica,Arial,sans-serif;}"+
+           ".clbl{fill:"+C.label+";font-size:"+cladeSize+"px;font-family:Helvetica,Arial,sans-serif;}"+
            ".sci{font-style:italic;}"+
            ".edge{stroke:"+C.edge+";stroke-width:1.6;fill:none;}";
   }
   function applySizes(){
     wrap.style.setProperty("--lbl", textSize+"px");
-    wrap.style.setProperty("--clbl", (textSize*0.88).toFixed(1)+"px");
+    wrap.style.setProperty("--clbl", cladeSize+"px");
   }
+  function sizeOf(d){ return d.data.is_leaf ? textSize : cladeSize; }
   function lca(){ let n = root; while (n.children && n.children.length === 1) n = n.children[0]; return n; }
   function toast(msg){
     const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
@@ -508,10 +511,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
   function declutter(){
     const t = d3.zoomTransform(svg.node());
     const placed = [];
-    const cw = textSize * 0.55, ch = textSize * 0.65;
     function box(d){
+      const fs = sizeOf(d);
+      const cw = fs * 0.55, ch = fs * 0.65;
       const sx = d.cx*t.k + t.x, sy = d.cy*t.k + t.y;
-      const w = labelText(d).length * (d.data.is_leaf ? cw : cw*0.9) + 6;
+      const w = labelText(d).length * cw + 6;
       const x0 = side(d) > 0 ? sx + labelX(d) - 2 : sx - labelX(d) - w + 2;
       return [x0, sy-ch, x0+w, sy+ch];
     }
@@ -642,6 +646,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     $("b-latin").classList.toggle("on", showSci);
     $("b-photos").classList.toggle("on", showPhotos);
     $("r-photo").value = photoSize; $("r-text").value = textSize;
+    $("r-clade").value = cladeSize;
     applySizes();
   }
   // The current arrangement, as a compact object. withPos=false drops node
@@ -650,7 +655,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   function viewState(withPos){
     const z = d3.zoomTransform(svg.node());
     const st = { v: 1, mode, showLabels, showSci, showPhotos,
-                 photoSize, textSize, clades: [...cladeOn],
+                 photoSize, textSize, cladeSize, clades: [...cladeOn],
                  photoIdx, nameIdx, root: displayRoot.__id,
                  z: {k: +z.k.toFixed(3), x: Math.round(z.x), y: Math.round(z.y)} };
     if (withPos){
@@ -721,6 +726,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
       showLabels = !!st.showLabels; showSci = !!st.showSci;
       showPhotos = !!st.showPhotos && HAS_PHOTOS;
       photoSize = st.photoSize || photoSize; textSize = st.textSize || textSize;
+      cladeSize = st.cladeSize || cladeSize;
       if (Array.isArray(st.clades)) cladeOn = new Set(st.clades);
       Object.assign(photoIdx, st.photoIdx || {});
       Object.assign(nameIdx, st.nameIdx || {});
@@ -751,7 +757,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   function resetView(){
     try { localStorage.removeItem(KEY); } catch(e){}
     mode = "unrooted"; showLabels = true; showSci = %%SHOWSCI%%;
-    showPhotos = false; photoSize = 34; textSize = 12.5;
+    showPhotos = false; photoSize = 34; textSize = 12.5; cladeSize = 11;
     cladeOn = new Set(allClades.filter(d => d.data.dated).map(d => d.data.name));
     Object.keys(photoIdx).forEach(kk => delete photoIdx[kk]);
     Object.keys(nameIdx).forEach(kk => delete nameIdx[kk]);
@@ -830,6 +836,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   };
   $("r-photo").oninput = function(){ photoSize = +this.value; drawNodes(); };
   $("r-text").oninput = function(){ textSize = +this.value; applySizes(); drawNodes(); };
+  $("r-clade").oninput = function(){ cladeSize = +this.value; applySizes(); drawNodes(); };
   $("b-lca").onclick = () => { manuallyMoved = false; setFocus(lca()); };
   $("b-whole").onclick = () => { manuallyMoved = false; setFocus(root); };
   $("b-fit").onclick = () => fit();

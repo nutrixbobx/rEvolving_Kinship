@@ -41,6 +41,32 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AK (T2 rebuilt in matplotlib, split text sliders, one tree picker,
+2026-09-21):
+  - T2 "built but not coming up" explained: `photo_tip_tree` produced its
+    PNG ONLY through cairosvg. Without system cairo it wrote an SVG,
+    returned it, printed a skip notice, and reported success, leaving the
+    dashboard with no PNG to display. Combined with the report's earlier
+    cairosvg failure, that confirms the host has no cairo.
+  - T2 is now drawn entirely in matplotlib, which is what Maya asked for:
+    the unrooted layout (the same equal-angle algorithm as the interactive
+    canvas, ported to Python) with a circular photo at every species tip,
+    names radiating outward, and the clades numbered into the right-hand
+    legend, matching T1. No SVG rasterizer anywhere in the path, so it
+    cannot silently produce nothing.
+  - Text sliders were one control driving both label kinds (species at
+    full size, clades at 0.88 of it), which read as "it is switched".
+    Species and Clades now have their own sliders and their own state;
+    declutter measures each label at its own size; both persist in the
+    saved view.
+  - One tree picker for the whole app, directly under the tabs. The
+    Dashboard and the Range map each used to render their own, with
+    different keys, so moving between tabs could land on a different
+    tree. Both now read the single sticky value (state key "dash_tree"),
+    which is also what the saved-view round trip restores. The favorite
+    star moved up beside it.
+
+
 Session AJ (the NaN common name that broke T1, T2, and the report, 2026-09-21):
   - Root cause, found from Maya's PDF ("Tree image unavailable: 'float'
     object has no attribute 'expandtabs'"): a species with no common name
@@ -733,6 +759,8 @@ are expensive.
 - 2026-09-21: Session AJ fixed the NaN common name (truthy float) that
   crashed T1, T2, and the report hero via textwrap.expandtabs; load_meta
   now scrubs on read so existing trees heal without a rebuild.
+- 2026-09-21: Session AK rebuilt T2 in matplotlib (no cairosvg), split the
+  species and clade text sliders, and unified the tree picker across tabs.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
