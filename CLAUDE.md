@@ -41,6 +41,34 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AJ (the NaN common name that broke T1, T2, and the report, 2026-09-21):
+  - Root cause, found from Maya's PDF ("Tree image unavailable: 'float'
+    object has no attribute 'expandtabs'"): a species with no common name
+    comes out of pandas as NaN. `json.dumps` writes a bare NaN,
+    `json.loads` reads it back as float('nan'), and **nan is truthy**, so
+    every `if common:` guard in the drawing code passed it to
+    `textwrap.wrap()`, which calls `.expandtabs()` on its argument. One
+    unnamed species therefore killed T1, T2, AND the report's hero image
+    at once. In Maya's krsh tree, Cucurbita pepo and Tectona grandis have
+    no common name, which is why all three failed together.
+  - Fixed on the READ path: `render.load_meta()` now scrubs every node,
+    coercing common_name / scientific_name through `_clean_text` (NaN,
+    non-strings, and the literal "nan" become None) and mya through
+    `_clean_num`. Sanitizing where the file is read, rather than only
+    where it is written, heals every tree already sitting in outputs/
+    without anyone rebuilding. Consumers (image_tree, photo_audio_tree,
+    photo_tip_tree, press_pdf, station -> interactive tree) all go
+    through load_meta, so they are all covered by the one change.
+  - Also fixed at the source: `tree.py` built common_by_sci with a
+    truthiness filter, which NaN passes. It now tests isinstance(str), so
+    new trees never write a NaN name in the first place.
+  - Verified against a tree carrying the poison value: the raw meta
+    reproduces Maya's exact AttributeError, and after the fix T1
+    (photo-audio), T1b (photo tree), T2 (photo tips), and the matplotlib
+    hero all build, with the unnamed species falling back to an italic
+    scientific name instead of crashing.
+
+
 Session AI (crash fixes from the live app, 2026-09-21):
   - "Interactive tree unavailable: no attribute cached_image_candidates".
     The remote had the function; Streamlit's watcher had reloaded
@@ -702,6 +730,9 @@ are expensive.
   a guaranteed matplotlib hero image for the PDF with loud rasterizer
   errors, T2's out_dir mismatch, a multi-column range map legend, and
   the T1 label.
+- 2026-09-21: Session AJ fixed the NaN common name (truthy float) that
+  crashed T1, T2, and the report hero via textwrap.expandtabs; load_meta
+  now scrubs on read so existing trees heal without a rebuild.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

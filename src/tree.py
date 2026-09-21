@@ -117,11 +117,19 @@ def build_tree(tree_name: str, auto_enrich: bool = True):
     out_path.write_text(newick)
 
     # Merge common names from the warehouse into the leaf metadata.
-    common_by_sci = {
-        str(r["scientific_name"]).strip(): r["common_name"]
-        for _, r in df.iterrows()
-        if r.get("scientific_name") and r.get("common_name")
-    }
+    # isinstance(str), not truthiness: a species with no common name comes
+    # out of pandas as NaN, and NaN is truthy, so it used to sail through
+    # this filter and land in nodes.json as a float that broke every label
+    # renderer downstream.
+    def _txt(v):
+        return v.strip() if isinstance(v, str) and v.strip() else None
+
+    common_by_sci = {}
+    for _, r in df.iterrows():
+        sci = _txt(r.get("scientific_name"))
+        common = _txt(r.get("common_name"))
+        if sci and common:
+            common_by_sci[sci] = common
     for label, info in node_meta.items():
         if info["is_leaf"]:
             info["common_name"] = common_by_sci.get(info["scientific_name"])

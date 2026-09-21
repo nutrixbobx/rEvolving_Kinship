@@ -22,6 +22,7 @@ Layout strategy, per shape:
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -99,9 +100,59 @@ _LIGHT = {
 }
 
 
+def _clean_text(v):
+    """Usable text, or None.
+
+    A species with no common name comes out of pandas as NaN, json.dumps
+    writes that as a bare NaN, and json.loads reads it back as float('nan').
+    Because nan is TRUTHY, every `if common:` guard in the drawing code
+    passed it straight to textwrap.wrap(), which calls .expandtabs() and
+    died with "'float' object has no attribute 'expandtabs'". That one value
+    took out T1, T2, and the kinship report's hero image together."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v.strip() or None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    try:
+        s = str(v).strip()
+    except Exception:
+        return None
+    return s if s and s.lower() not in ("nan", "none") else None
+
+
+def _clean_num(v):
+    """A real number, or None. Keeps a NaN age from reaching the label
+    formatter and the chord."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) else v
+
+
 def load_meta(meta_path) -> dict:
+    """Read nodes.json and scrub it. Sanitizing on the READ path (rather
+    than only where it is written) means every tree already sitting in
+    outputs/ is healed without anyone rebuilding it."""
     p = Path(meta_path)
-    return json.loads(p.read_text()) if p.exists() else {}
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    if not isinstance(raw, dict):
+        return {}
+    for info in raw.values():
+        if not isinstance(info, dict):
+            continue
+        for key in ("common_name", "scientific_name"):
+            if key in info:
+                info[key] = _clean_text(info[key])
+        if "mya" in info:
+            info["mya"] = _clean_num(info["mya"])
+    return raw
 
 
 def _hover_text(label: str, info: dict) -> str:
