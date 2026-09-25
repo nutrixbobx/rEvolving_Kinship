@@ -1935,6 +1935,49 @@ def list_pending_resets() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Edit helpers for the remaining community kinds (Phase 2-bis)
 # ---------------------------------------------------------------------------
+def list_names_admin() -> pd.DataFrame:
+    """Every multilingual name with its surrogate id, for the Manage editor.
+
+    list_all_names() rolls rows up for browsing, and the old Manage panel
+    ran a LIMIT 300 query and drew one widget per row, which made a job
+    like "retitle every Spanish name in this genus" a scroll-and-click
+    marathon. This returns the flat, editable truth: one row per
+    species_name, with the genus split out so the editor can filter by it."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT sn.name_id            AS name_id,
+                   sn.name_text          AS name_text,
+                   sn.language_code      AS language_code,
+                   sn.name_category      AS name_category,
+                   sn.region_code        AS region_code,
+                   coalesce(sn.is_preferred, 0) AS is_preferred,
+                   s.canonical_scientific_name      AS species,
+                   s.species_id          AS species_id,
+                   co.display_name       AS contributor
+            FROM species_name sn
+            JOIN species s ON s.species_id = sn.species_id
+            LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
+            ORDER BY s.canonical_scientific_name, sn.language_code,
+                     sn.name_category, sn.name_text
+        """)).fetchall()
+    df = pd.DataFrame(rows, columns=[
+        "name_id", "name_text", "language_code", "name_category",
+        "region_code", "is_preferred", "species", "species_id",
+        "contributor"])
+    if not df.empty:
+        # Cast in pandas, not SQL: ::text and a `false` literal are
+        # Postgres-only and blow up the offline SQLite mode.
+        for col in ("name_id", "species_id"):
+            df[col] = df[col].astype(str)
+        df["is_preferred"] = df["is_preferred"].astype(bool)
+        df["genus"] = (df["species"].fillna("")
+                       .astype(str).str.split().str[0])
+    else:
+        df["genus"] = []
+    return df
+
+
 def update_species_name(name_id: str, fields: dict) -> bool:
     """Patch a multilingual-name row. If is_preferred is being set to True,
     demotes any other preferred name for the same (species, language,

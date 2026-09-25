@@ -41,6 +41,39 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AN (Library > Manage > Names rebuilt for batch work, 2026-09-25):
+  - The job this is built around: "change every Spanish name in this
+    genus". The old panel printed the rolled-up browse table, ran an empty
+    loop left over from an abandoned approach, then showed a LIMIT 300
+    expander of one-widget-per-row deletes. Doing a genus of Spanish names
+    meant scrolling and clicking one at a time.
+  - `db.list_names_admin()` returns the flat editable truth: one row per
+    species_name with its id, plus a `genus` column split from the species
+    name so the editor can filter on it. (Portability: no ::text casts and
+    no `false` literal, both Postgres-only, both of which broke the
+    offline SQLite mode when first written; casts happen in pandas.)
+  - New panel: a filter bar (free-text across name/species/genus/
+    contributor, plus genus, language, category, preferred, exact
+    species), a row count, then the matches in an `st.data_editor` where
+    name, language, category, region, and preferred are all editable
+    inline. "Save table edits" diffs against the loaded rows and only
+    writes what actually changed.
+  - Batch actions apply to rows ticked in the ✓ column: find-and-replace
+    inside the name (with a live count of how many ticked rows contain
+    the term, and optional case matching), set language, set category,
+    set region, and a two-step confirm delete. Filtered rows export to CSV.
+  - Subtle correctness fix: `st.data_editor` remembers pending edits by
+    ROW POSITION, so a constant widget key would replay a half-finished
+    edit onto whatever row moved into that slot when the filter changed.
+    The key now carries a fingerprint of the visible row ids, which
+    retires stale edits along with the view they belonged to.
+  - Verified against a real database: filtering genus=Tagetes +
+    language=SPA returns the 4 Spanish names across 3 Tagetes species,
+    a batch category change hits exactly those 4 and leaves the English
+    rows alone, and case-insensitive find-and-replace rewrites only the
+    matching names with the row count unchanged.
+
+
 Session AM (the species size slider, 2026-09-21):
   - Cause: `all.select("text")` returns the first <text> DESCENDANT of the
     node group, and for a species that is the chevron inside g.pnav (the
@@ -819,6 +852,9 @@ are expensive.
 - 2026-09-21: Session AM fixed the species size slider: the label was
   being written into the photo-nav group, where a more specific CSS rule
   pinned it at 11px.
+- 2026-09-25: Session AN rebuilt Library > Manage > Names as a filtered
+  batch editor (search, spreadsheet edits, find-and-replace, bulk set,
+  bulk delete) around the change-a-genus-of-Spanish-names workflow.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

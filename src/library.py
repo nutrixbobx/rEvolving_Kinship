@@ -1217,24 +1217,10 @@ def _render_manage() -> None:
                     edit_kind="dish", edit_id=r["dish_id"])
 
     with tabs[2]:
-        df = _cached_names()
-        if df.empty:
-            st.caption("No multilingual names yet.")
-        else:
-            # Names are tiny — no inline edit. Just delete + add fresh.
-            for _, r in df.iterrows():
-                label = (f"{r['name_text']} "
-                         f"({r.get('language')}/{r.get('category')})")
-                if r.get("is_preferred"):
-                    label += " ★"
-                # `_cached_names()` doesn't currently return name_id (it's
-                # the species view). We need the row id, so call the
-                # per-row picker by name_id via db.list_user_names equivalent.
-                # Simpler: pull names with ids in a manage-only view.
-                pass
-            # Fall back to a dataframe + bulk delete for now.
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            _render_manage_names_table()
+        # The filtered batch editor is the whole Names panel now. It used
+        # to print the rolled-up browse table, then run an empty loop left
+        # over from an abandoned approach, then show a 300-row expander.
+        _render_manage_names_table()
 
     with tabs[3]:
         df = _cached_cultural()
@@ -1370,48 +1356,280 @@ def _render_manage() -> None:
         _render_clade_dating()
 
 
+_NAME_CATEGORIES = ["common", "folk", "ceremonial", "scientific", "synonym"]
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_names_admin():
+    return db.list_names_admin()
+
+
 def _render_manage_names_table() -> None:
-    """Names section uses a per-row id picker because list_all_names()
-    rolls up rows for browsing. Pull species_name with name_id and offer
-    delete one at a time."""
-    from sqlalchemy import text as _sa_text
-    engine = db.get_engine()
-    with engine.connect() as c:
-        rows = c.execute(_sa_text("""
-            SELECT sn.name_id, sn.name_text, sn.language_code,
-                   sn.name_category, sn.is_preferred,
-                   s.canonical_scientific_name AS species,
-                   co.display_name AS contributor,
-                   co.contributor_id AS contributor_id
-            FROM species_name sn
-            JOIN species s ON s.species_id = sn.species_id
-            LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
-            ORDER BY s.canonical_scientific_name, sn.language_code,
-                     sn.is_preferred DESC, sn.name_text
-            LIMIT 300
-        """)).fetchall()
-    if not rows:
+    """Filter, then edit many names at once.
+
+    Built around the job Maya actually does: "change every Spanish name in
+    this genus". Narrow with the filters, edit the rows like a spreadsheet,
+    or run one action across everything you ticked. The old panel listed
+    300 rows of one-at-a-time widgets, which made that job tedious enough
+    to avoid."""
+    from src import i18n as _i18n
+
+    df = _cached_names_admin()
+    if df.empty:
+        st.caption("No names yet.")
         return
-    with st.expander(f"Delete individual names ({len(rows)} shown)",
-                      expanded=False):
-        _bulk_delete_bar("mng_names",
-                          delete_one=lambda i: db.delete_species_name(i),
-                          label="names")
-        for row in rows:
-            (name_id, name_text, lang, cat, pref, species, contributor,
-             contributor_id) = row
-            _bulk_checkbox("mng_names", str(name_id))
-            label = f"{name_text} ({lang}/{cat})"
-            if pref:
-                label += " ★"
-            _delete_row(
-                label=label,
-                sub=f"for {species}" if species else None,
-                when=None,
-                key=f"mng_name_{name_id}",
-                on_delete=lambda nid=name_id:
-                    db.delete_species_name(nid),
-                edit_kind="name", edit_id=str(name_id))
+
+    st.markdown("#### Names")
+    st.caption(f"{len(df)} names across {df['species'].nunique()} species. "
+               "Filter first, then edit in the table or use the batch "
+               "actions underneath.")
+
+    # ---- filter bar ----
+    f1, f2, f3 = st.columns([3, 2, 2])
+    with f1:
+        q = st.text_input(
+            "Search", key="mng_nm_q", placeholder="name, species, or genus",
+            help="Matches the name, the species, the genus, and the "
+                 "contributor. Case-insensitive.")
+    with f2:
+        genera = sorted(g for g in df["genus"].dropna().unique() if g)
+        pick_genus = st.multiselect("Genus", genera, key="mng_nm_genus")
+    with f3:
+        langs = sorted(l for l in df["language_code"].dropna().unique() if l)
+        pick_lang = st.multiselect("Language", langs, key="mng_nm_lang")
+    f4, f5, f6 = st.columns([2, 2, 3])
+    with f4:
+        cats = sorted(c for c in df["name_category"].dropna().unique() if c)
+        pick_cat = st.multiselect("Category", cats, key="mng_nm_cat")
+    with f5:
+        pref_only = st.selectbox("Preferred", ["any", "only ★", "only not ★"],
+                                 key="mng_nm_pref")
+    with f6:
+        species_q = st.text_input("Species is exactly", key="mng_nm_sp",
+                                  placeholder="optional, full name")
+
+    view = df.copy()
+    if q:
+        ql = q.strip().lower()
+        hay = (view["name_text"].fillna("").astype(str) + " "
+               + view["species"].fillna("").astype(str) + " "
+               + view["genus"].fillna("").astype(str) + " "
+               + view["contributor"].fillna("").astype(str)).str.lower()
+        view = view[hay.str.contains(ql, regex=False)]
+    if pick_genus:
+        view = view[view["genus"].isin(pick_genus)]
+    if pick_lang:
+        view = view[view["language_code"].isin(pick_lang)]
+    if pick_cat:
+        view = view[view["name_category"].isin(pick_cat)]
+    if pref_only == "only ★":
+        view = view[view["is_preferred"]]
+    elif pref_only == "only not ★":
+        view = view[~view["is_preferred"]]
+    if species_q.strip():
+        view = view[view["species"].fillna("").str.lower()
+                    == species_q.strip().lower()]
+
+    st.caption(f"**{len(view)}** of {len(df)} names match.")
+    if view.empty:
+        st.info("Nothing matches these filters.")
+        return
+
+    # ---- editable table ----
+    editable = view[["name_id", "name_text", "language_code",
+                     "name_category", "region_code", "is_preferred",
+                     "species", "contributor"]].copy()
+    editable.insert(0, "pick", False)
+    lang_opts = sorted(set(langs) | {"ENG", "SPA", "HYE", "NCI", "MIS"})
+
+    # The editor's key carries a fingerprint of the current filter and row
+    # set. st.data_editor remembers pending edits by ROW POSITION, so if the
+    # key stayed constant, changing a filter would replay a half-finished
+    # edit onto whatever row now sits in that slot. Changing the key
+    # retires those edits with the view they belonged to.
+    import hashlib as _hl
+    _sig = _hl.md5(
+        ("|".join(editable["name_id"].tolist())).encode()).hexdigest()[:10]
+
+    edited = st.data_editor(
+        editable,
+        key=f"mng_nm_editor_{_sig}",
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        column_config={
+            "pick": st.column_config.CheckboxColumn(
+                "✓", help="Tick rows for the batch actions below.",
+                width="small"),
+            "name_id": None,
+            "name_text": st.column_config.TextColumn("Name", width="medium"),
+            "language_code": st.column_config.SelectboxColumn(
+                "Lang", options=lang_opts, width="small"),
+            "name_category": st.column_config.SelectboxColumn(
+                "Category", options=_NAME_CATEGORIES, width="small"),
+            "region_code": st.column_config.TextColumn("Region",
+                                                        width="small"),
+            "is_preferred": st.column_config.CheckboxColumn("★",
+                                                            width="small"),
+            "species": st.column_config.TextColumn("Species", disabled=True),
+            "contributor": st.column_config.TextColumn("By", disabled=True),
+        },
+    )
+
+    picked_ids = [r["name_id"] for _, r in edited.iterrows() if r["pick"]]
+    orig_by_id = {r["name_id"]: r for _, r in editable.iterrows()}
+
+    def _apply(updates: dict, ids: list, verb: str) -> None:
+        """updates is a dict of column -> value applied to every id."""
+        n = 0
+        for nid in ids:
+            try:
+                if db.update_species_name(nid, updates):
+                    n += 1
+            except Exception as exc:
+                st.warning(f"{nid}: {exc}")
+        _invalidate_all_caches()
+        _cached_names_admin.clear()
+        st.success(f"{verb} {n} name(s).")
+        st.rerun()
+
+    b1, b2 = st.columns([1, 1])
+    with b1:
+        if st.button("Save table edits", type="primary",
+                     use_container_width=True, key="mng_nm_save"):
+            changed = 0
+            for _, row in edited.iterrows():
+                before = orig_by_id.get(row["name_id"])
+                if before is None:
+                    continue
+                fields = {}
+                for col in ("name_text", "language_code", "name_category",
+                            "region_code", "is_preferred"):
+                    new_v, old_v = row[col], before[col]
+                    if col == "is_preferred":
+                        new_v, old_v = bool(new_v), bool(old_v)
+                    else:
+                        new_v = (str(new_v).strip()
+                                 if new_v is not None else "")
+                        old_v = (str(old_v).strip()
+                                 if old_v is not None else "")
+                        if col == "region_code":
+                            new_v = new_v or None
+                            old_v = old_v or None
+                    if new_v != old_v:
+                        fields[col] = new_v
+                if fields.get("name_text") == "":
+                    st.warning("A name cannot be blank; that row was "
+                               "skipped.")
+                    continue
+                if fields:
+                    try:
+                        if db.update_species_name(row["name_id"], fields):
+                            changed += 1
+                    except Exception as exc:
+                        st.warning(f"{row['name_text']}: {exc}")
+            if changed:
+                _invalidate_all_caches()
+                _cached_names_admin.clear()
+                st.success(f"Saved {changed} name(s).")
+                st.rerun()
+            else:
+                st.info("Nothing changed in the table.")
+    with b2:
+        st.caption(f"{len(picked_ids)} row(s) ticked for the batch actions "
+                   "below.")
+
+    # ---- batch actions on the ticked rows ----
+    with st.expander("Batch actions on ticked rows", expanded=False):
+        if not picked_ids:
+            st.caption("Tick the ✓ column on the rows you want, then pick "
+                       "an action here. Everything applies only to the "
+                       "rows you ticked.")
+        st.markdown("**Find and replace inside the name**")
+        r1, r2, r3 = st.columns([2, 2, 1])
+        with r1:
+            find = st.text_input("Find", key="mng_nm_find")
+        with r2:
+            repl = st.text_input("Replace with", key="mng_nm_repl")
+        with r3:
+            case = st.checkbox("Match case", value=True, key="mng_nm_case")
+        if find:
+            import re as _re
+            flags = 0 if case else _re.IGNORECASE
+            hits = [nid for nid in picked_ids
+                    if _re.search(_re.escape(find),
+                                  str(orig_by_id[nid]["name_text"]), flags)]
+            st.caption(f"{len(hits)} ticked row(s) contain “{find}”.")
+            if hits and st.button(f"Replace in {len(hits)} name(s)",
+                                  key="mng_nm_do_repl"):
+                n = 0
+                for nid in hits:
+                    old = str(orig_by_id[nid]["name_text"])
+                    new = _re.sub(_re.escape(find), repl, old, flags=flags)
+                    if new.strip() and new != old:
+                        try:
+                            if db.update_species_name(
+                                    nid, {"name_text": new.strip()}):
+                                n += 1
+                        except Exception as exc:
+                            st.warning(f"{old}: {exc}")
+                _invalidate_all_caches()
+                _cached_names_admin.clear()
+                st.success(f"Replaced in {n} name(s).")
+                st.rerun()
+
+        st.divider()
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            set_lang = st.selectbox("Set language to", ["—"] + lang_opts,
+                                    key="mng_nm_setlang")
+            if set_lang != "—" and picked_ids and st.button(
+                    f"Apply to {len(picked_ids)}", key="mng_nm_dolang"):
+                _apply({"language_code": set_lang}, picked_ids, "Relabelled")
+        with s2:
+            set_cat = st.selectbox("Set category to",
+                                   ["—"] + _NAME_CATEGORIES,
+                                   key="mng_nm_setcat")
+            if set_cat != "—" and picked_ids and st.button(
+                    f"Apply to {len(picked_ids)} ", key="mng_nm_docat"):
+                _apply({"name_category": set_cat}, picked_ids, "Recategorised")
+        with s3:
+            set_reg = st.text_input("Set region to", key="mng_nm_setreg")
+            if set_reg.strip() and picked_ids and st.button(
+                    f"Apply to {len(picked_ids)}  ", key="mng_nm_doreg"):
+                _apply({"region_code": set_reg.strip()}, picked_ids,
+                       "Set region on")
+
+        st.divider()
+        d1, d2 = st.columns(2)
+        with d1:
+            if picked_ids and st.button(
+                    f"Delete {len(picked_ids)} ticked name(s)",
+                    key="mng_nm_del", use_container_width=True):
+                st.session_state["_mng_nm_confirm"] = list(picked_ids)
+        with d2:
+            pending = st.session_state.get("_mng_nm_confirm") or []
+            if pending:
+                st.warning(f"Delete {len(pending)} name(s)? This cannot be "
+                           "undone.")
+                if st.button("Yes, delete them", type="primary",
+                             key="mng_nm_del_yes",
+                             use_container_width=True):
+                    n = 0
+                    for nid in pending:
+                        try:
+                            db.delete_species_name(nid)
+                            n += 1
+                        except Exception as exc:
+                            st.warning(f"{nid}: {exc}")
+                    st.session_state.pop("_mng_nm_confirm", None)
+                    _invalidate_all_caches()
+                    _cached_names_admin.clear()
+                    st.success(f"Deleted {n} name(s).")
+                    st.rerun()
+
+    _csv_download(view.drop(columns=["species_id"], errors="ignore"),
+                  "library_names_filtered", "mng_nm_csv")
 
 
 def _delete_species_deity_by_names(species_name: str, deity_name: str,
