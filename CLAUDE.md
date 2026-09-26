@@ -41,6 +41,24 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AO (the boolean that broke Postgres, 2026-09-25):
+  - `list_names_admin()` crashed on Supabase with DatatypeMismatch. My
+    own doing, one session earlier: the first version used
+    `coalesce(sn.is_preferred, false)`, which SQLite rejected, so I
+    "fixed" it to `coalesce(sn.is_preferred, 0)` and verified on SQLite
+    only. Postgres types that column BOOLEAN and will not coalesce a
+    boolean with an integer. Each fix broke the dialect the other one ran
+    on.
+  - Correct answer: no boolean literal in the SQL at all. The column is
+    selected raw and NULLs are normalized in pandas with
+    `.fillna(False).astype(bool)`, which both dialects accept. Verified
+    against true, false, AND NULL rows: dtype bool, no NaN, filtering
+    works.
+  - Standing lesson for this file: `::text`, `now()`, `DELETE ... USING`,
+    and boolean literals are all Postgres-only. Deployment is Supabase
+    but the gallery runs offline SQLite, so anything new in db.py needs to
+    be plain ANSI SQL, with type coercion done in pandas.
+
 Session AN (Library > Manage > Names rebuilt for batch work, 2026-09-25):
   - The job this is built around: "change every Spanish name in this
     genus". The old panel printed the rolled-up browse table, ran an empty
@@ -852,6 +870,9 @@ are expensive.
 - 2026-09-21: Session AM fixed the species size slider: the label was
   being written into the photo-nav group, where a more specific CSS rule
   pinned it at 11px.
+- 2026-09-25: Session AO removed the boolean literal that broke the new
+  names query on Postgres (SQLite and Postgres each rejected the other's
+  fix); NULLs are normalized in pandas now.
 - 2026-09-25: Session AN rebuilt Library > Manage > Names as a filtered
   batch editor (search, spreadsheet edits, find-and-replace, bulk set,
   bulk delete) around the change-a-genus-of-Spanish-names workflow.

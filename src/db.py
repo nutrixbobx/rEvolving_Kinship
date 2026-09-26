@@ -1951,7 +1951,7 @@ def list_names_admin() -> pd.DataFrame:
                    sn.language_code      AS language_code,
                    sn.name_category      AS name_category,
                    sn.region_code        AS region_code,
-                   coalesce(sn.is_preferred, 0) AS is_preferred,
+                   sn.is_preferred       AS is_preferred,
                    s.canonical_scientific_name      AS species,
                    s.species_id          AS species_id,
                    co.display_name       AS contributor
@@ -1970,7 +1970,12 @@ def list_names_admin() -> pd.DataFrame:
         # Postgres-only and blow up the offline SQLite mode.
         for col in ("name_id", "species_id"):
             df[col] = df[col].astype(str)
-        df["is_preferred"] = df["is_preferred"].astype(bool)
+        # NULL handling lives here, not in SQL: Postgres types this column
+        # BOOLEAN and rejects coalesce(boolean, 0) with DatatypeMismatch,
+        # while SQLite has no boolean type at all. Selecting it raw and
+        # normalizing in pandas is the only form both dialects accept.
+        df["is_preferred"] = (df["is_preferred"].fillna(False)
+                              .astype(bool))
         df["genus"] = (df["species"].fillna("")
                        .astype(str).str.split().str[0])
     else:
