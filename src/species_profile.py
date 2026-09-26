@@ -217,6 +217,84 @@ def cached_image_url(scientific_name: str) -> str | None:
         return None
 
 
+_IMG_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def _thumb_data_uri(path, key: str, max_px: int = 150):
+    """A downscaled JPEG data URI for one locally cached image, memoized on
+    disk so we re-encode once rather than on every rerun."""
+    from pathlib import Path as _P
+    memo = CACHE / f"{key}.thumb.txt"
+    if memo.exists():
+        try:
+            t = memo.read_text().strip()
+            if t:
+                return t
+        except Exception:
+            pass
+    try:
+        import base64 as _b64
+        import io as _io
+        from PIL import Image as _Image
+        im = _Image.open(_P(path))
+        im = im.convert("RGB")
+        im.thumbnail((max_px, max_px))
+        buf = _io.BytesIO()
+        im.save(buf, "JPEG", quality=82, optimize=True)
+        uri = ("data:image/jpeg;base64,"
+               + _b64.b64encode(buf.getvalue()).decode("ascii"))
+        try:
+            memo.write_text(uri)
+        except Exception:
+            pass
+        return uri
+    except Exception:
+        return None
+
+
+def cached_image_data_uris(scientific_name: str,
+                           limit: int = 3) -> list[str]:
+    """Up to `limit` photos for this species as self-contained data URIs,
+    built from the files already on disk. Never touches the network.
+
+    The interactive tree used to be handed remote iNaturalist URLs. Those
+    display fine in the page, but an SVG rasterized through an <img> is
+    loaded in a restricted mode that refuses to fetch ANY external
+    resource, so every photo silently vanished from an exported PNG. The
+    client-side fetch-and-inline fallback only worked when the photo host
+    sent CORS headers, which iNaturalist's image CDN does not. Embedding
+    the bytes up front makes what you see and what you export the same
+    self-contained thing."""
+    try:
+        sci_key = hashlib.md5(scientific_name.encode()).hexdigest()[:10]
+    except Exception:
+        return []
+    paths = []
+    primary = CACHE / f"{sci_key}.jpg"
+    for ext in _IMG_EXTS:
+        p = CACHE / f"{sci_key}{ext}"
+        if p.exists():
+            primary = p
+            break
+    if primary.exists():
+        paths.append((primary, sci_key))
+    for i in range(limit):
+        for ext in _IMG_EXTS:
+            p = CACHE / f"{sci_key}_c{i}{ext}"
+            if p.exists():
+                paths.append((p, f"{sci_key}_c{i}"))
+                break
+    out, seen = [], set()
+    for path, key in paths:
+        if len(out) >= limit:
+            break
+        uri = _thumb_data_uri(path, key)
+        if uri and uri not in seen:
+            seen.add(uri)
+            out.append(uri)
+    return out
+
+
 def cached_image_candidates(scientific_name: str) -> list[str]:
     """Up to three image URLs for this species from the on-disk cache only.
     Never touches the network. The chosen image_url leads, then any other
@@ -361,6 +439,13 @@ def find_profile(scientific_name: str, common_name: str | None = None,
                         break
                 if len(_cands) >= 3:
                     break
+            # Pull the candidates down as well. The interactive tree needs
+            # real bytes on disk to embed; a remote URL cannot survive an
+            # SVG-to-PNG rasterization.
+            for _ci, _cand in enumerate(_cands):
+                _cp = _download_image(_cand["url"], f"{sci_key}_c{_ci}")
+                if _cp:
+                    _cand["path"] = str(_cp)
             wiki_title = (inat.get("preferred_common_name")
                           or inat.get("name") or scientific_name)
             wiki = _wiki_summary(wiki_title)

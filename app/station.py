@@ -798,14 +798,22 @@ if active_tab == "Dashboard":
                         # sometimes reloads station.py while leaving an
                         # older src module in memory, and an AttributeError
                         # here would take the whole tree down.
-                        _getc = getattr(species_profile,
-                                        "cached_image_candidates", None)
-                        if _getc is not None:
-                            _pc = _getc(_psci.strip())
-                        else:
-                            _u = species_profile.cached_image_url(
-                                _psci.strip())
-                            _pc = [_u] if _u else []
+                        # Data URIs, not remote links: an SVG rasterized
+                        # to PNG refuses to load external images, so a
+                        # linked photo exports blank. getattr keeps a
+                        # half-reloaded module from taking the tree down.
+                        _getd = getattr(species_profile,
+                                        "cached_image_data_uris", None)
+                        _pc = _getd(_psci.strip()) if _getd else []
+                        if not _pc:
+                            _getc = getattr(species_profile,
+                                            "cached_image_candidates", None)
+                            if _getc is not None:
+                                _pc = _getc(_psci.strip())
+                            else:
+                                _u = species_profile.cached_image_url(
+                                    _psci.strip())
+                                _pc = [_u] if _u else []
                         if _pc:
                             _photos[_psci.strip()] = _pc
                     # Every name each species goes by, from the Library, so

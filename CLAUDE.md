@@ -41,6 +41,31 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AP (photos survive the tree export, 2026-09-26):
+  - Why they broke: an SVG rasterized by loading it into an <img> is
+    parsed in a restricted mode that refuses to fetch ANY external
+    resource. A remote photo href therefore renders on the canvas and
+    then silently disappears from the exported PNG. The client-side
+    fetch-and-inline fallback added earlier only worked when the photo
+    host sent CORS headers, and iNaturalist's image CDN does not, so it
+    failed quietly every time.
+  - Fix: embed the bytes server-side instead of linking them.
+    `species_profile.cached_image_data_uris()` reads the photos already on
+    disk, downscales to 150px, and returns self-contained JPEG data URIs,
+    memoized as <key>.thumb.txt so the encode happens once. find_profile
+    now also downloads the candidate photos (<key>_c0, _c1, ...), so all
+    three choices exist locally for the arrow cycling.
+  - Weight is modest: ~2.8 KB per photo encoded, about 68 KB for an
+    eight-species tree with three photos each.
+  - Verified with fetch() forced to fail, which is the real-world CORS
+    condition: photos still draw on the canvas AND the exported SVG
+    carries 1 embedded image with 0 external links. Existing trees get
+    their primary photo embedded immediately; rebuilding fills in the
+    other two candidates.
+  - Station keeps a getattr chain (data URIs -> candidate URLs -> single
+    URL) so a half-reloaded module degrades instead of crashing.
+
+
 Session AO (the boolean that broke Postgres, 2026-09-25):
   - `list_names_admin()` crashed on Supabase with DatatypeMismatch. My
     own doing, one session earlier: the first version used
@@ -876,6 +901,9 @@ are expensive.
 - 2026-09-25: Session AN rebuilt Library > Manage > Names as a filtered
   batch editor (search, spreadsheet edits, find-and-replace, bulk set,
   bulk delete) around the change-a-genus-of-Spanish-names workflow.
+- 2026-09-26: Session AP fixed photos vanishing from tree exports by
+  embedding them as data URIs server-side (SVG-as-image cannot fetch
+  external resources, and the CDN sends no CORS headers).
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
