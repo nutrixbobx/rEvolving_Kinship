@@ -33,7 +33,7 @@ imageio-ffmpeg>=0.5
 matplotlib>=3.7
 
 # Request station + dashboard
-streamlit>=1.30
+streamlit>=1.49  # width="stretch" on buttons, tables, images
 
 # Auth: persistent cookie login + password hashing for signed-in users
 bcrypt>=4.0.0

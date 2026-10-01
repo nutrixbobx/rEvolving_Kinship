@@ -530,12 +530,12 @@ def render_sidebar_identity() -> None:
         )
         if is_signed_in():
             if st.button("Sign out", key="signout_btn",
-                          use_container_width=True):
+                          width="stretch"):
                 clear_session_user()
                 st.rerun()
         else:
             if st.button("Leave guest mode", key="leave_guest",
-                          use_container_width=True):
+                          width="stretch"):
                 clear_session_user()
                 st.rerun()
 
@@ -603,7 +603,7 @@ def _render_signin_form(scope: str) -> None:
                  "On = a URL token keeps you signed in until you "
                  "explicitly sign out.")
         if st.form_submit_button("Sign in", type="primary",
-                                   use_container_width=True):
+                                   width="stretch"):
             ok, msg = _do_signin(u, p, remember=remember)
             if ok:
                 st.rerun()
@@ -619,7 +619,7 @@ def _render_signin_form(scope: str) -> None:
             fp_user = st.text_input("Username", key=f"fp_user_{scope}")
             fp_email = st.text_input("Email", key=f"fp_email_{scope}")
             if st.form_submit_button("Ask for a reset", type="primary",
-                                       use_container_width=True):
+                                       width="stretch"):
                 st.success(handle_forgot_password(fp_user.strip(),
                                                   fp_email.strip()))
 
@@ -646,7 +646,7 @@ def _render_signup_form(scope: str) -> None:
         su_ac = st.text_input("Access code",
                                key=f"signup_ac_{scope}")
         if st.form_submit_button("Create account", type="primary",
-                                   use_container_width=True):
+                                   width="stretch"):
             ok, msg = _do_signup(su_u, su_dn, su_em, su_p, su_p2, su_ac)
             if ok:
                 st.rerun()
@@ -661,7 +661,7 @@ def _render_guest_form(scope: str) -> None:
             "You can sign up later to keep a profile.")
         guest_name = st.text_input("Your name", key=f"guest_name_{scope}")
         if st.form_submit_button("Enter as guest", type="primary",
-                                   use_container_width=True):
+                                   width="stretch"):
             if guest_name.strip():
                 ok, msg = set_guest_user(guest_name)
                 if ok:

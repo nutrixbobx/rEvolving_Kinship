@@ -493,7 +493,7 @@ def render_loading_gate_if_needed() -> bool:
         st.markdown("<br>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
-            if st.button("Retry download", use_container_width=True,
+            if st.button("Retry download", width="stretch",
                           key="ncbi_retry"):
                 st.session_state["_ncbi_status"] = {
                     "phase": "idle", "message": "", "started_at": None}
@@ -501,7 +501,7 @@ def render_loading_gate_if_needed() -> bool:
                 st.rerun()
         with c2:
             if st.button("Full rebuild from NCBI (~5 min)",
-                          use_container_width=True,
+                          width="stretch",
                           key="ncbi_full_rebuild"):
                 with st.spinner("Building from NCBI FTP. Do not close "
                                   "the tab."):
@@ -513,7 +513,7 @@ def render_loading_gate_if_needed() -> bool:
                         st.error(f"Rebuild failed: {exc}")
         with c3:
             if st.button("Skip and continue (admin)",
-                          use_container_width=True,
+                          width="stretch",
                           key="ncbi_skip",
                           help="Enters the app without taxa.sqlite. "
                                 "Species search + tree building will "

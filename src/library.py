@@ -204,7 +204,7 @@ def _render_browse() -> None:
             st.caption("No species yet. The Request station tab is where "
                        "everything starts.")
         else:
-            st.dataframe(df_sp, use_container_width=True, hide_index=True)
+            st.dataframe(df_sp, width="stretch", hide_index=True)
             _csv_download(df_sp, "species_overview", "species_csv")
 
     df_tr = _cached_trees()
@@ -213,7 +213,7 @@ def _render_browse() -> None:
         if df_tr.empty:
             st.caption("No trees yet.")
         else:
-            st.dataframe(df_tr, use_container_width=True, hide_index=True)
+            st.dataframe(df_tr, width="stretch", hide_index=True)
             _csv_download(df_tr, "trees", "trees_csv")
 
     df_nm = _cached_names()
@@ -225,7 +225,7 @@ def _render_browse() -> None:
             st.caption("No names recorded yet beyond what NCBI gave us. "
                        "Add your first one in the Add tab.")
         else:
-            st.dataframe(df_nm, use_container_width=True, hide_index=True)
+            st.dataframe(df_nm, width="stretch", hide_index=True)
             _csv_download(df_nm, "names", "names_csv")
 
     df_st = _cached_stories()
@@ -234,7 +234,7 @@ def _render_browse() -> None:
         if df_st.empty:
             st.caption("No stories yet. The Add tab is where they begin.")
         else:
-            st.dataframe(df_st, use_container_width=True, hide_index=True)
+            st.dataframe(df_st, width="stretch", hide_index=True)
             _csv_download(df_st, "stories", "stories_csv")
 
     df_di = _cached_dishes()
@@ -244,13 +244,13 @@ def _render_browse() -> None:
             st.caption("No dishes yet. The Armenian Dolma tree was the "
                        "seed; the Library is where the kitchen lives.")
         else:
-            st.dataframe(df_di, use_container_width=True, hide_index=True)
+            st.dataframe(df_di, width="stretch", hide_index=True)
             _csv_download(df_di, "dishes", "dishes_csv")
             df_ing = _cached_dish_ingredients()
             if not df_ing.empty:
                 st.markdown(
                     f"**Ingredients across all dishes**  ·  {len(df_ing)} links")
-                st.dataframe(df_ing, use_container_width=True,
+                st.dataframe(df_ing, width="stretch",
                              hide_index=True)
                 _csv_download(df_ing, "dish_ingredients", "ingredients_csv")
 
@@ -262,11 +262,11 @@ def _render_browse() -> None:
         if df_pa.empty:
             st.caption("No pantheons yet. Any tradition is welcome: Greek, Mayan, Yoruba, Hindu, Cherokee, Armenian, anything held by anyone in your community.")
         else:
-            st.dataframe(df_pa, use_container_width=True, hide_index=True)
+            st.dataframe(df_pa, width="stretch", hide_index=True)
             _csv_download(df_pa, "pantheons", "pantheons_csv")
             if not df_sd.empty:
                 st.markdown("**Species linked to deities**")
-                st.dataframe(df_sd, use_container_width=True,
+                st.dataframe(df_sd, width="stretch",
                              hide_index=True)
                 _csv_download(df_sd, "species_deities", "species_deities_csv")
 
@@ -277,7 +277,7 @@ def _render_browse() -> None:
         if df_cc.empty:
             st.caption("Nothing here yet. Cultural connections hold the looser ties: a species as totem, as medicine, as ceremony, or as the heart of a foodway.")
         else:
-            st.dataframe(df_cc, use_container_width=True, hide_index=True)
+            st.dataframe(df_cc, width="stretch", hide_index=True)
             _csv_download(df_cc, "cultural_connections", "cultural_csv")
 
 
@@ -803,7 +803,7 @@ def _delete_row(label: str, sub: str | None, when,
         with cols[1]:
             edit_flag = f"_edit_open_{edit_kind}_{edit_id}"
             if st.button("Edit", key=f"{key}_edit",
-                         use_container_width=True):
+                         width="stretch"):
                 st.session_state[edit_flag] = not st.session_state.get(
                     edit_flag, False)
                 st.rerun()
@@ -819,7 +819,7 @@ def _delete_row(label: str, sub: str | None, when,
 
 
 def _delete_button(key: str, on_delete) -> None:
-    if st.button("Delete", key=key, use_container_width=True):
+    if st.button("Delete", key=key, width="stretch"):
         try:
             on_delete()
             _invalidate_all_caches()
@@ -863,9 +863,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
             with lcols[1]:
                 region = st.text_input("Region (optional)", value=row[3] or "")
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_story_{row_id}", None)
             st.rerun()
@@ -904,9 +904,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 origin = st.text_input("Origin region", value=row[2] or "")
             desc = st.text_area("Description", value=row[3] or "", height=110)
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_dish_{row_id}", None)
             st.rerun()
@@ -945,9 +945,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
                                 height=110)
             src = st.text_input("Source (optional)", value=row[3] or "")
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(
                 f"_edit_open_cultural_connection_{row_id}", None)
@@ -1001,9 +1001,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
                                 "(species, language, category)",
                                 value=bool(row[4]))
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_name_{row_id}", None)
             st.rerun()
@@ -1046,9 +1046,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
                     "Tradition", trads,
                     index=trads.index(row[2] or "mythological"))
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_pantheon_{row_id}", None)
             st.rerun()
@@ -1081,9 +1081,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
             aliases = st.text_input(
                 "Alternate names (comma-separated)", value=aliases_str)
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_deity_{row_id}", None)
             st.rerun()
@@ -1120,9 +1120,9 @@ def _render_edit_form_inline(kind: str, row_id: str,
                         "with the new type.")
             note = st.text_area("Note", value=row[0] or "", height=80)
             save = st.form_submit_button("Save changes", type="primary",
-                                          use_container_width=True)
+                                          width="stretch")
             cancel = st.form_submit_button("Cancel",
-                                            use_container_width=True)
+                                            width="stretch")
         if cancel:
             st.session_state.pop(f"_edit_open_species_deity_{row_id}",
                                   None)
@@ -1455,7 +1455,7 @@ def _render_manage_names_table() -> None:
     edited = st.data_editor(
         editable,
         key=f"mng_nm_editor_{_sig}",
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="fixed",
         column_config={
@@ -1497,7 +1497,7 @@ def _render_manage_names_table() -> None:
     b1, b2 = st.columns([1, 1])
     with b1:
         if st.button("Save table edits", type="primary",
-                     use_container_width=True, key="mng_nm_save"):
+                     width="stretch", key="mng_nm_save"):
             changed = 0
             for _, row in edited.iterrows():
                 before = orig_by_id.get(row["name_id"])
@@ -1606,7 +1606,7 @@ def _render_manage_names_table() -> None:
         with d1:
             if picked_ids and st.button(
                     f"Delete {len(picked_ids)} ticked name(s)",
-                    key="mng_nm_del", use_container_width=True):
+                    key="mng_nm_del", width="stretch"):
                 st.session_state["_mng_nm_confirm"] = list(picked_ids)
         with d2:
             pending = st.session_state.get("_mng_nm_confirm") or []
@@ -1615,7 +1615,7 @@ def _render_manage_names_table() -> None:
                            "undone.")
                 if st.button("Yes, delete them", type="primary",
                              key="mng_nm_del_yes",
-                             use_container_width=True):
+                             width="stretch"):
                     n = 0
                     for nid in pending:
                         try:
@@ -1706,7 +1706,7 @@ def _bulk_delete_bar(section_key: str,
                          key=f"_bulk_delete_btn_{section_key}",
                          disabled=disabled,
                          type="primary",
-                         use_container_width=True):
+                         width="stretch"):
                 failed = 0
                 for rid in selected:
                     try:
@@ -1795,7 +1795,7 @@ def _render_clade_dating() -> None:
             )
         with cols[2]:
             if st.button("Save", key=f"mya_save_{r['clade_id']}",
-                          use_container_width=True):
+                          width="stretch"):
                 v = float(new_val) if new_val > 0 else None
                 try:
                     db.set_clade_divergence_mya(r["clade_id"], v)
@@ -1808,7 +1808,7 @@ def _render_clade_dating() -> None:
         with cols[3]:
             if current is not None:
                 if st.button("Clear", key=f"mya_clear_{r['clade_id']}",
-                              use_container_width=True):
+                              width="stretch"):
                     try:
                         db.set_clade_divergence_mya(r["clade_id"], None)
                         _invalidate_all_caches()

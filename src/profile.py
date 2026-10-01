@@ -345,10 +345,10 @@ def _render_edit_form(u: dict, cid: str) -> None:
             with cols_btn[0]:
                 saved = st.form_submit_button(
                     "Save changes", type="primary",
-                    use_container_width=True)
+                    width="stretch")
             with cols_btn[1]:
                 cancel = st.form_submit_button(
-                    "Cancel", use_container_width=True)
+                    "Cancel", width="stretch")
 
         if cancel:
             st.rerun()
@@ -407,7 +407,7 @@ def _render_activity(cid: str) -> None:
             st.caption("You haven't started a tree yet. The Request station "
                        "tab is where they begin.")
         else:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
 
     with tabs[1]:
         df = _cached_user_stories(cid)
@@ -520,7 +520,7 @@ def _row_with_delete(title: str, sub: str | None, when,
         )
     with cols[1]:
         if st.button(delete_label, key=delete_key,
-                     use_container_width=True):
+                     width="stretch"):
             try:
                 on_delete()
                 # We don't re-check here because the UI only ever offers the
@@ -607,7 +607,7 @@ def _render_admin_team() -> None:
             disabled = (new_role == current)
             if st.button("Update", key=f"role_save_{row['contributor_id']}",
                          disabled=disabled,
-                         use_container_width=True):
+                         width="stretch"):
                 try:
                     db.set_user_role(row["contributor_id"], new_role)
                     _cached_all_users.clear()
@@ -658,7 +658,7 @@ def _render_admin_review_feed() -> None:
             )
         with cols[1]:
             if st.button("Delete", key=f"rev_del_{kind}_{row_id}",
-                         use_container_width=True):
+                         width="stretch"):
                 try:
                     if kind == "story":
                         db.delete_story(row_id)
@@ -697,7 +697,7 @@ def _render_public_profile(contributor_id: str) -> None:
     with cols[0]:
         if st.button("← Back to my profile",
                      key="back_from_public",
-                     use_container_width=True):
+                     width="stretch"):
             st.session_state.pop("viewing_profile_of", None)
             st.rerun()
     with cols[1]:
@@ -786,23 +786,23 @@ def _render_public_profile(contributor_id: str) -> None:
     with tabs[0]:
         df = db.list_user_trees(cid)
         if df.empty: st.caption("No trees yet.")
-        else: st.dataframe(df, use_container_width=True, hide_index=True)
+        else: st.dataframe(df, width="stretch", hide_index=True)
     with tabs[1]:
         df = db.list_user_stories(cid)
         if df.empty: st.caption("No stories yet.")
-        else: st.dataframe(df, use_container_width=True, hide_index=True)
+        else: st.dataframe(df, width="stretch", hide_index=True)
     with tabs[2]:
         df = db.list_user_dishes(cid)
         if df.empty: st.caption("No dishes yet.")
-        else: st.dataframe(df, use_container_width=True, hide_index=True)
+        else: st.dataframe(df, width="stretch", hide_index=True)
     with tabs[3]:
         df = db.list_user_names(cid)
         if df.empty: st.caption("No multilingual names yet.")
-        else: st.dataframe(df, use_container_width=True, hide_index=True)
+        else: st.dataframe(df, width="stretch", hide_index=True)
     with tabs[4]:
         df = db.list_user_cultural(cid)
         if df.empty: st.caption("No cultural connections yet.")
-        else: st.dataframe(df, use_container_width=True, hide_index=True)
+        else: st.dataframe(df, width="stretch", hide_index=True)
 
 
 def _render_change_password_card(force: bool = False) -> None:
@@ -826,7 +826,7 @@ def _render_change_password_card(force: bool = False) -> None:
                                    help="Six characters minimum.")
             new_pw2 = st.text_input("Confirm new password", type="password")
             saved = st.form_submit_button("Update password", type="primary",
-                                           use_container_width=True)
+                                           width="stretch")
         if saved:
             if not new_pw or new_pw != new_pw2:
                 st.error("Passwords don't match.")
@@ -886,7 +886,7 @@ def _render_admin_pending_resets() -> None:
                 unsafe_allow_html=True)
         with cols[1]:
             if st.button("Approve", key=f"reset_ok_{rid}", type="primary",
-                         use_container_width=True):
+                         width="stretch"):
                 ok, msg = auth.approve_password_reset(rid)
                 if ok:
                     st.session_state["_reset_issued"] = {
@@ -897,7 +897,7 @@ def _render_admin_pending_resets() -> None:
                     st.warning(msg)
         with cols[2]:
             if st.button("Dismiss", key=f"reset_no_{rid}",
-                         use_container_width=True):
+                         width="stretch"):
                 db.dismiss_password_reset(rid)
                 st.rerun()
     _done = df[df["completed_at"].notna()]
@@ -906,7 +906,7 @@ def _render_admin_pending_resets() -> None:
             st.dataframe(
                 _done[["display_name", "username", "requested_at",
                        "completed_at"]],
-                use_container_width=True, hide_index=True)
+                width="stretch", hide_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -950,7 +950,7 @@ def _prof_bulk_delete_bar(section_key: str, delete_one, label: str) -> None:
                          key=f"_prof_bulk_del_btn_{section_key}",
                          disabled=(n == 0),
                          type="primary",
-                         use_container_width=True):
+                         width="stretch"):
                 failed = 0
                 for rid in sel:
                     try:
@@ -994,7 +994,7 @@ def _render_follow_button(target_contributor_id: str) -> None:
     label = "Unfollow" if following else "Follow"
     if st.button(label, key=f"follow_btn_{target_contributor_id}",
                   type=("secondary" if following else "primary"),
-                  use_container_width=True):
+                  width="stretch"):
         if following:
             db.unfollow_user(me_cid, target_contributor_id)
         else:
@@ -1057,7 +1057,7 @@ def _render_following_tab(cid: str) -> None:
         with cols[2]:
             if st.button("Open profile",
                           key=f"view_following_{r['contributor_id']}",
-                          use_container_width=True):
+                          width="stretch"):
                 st.session_state["viewing_profile_of"] = r["contributor_id"]
                 st.rerun()
 
@@ -1084,7 +1084,7 @@ def _render_favorites_tab(cid: str) -> None:
         with cols[1]:
             if st.button("Remove",
                           key=f"unfav_{r['tree_id']}",
-                          use_container_width=True):
+                          width="stretch"):
                 db.unfavorite_tree(cid, r["tree_id"])
                 try:
                     _cached_favorites.clear()
@@ -1135,7 +1135,7 @@ def _render_guest_upgrade_form() -> None:
                                  key="gu_upgrade_pw2")
         if st.form_submit_button("Upgrade to full account",
                                    type="primary",
-                                   use_container_width=True):
+                                   width="stretch"):
             if gu_pw != gu_pw2:
                 st.error("Passwords don't match.")
             elif len(gu_pw) < 6:
@@ -1204,7 +1204,7 @@ def _render_admin_invite_form() -> None:
             help="At least 6 characters. User can change it after first "
                  "login from their Profile tab.")
         if st.form_submit_button("Create account", type="primary",
-                                   use_container_width=True):
+                                   width="stretch"):
             un = (new_user or "").strip()
             nm = (new_name or "").strip()
             if not un or not nm or not new_pw or len(new_pw) < 6:

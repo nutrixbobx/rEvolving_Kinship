@@ -41,6 +41,15 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AS (use_container_width retired, 2026-09-30):
+  - All 97 `use_container_width=True` calls are now `width="stretch"`
+    (button, form_submit_button, download_button, dataframe, data_editor,
+    image). Streamlit had deprecated the old flag and requirements.txt
+    doesn't pin a version, so a release that drops it would have broken
+    every one. The floor is now `streamlit>=1.49`, the first release where
+    all six accept `width`. Checked on 1.49.0 and 1.64.0: no exceptions, no
+    deprecation warnings. Use `width="stretch"` going forward.
+
 Session AR (resets go through an admin, access code out of the repo,
 2026-09-30):
   - Forgot-password used to set a temp password and show it on the
@@ -965,6 +974,8 @@ are expensive.
   of on-screen copy and legends, pyflakes clean.
 - 2026-09-30: Session AR routed password resets through admin approval,
   moved ACCESS_CODE to secrets, and documented running locally.
+- 2026-09-30: Session AS swapped use_container_width for width="stretch"
+  everywhere and raised the Streamlit floor to 1.49.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

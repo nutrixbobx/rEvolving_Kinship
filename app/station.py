@@ -281,7 +281,7 @@ def _fav_toggle_for_tree(tree_name: str) -> None:
     is_fav = db.is_tree_favorited(cid, tree_id)
     label = "★ Favorited" if is_fav else "☆ Favorite this tree"
     if st.button(label, key=f"fav_{tree_name}",
-                  use_container_width=True,
+                  width="stretch",
                   type=("secondary" if is_fav else "primary")):
         if is_fav:
             db.unfavorite_tree(cid, tree_id)
@@ -694,7 +694,7 @@ if active_tab == "Dashboard":
         present = [c for c in headers if c in df.columns]
         st.dataframe(
             df[present].rename(columns=headers),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
         stem = _stem(pick_tree)
@@ -717,7 +717,7 @@ if active_tab == "Dashboard":
                 if st.button(f"Build / refresh  “{pick_tree}”",
                              type="primary",
                              key=f"build_top_{pick_tree}",
-                             use_container_width=True):
+                             width="stretch"):
                     with loading.spinner_with_tip("Resolving taxonomy, building the tree, "
                                     "fetching every species' photo and "
                                     "recording, rendering, and sonifying. "
@@ -737,7 +737,7 @@ if active_tab == "Dashboard":
                     st.download_button(".nwk", nwk.read_bytes(),
                                        file_name=nwk.name,
                                        mime="text/plain",
-                                       use_container_width=True,
+                                       width="stretch",
                                        key=f"nwk_top_{pick_tree}")
             st.caption(
                 "The tree below is live: every control sits inside it. "
@@ -759,7 +759,7 @@ if active_tab == "Dashboard":
                     except Exception:
                         _sp_profile = None
                     if _sp_profile and _sp_profile.get("image_path"):
-                        st.image(_sp_profile["image_path"], use_container_width=True)
+                        st.image(_sp_profile["image_path"], width="stretch")
                         if _sp_profile.get("image_attribution"):
                             st.caption(format_credit(_sp_profile["image_attribution"]))
                     if _sp_profile:
@@ -868,7 +868,7 @@ if active_tab == "Dashboard":
                         with _vc[1]:
                             if st.button("Clear shared view",
                                          key=f"clrshared_{pick_tree}",
-                                         use_container_width=True,
+                                         width="stretch",
                                          help="Remove the tree's shared "
                                               "arrangement so visitors see "
                                               "the default layout again."):
@@ -911,7 +911,7 @@ if active_tab == "Dashboard":
                     with dl_cols[0]:
                         if st.button(f"Build {layout_name} SVG / PNG",
                                      key=f"dl_build_{pick_tree}_{layout_name}",
-                                     use_container_width=True):
+                                     width="stretch"):
                             layout_code = render_mod.LAYOUTS[layout_name]
                             render_mod.render_files(
                                 nwk, meta,
@@ -949,13 +949,13 @@ if active_tab == "Dashboard":
                                 f"SVG ({layout_name})", svg_p.read_bytes(),
                                 file_name=svg_p.name, mime="image/svg+xml",
                                 key=f"dl_svg_{pick_tree}_{layout_name}",
-                                use_container_width=True)
+                                width="stretch")
                         if png_p.exists():
                             st.download_button(
                                 f"PNG ({layout_name})", png_p.read_bytes(),
                                 file_name=png_p.name, mime="image/png",
                                 key=f"dl_png_{pick_tree}_{layout_name}",
-                                use_container_width=True)
+                                width="stretch")
                 # Short note under the tree, generated or LLM-written
                 try:
                     b = ai_blurb.blurb_for_tree(pick_tree)
@@ -1019,7 +1019,7 @@ if active_tab == "Dashboard":
                   if st.button("Build / refresh kinship report",
                                key=f"presspdf_{pick_tree}",
                                type="primary",
-                               use_container_width=True):
+                               width="stretch"):
                       with loading.spinner_with_tip("Composing the kinship report. "
                                         "This can take a minute if photos "
                                         "are being fetched for the first "
@@ -1040,7 +1040,7 @@ if active_tab == "Dashboard":
                           press_pdf_path.read_bytes(),
                           file_name=press_pdf_path.name,
                           mime="application/pdf",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"presspdf_dl_{pick_tree}")
 
               # ─── T1 + T2 side-by-side ─────────────────────────────────
@@ -1055,11 +1055,11 @@ if active_tab == "Dashboard":
                       st.download_button(
                           "Download (.png)", photo_audio.read_bytes(),
                           file_name=photo_audio.name, mime="image/png",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"photoaudio_dl_{pick_tree}")
                   if st.button("Build / refresh T1",
                                key=f"photoaudio_{pick_tree}",
-                               use_container_width=True):
+                               width="stretch"):
                       with st.spinner("Fetching photos + audio, rendering "
                                         "spectrograms, composing tree."):
                           try:
@@ -1080,11 +1080,11 @@ if active_tab == "Dashboard":
                       st.download_button(
                           "Download (.png)", photo_tips.read_bytes(),
                           file_name=photo_tips.name, mime="image/png",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"phototips_dl_{pick_tree}")
                   if st.button("Build / refresh T2",
                                key=f"phototips_{pick_tree}",
-                               use_container_width=True):
+                               width="stretch"):
                       with st.spinner("Fetching photos + drawing "
                                         "tip thumbnails."):
                           try:
@@ -1109,11 +1109,11 @@ if active_tab == "Dashboard":
                       st.download_button(
                           "Download (.png)", blend_png.read_bytes(),
                           file_name=blend_png.name, mime="image/png",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"specblend_dl_{pick_tree}")
                   if st.button("Build / refresh blend",
                                key=f"specblend_{pick_tree}",
-                               use_container_width=True):
+                               width="stretch"):
                       with st.spinner("Overlaying every spectrogram..."):
                           try:
                               if not _ensure_tree_built(pick_tree):
@@ -1133,11 +1133,11 @@ if active_tab == "Dashboard":
                       st.download_button(
                           "Download (.png)", range_png.read_bytes(),
                           file_name=range_png.name, mime="image/png",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"rangemap_dl_{pick_tree}")
                   if st.button("Build / refresh range map",
                                key=f"rangemap_{pick_tree}",
-                               use_container_width=True):
+                               width="stretch"):
                       with loading.spinner_with_tip("Fetching CARTO basemap + GBIF "
                                         "density per species. ~30s."):
                           try:
@@ -1160,11 +1160,11 @@ if active_tab == "Dashboard":
                           "Download outline (.png)",
                           outline_png.read_bytes(),
                           file_name=outline_png.name, mime="image/png",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"rangeoutline_dl_{pick_tree}")
                   if st.button("Build / refresh outline map",
                                key=f"rangeoutline_{pick_tree}",
-                               use_container_width=True,
+                               width="stretch",
                                help="A warm-paper map with light "
                                     "coastlines, faint observed ranges, "
                                     "and blank space plus a notes band, "
@@ -1189,7 +1189,7 @@ if active_tab == "Dashboard":
                   if st.button("Load kin cards",
                                 type="secondary",
                                 key=f"outputs_load_kins_{pick_tree}",
-                                use_container_width=True,
+                                width="stretch",
                                 help="Fetches photos + summaries + "
                                       "audio for every species. Switch "
                                       "to the Listen sub-tab afterward."):
@@ -1206,7 +1206,7 @@ if active_tab == "Dashboard":
               with _cred_cols[0]:
                   if st.button("Build / refresh credits",
                                key=f"credits_build_{pick_tree}",
-                               use_container_width=True):
+                               width="stretch"):
                       with st.spinner("Aggregating credits..."):
                           try:
                               if not _ensure_tree_built(pick_tree):
@@ -1224,7 +1224,7 @@ if active_tab == "Dashboard":
                           credits_txt.read_bytes(),
                           file_name=credits_txt.name,
                           mime="text/plain",
-                          use_container_width=True,
+                          width="stretch",
                           key=f"credits_dl_{pick_tree}")
 
         with rename_col:
@@ -1259,7 +1259,7 @@ if active_tab == "Dashboard":
                     if cur_owner_id != _me_cid:
                         if st.button("Transfer to me",
                                      key=f"transfer_self_{pick_tree}",
-                                     use_container_width=True):
+                                     width="stretch"):
                             db.set_tree_owner(pick_tree, _me_cid)
                             _invalidate_dashboard_caches()
                             st.success("Ownership transferred to you.")
@@ -1294,7 +1294,7 @@ if active_tab == "Dashboard":
                             )
                             if st.button("Transfer",
                                           key=f"transfer_other_{pick_tree}",
-                                          use_container_width=True):
+                                          width="stretch"):
                                 db.set_tree_owner(pick_tree, _pick)
                                 _invalidate_dashboard_caches()
                                 st.success(
@@ -1441,7 +1441,7 @@ if active_tab == "Dashboard":
                         height=68,
                         key=f"dash_addname_notes_{pick_tree}")
                     if st.form_submit_button("Save name", type="primary",
-                                              use_container_width=True):
+                                              width="stretch"):
                         if not (_name_text or "").strip():
                             st.warning("Name can't be empty.")
                         else:
@@ -1728,7 +1728,7 @@ if active_tab == "Dashboard":
                   st.audio(chorus.read_bytes(), format="audio/wav")
               if st.button("Build / refresh chorus",
                             key=f"chorus_{pick_tree}",
-                            use_container_width=True):
+                            width="stretch"):
                   with loading.spinner_with_tip(
                           "Fetching recordings from Xeno-Canto + "
                           "Wikipedia and blending."):
@@ -1765,7 +1765,7 @@ if active_tab == "Dashboard":
                       key=f"med_dl_{pick_tree}_{med_secs}")
               if st.button(f"Build {med_min} min meditation",
                             key=f"med_build_{pick_tree}_{med_secs}",
-                            use_container_width=True):
+                            width="stretch"):
                   with loading.spinner_with_tip(
                           f"Blending the chord and the chorus into "
                           f"a {med_min} min track."):
@@ -1845,7 +1845,7 @@ if active_tab == "Dashboard":
                               "Hz": round(v["hz"], 1),
                               "MIDI": v["midi"],
                           } for v in _voices]),
-                              use_container_width=True,
+                              width="stretch",
                               hide_index=True)
                           _undated_n = sum(
                               1 for k, v in _meta_all.items()
@@ -1879,7 +1879,7 @@ if active_tab == "Dashboard":
                 if st.button("Load kin cards",
                               type="primary",
                               key=f"listen_load_kins_{pick_tree}",
-                              use_container_width=True,
+                              width="stretch",
                               help="Fetches photos, summaries, and "
                                     "audio for every species. Kept "
                                     "behind a click so the Dashboard "
@@ -1938,7 +1938,7 @@ if active_tab == "Dashboard":
                         with c_img:
                             if _sp_profile and _sp_profile.get("image_path"):
                                 st.image(_sp_profile["image_path"],
-                                         use_container_width=True)
+                                         width="stretch")
                                 if _sp_profile.get("image_attribution"):
                                     st.caption(
                                         format_credit(_sp_profile["image_attribution"]))
@@ -2134,12 +2134,12 @@ if active_tab == "Range map":
                            "here mainly to speed up a very large tree.")
                 _bcols = st.columns(2)
                 if _bcols[0].button("Show all", key=f"mapall_{map_pick}",
-                                    use_container_width=True):
+                                    width="stretch"):
                     st.session_state[_def_key] = True
                     st.session_state[_ver_key] += 1
                     st.rerun()
                 if _bcols[1].button("Hide all", key=f"mapnone_{map_pick}",
-                                    use_container_width=True):
+                                    width="stretch"):
                     st.session_state[_def_key] = False
                     st.session_state[_ver_key] += 1
                     st.rerun()
