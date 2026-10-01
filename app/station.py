@@ -1048,7 +1048,7 @@ if active_tab == "Dashboard":
               st.markdown("### Tree variants")
               _tree_cols = st.columns(2)
               with _tree_cols[0]:
-                  st.markdown("**T1 — Photo-Spectral Tree**")
+                  st.markdown("**T1: Photo-Spectral Tree**")
                   photo_audio = config.OUTPUT_DIR / f"{stem}_photo_audio.png"
                   if photo_audio.exists():
                       st.image(photo_audio.read_bytes())
@@ -1073,7 +1073,7 @@ if active_tab == "Dashboard":
                           except Exception as exc:
                               st.error(f"T1 build failed: {exc}")
               with _tree_cols[1]:
-                  st.markdown("**T2 — Unrooted Tree with Photos**")
+                  st.markdown("**T2: Unrooted Tree with Photos**")
                   photo_tips = config.OUTPUT_DIR / f"{stem}_photo_tips.png"
                   if photo_tips.exists():
                       st.image(photo_tips.read_bytes())
@@ -1417,7 +1417,7 @@ if active_tab == "Dashboard":
                         f"dash_addname_kbd_{pick_tree}_script_pick")
                     if _composed:
                         st.caption(
-                            f"Composed: **{_composed}** — paste into "
+                            f"Composed: **{_composed}**. Paste it into "
                             "Name below.")
                 with st.form(f"dash_addname_form_{pick_tree}"):
                     _name_text = st.text_input(
@@ -1485,7 +1485,7 @@ if active_tab == "Dashboard":
                 st.caption(
                     "Pick a different name for any species in this tree "
                     "(another language, a folk name, a ceremonial name). "
-                    "Only this tree changes — other trees keep their own "
+                    "Only this tree changes. Other trees keep their own "
                     "picks. Rebuild after saving so the rendered labels "
                     "match.")
                 _picker_rows = _cached_tree_species_picker(pick_tree)
@@ -1524,7 +1524,7 @@ if active_tab == "Dashboard":
         # its divergence age, and its species. Signed-in users can leave
         # a note attached to the clade (surfaces here and in the Library).
         if _sub == "Customize" and meta:
-            with st.expander("Clade browser — photo, age, notes"):
+            with st.expander("Clade browser: photo, age, notes"):
                 _clades = sorted(
                     (n for n, v in meta.items()
                      if not v.get("is_leaf") and n),
@@ -1540,7 +1540,7 @@ if active_tab == "Dashboard":
                         "Clade",
                         _clades,
                         format_func=lambda n: (
-                            f"{n} — {meta[n].get('mya')} MYA"
+                            f"{n} · {meta[n].get('mya')} MYA"
                             if meta[n].get("mya") is not None
                             else n),
                         key=f"clade_browser_pick_{pick_tree}")
@@ -1634,7 +1634,7 @@ if active_tab == "Dashboard":
                         _scope = ("this tree" if _n.get("tree_name")
                                   else "global")
                         st.markdown(f"> {_n['body']}")
-                        _cap_line = f"— {_who}, {_when_s} · {_scope}"
+                        _cap_line = f"{_who}, {_when_s} · {_scope}"
                         _del_col = st.columns([5, 1])
                         _del_col[0].caption(_cap_line)
                         _own_id = _n.get("contributor_id")
@@ -1677,7 +1677,7 @@ if active_tab == "Dashboard":
                                     st.rerun()
                                 else:
                                     st.warning(
-                                        "Couldn't save — the clade_note "
+                                        "Couldn't save. The clade_note "
                                         "table may not be provisioned yet. "
                                         "See db/clade_note_migration.sql.")
 
@@ -2147,15 +2147,15 @@ if active_tab == "Range map":
                 _default = st.session_state[_def_key]
                 _grid = st.columns(2)
                 _selected = []
-                for _i, _sp in enumerate(species_for_map):
-                    _lab = _sp.get("common_name") or _sp["scientific_name"]
+                for _i, _row in enumerate(species_for_map):
+                    _lab = _row.get("common_name") or _row["scientific_name"]
                     with _grid[_i % 2]:
                         _on = st.checkbox(
                             _lab, value=_default,
                             key=f"mapcb_{map_pick}_{_ver}_{_i}",
-                            help=_sp["scientific_name"])
+                            help=_row["scientific_name"])
                     if _on:
-                        _selected.append(_sp)
+                        _selected.append(_row)
             if not _selected:
                 st.info("Every species is hidden. Turn at least one back "
                         "on in Show / hide species above.")

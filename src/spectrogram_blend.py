@@ -103,7 +103,7 @@ def build_spectrogram_blend(tree_name: str,
 
     if not spec_paths:
         raise RuntimeError(
-            "No spectrograms available — build the chorus or the photo+"
+            "No spectrograms available yet. Build the chorus or the photo+"
             "audio tree first so the species' recordings are cached.")
 
     print(f"blending {len(spec_paths)} spectrograms...")
@@ -137,13 +137,13 @@ def build_spectrogram_blend(tree_name: str,
     ax.axis("off")
     fig.subplots_adjust(left=0.02, right=0.98, top=0.92, bottom=0.06)
     ax.set_title(
-        f"{tree_name} — Spectrogram Blend "
+        f"{tree_name}: Spectrogram Blend "
         f"({len(spec_paths)} voices overlaid)",
         color="#e8f3ef", fontsize=14, pad=12,
         family="Georgia, serif")
     fig.text(
         0.5, 0.02,
-        "every species' spectrogram averaged with low alpha — "
+        "every species' spectrogram averaged with low alpha: "
         "the ecosystem's collective voice",
         ha="center", color="#9ab3ab", fontsize=9, style="italic")
     try:

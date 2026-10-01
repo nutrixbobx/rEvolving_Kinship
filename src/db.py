@@ -455,7 +455,7 @@ def update_last_login(contributor_id: str) -> None:
     engine = get_engine()
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE contributor SET last_login_at = now() "
+            text("UPDATE contributor SET last_login_at = CURRENT_TIMESTAMP "
                  "WHERE contributor_id = :i"),
             {"i": contributor_id},
         )
@@ -1758,7 +1758,7 @@ def recent_contributions(limit: int = 50) -> pd.DataFrame:
     cultural connections. UNION ALL with a 'kind' discriminator and the
     contributor name pre-joined so the UI is one dataframe."""
     return pd.read_sql(text("""
-        SELECT 'story' AS kind, s.story_id::text AS row_id,
+        SELECT 'story' AS kind, CAST(s.story_id AS TEXT) AS row_id,
                coalesce(s.title, sp.canonical_scientific_name, '(untitled story)') AS title,
                co.display_name AS contributor, co.contributor_id AS contributor_id,
                s.contributed_at
@@ -1766,18 +1766,18 @@ def recent_contributions(limit: int = 50) -> pd.DataFrame:
         LEFT JOIN species sp ON sp.species_id = s.species_id
         LEFT JOIN contributor co ON co.contributor_id = s.contributed_by
         UNION ALL
-        SELECT 'dish', d.dish_id::text, d.name,
+        SELECT 'dish', CAST(d.dish_id AS TEXT), d.name,
                co.display_name, co.contributor_id, d.contributed_at
         FROM dish d
         LEFT JOIN contributor co ON co.contributor_id = d.contributed_by
         UNION ALL
-        SELECT 'name', sn.name_id::text,
+        SELECT 'name', CAST(sn.name_id AS TEXT),
                sn.name_text || ' (' || sn.language_code || ')',
                co.display_name, co.contributor_id, sn.contributed_at
         FROM species_name sn
         LEFT JOIN contributor co ON co.contributor_id = sn.contributed_by
         UNION ALL
-        SELECT 'cultural_connection', cc.connection_id::text,
+        SELECT 'cultural_connection', CAST(cc.connection_id AS TEXT),
                cc.culture || ' / ' || coalesce(cc.significance_type,'tie'),
                co.display_name, co.contributor_id, cc.contributed_at
         FROM cultural_connection cc
@@ -1901,12 +1901,12 @@ def complete_password_reset(contributor_id: str,
     with engine.begin() as conn:
         conn.execute(text(
             "UPDATE contributor SET password_hash = :p, "
-            "must_change_password = true, last_reset_at = now() "
+            "must_change_password = true, last_reset_at = CURRENT_TIMESTAMP "
             "WHERE contributor_id = :i"
         ), {"p": new_password_hash, "i": contributor_id})
         # Mark any open pending_reset rows for this user as completed.
         conn.execute(text(
-            "UPDATE pending_reset SET completed_at = now() "
+            "UPDATE pending_reset SET completed_at = CURRENT_TIMESTAMP "
             "WHERE contributor_id = :i AND completed_at IS NULL"
         ), {"i": contributor_id})
 
@@ -1923,12 +1923,14 @@ def clear_must_change_password(contributor_id: str) -> None:
 def list_pending_resets() -> pd.DataFrame:
     """Admin view: pending password-reset requests in the last 30 days,
     completed or not."""
-    return pd.read_sql(text("""
+    _cutoff = ("now() - INTERVAL '30 days'" if is_postgres()
+               else "datetime('now', '-30 days')")
+    return pd.read_sql(text(f"""
         SELECT pr.reset_id, pr.requested_at, pr.completed_at,
                c.display_name, c.username, c.email
         FROM pending_reset pr
         JOIN contributor c ON c.contributor_id = pr.contributor_id
-        WHERE pr.requested_at > now() - INTERVAL \'30 days\'
+        WHERE pr.requested_at > {_cutoff}
         ORDER BY pr.requested_at DESC
     """), get_engine())
 
@@ -2104,9 +2106,9 @@ def list_tree_species_with_names(tree_name: str) -> list[dict]:
     engine = get_engine()
     with engine.connect() as conn:
         rows = conn.execute(text("""
-            SELECT s.species_id::text, s.canonical_scientific_name,
-                   ts.display_name_id::text,
-                   sn.name_id::text, sn.name_text, sn.language_code,
+            SELECT CAST(s.species_id AS TEXT), s.canonical_scientific_name,
+                   CAST(ts.display_name_id AS TEXT),
+                   CAST(sn.name_id AS TEXT), sn.name_text, sn.language_code,
                    sn.name_category, sn.is_preferred
             FROM tree_species ts
             JOIN tree t    ON t.tree_id    = ts.tree_id
@@ -2142,9 +2144,9 @@ def list_tree_species_with_names(tree_name: str) -> list[dict]:
                 if str(r[2]).upper() in ("EN", "ENG") and r[3] == "common" and r[4]),
             None,
         )
-        global_label = (f"(default — {global_pref})"
+        global_label = (f"(default: {global_pref})"
                          if global_pref else
-                         "(default — scientific name)")
+                         "(default: scientific name)")
         choices = [(None, global_label)]
         for nid, ntext, lang, cat, is_pref in name_rows:
             star = " ★" if is_pref else ""
@@ -2368,7 +2370,7 @@ def list_following(contributor_id: str) -> pd.DataFrame:
     """People the contributor follows, with their counts so the Profile
     'Following' tab is a quick directory."""
     return pd.read_sql(text("""
-        SELECT c.contributor_id::text AS contributor_id,
+        SELECT CAST(c.contributor_id AS TEXT) AS contributor_id,
                c.display_name, c.username, c.avatar_url, c.bio, c.role,
                (SELECT count(*) FROM tree t WHERE t.owner_id = c.contributor_id)
                   AS trees,
@@ -2384,7 +2386,7 @@ def list_following(contributor_id: str) -> pd.DataFrame:
 
 def list_followers(contributor_id: str) -> pd.DataFrame:
     return pd.read_sql(text("""
-        SELECT c.contributor_id::text AS contributor_id,
+        SELECT CAST(c.contributor_id AS TEXT) AS contributor_id,
                c.display_name, c.username, c.avatar_url, c.role,
                uf.followed_at
         FROM user_follow uf
@@ -2430,7 +2432,7 @@ def is_tree_favorited(contributor_id: str, tree_id: str) -> bool:
 
 def list_favorite_trees(contributor_id: str) -> pd.DataFrame:
     return pd.read_sql(text("""
-        SELECT t.tree_id::text, t.name AS tree_name,
+        SELECT CAST(t.tree_id AS TEXT), t.name AS tree_name,
                (SELECT count(*) FROM tree_species ts
                   WHERE ts.tree_id = t.tree_id) AS species_count,
                co.display_name AS owner,
@@ -2562,7 +2564,7 @@ def list_clades_for_dating() -> pd.DataFrame:
     current divergence_mya. Editors/admins use this to fill in ages on
     the undated clades that show up as teal dots on the tree."""
     return pd.read_sql(text("""
-        SELECT c.clade_id::text AS clade_id,
+        SELECT CAST(c.clade_id AS TEXT) AS clade_id,
                c.name           AS clade_name,
                c.rank,
                c.divergence_mya AS mya,
@@ -2586,7 +2588,7 @@ def get_clade_id_by_name(clade_name: str) -> str | None:
     engine = get_engine()
     with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT clade_id::text FROM clade WHERE name = :n"),
+            text("SELECT CAST(clade_id AS TEXT) FROM clade WHERE name = :n"),
             {"n": clade_name},
         ).fetchone()
     return row[0] if row else None

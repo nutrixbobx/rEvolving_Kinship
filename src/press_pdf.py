@@ -501,7 +501,7 @@ def build_press_pdf(tree_name: str,
             print(f"photo_audio build during PDF failed: {exc}")
     if combined_png.exists() and combined_png.stat().st_size > 0:
         story.append(Paragraph(
-            f"{title_text} — kin in image + voice", h_sec))
+            f"{title_text}: kin in image + voice", h_sec))
         story.append(Paragraph(
             "Each species along the square tree, with its photo and a "
             "spectrogram of its actual recorded voice. Image and audio "
@@ -588,7 +588,7 @@ def build_press_pdf(tree_name: str,
             print(f"spectrogram_blend build during PDF failed: {exc}")
     if blend_png.exists() and blend_png.stat().st_size > 0:
         story.append(Paragraph(
-            f"{title_text} — spectrogram blend", h_sec))
+            f"{title_text}: spectrogram blend", h_sec))
         story.append(Paragraph(
             "Every species' voice averaged into one image: the "
             "ecosystem's collective spectrogram.", h_body))
@@ -723,7 +723,7 @@ def build_press_pdf(tree_name: str,
         str(out_path), pagesize=letter,
         leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=MARGIN, bottomMargin=MARGIN,
-        title=f"{tree_settings.PROJECT_MARK} — {title_text}",
+        title=f"{tree_settings.PROJECT_MARK}: {title_text}",
         author="Maya (Shared Rivers)",
         subject="Personalized kinship report",
     )

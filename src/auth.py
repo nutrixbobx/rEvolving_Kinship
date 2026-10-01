@@ -30,6 +30,8 @@ from __future__ import annotations
 import os
 
 import bcrypt
+from html import escape as _esc
+
 import streamlit as st
 
 from src import db
@@ -468,7 +470,7 @@ def render_sidebar_identity() -> None:
     Rendered in the sidebar once the user is named."""
     from src import theme as _theme
     u = current_user()
-    bio_html = (f'<div class="identity-bio">{u["bio"]}</div>'
+    bio_html = (f'<div class="identity-bio">{_esc(u["bio"])}</div>'
                 if u.get("bio") else "")
     avatar = _theme.avatar_html(u.get("avatar_url"), size_px=44)
     with st.sidebar:
@@ -477,7 +479,7 @@ def render_sidebar_identity() -> None:
             f'style="display:flex;align-items:center;gap:12px">'
             f'  {avatar}'
             f'  <div style="flex:1;min-width:0">'
-            f'    <div class="identity-name">{u.get("name")}'
+            f'    <div class="identity-name">{_esc(u.get("name") or "")}'
             f'{_theme.role_glyph(u.get("role"), size_px=15)}'
             f'    </div>'
             f'    {bio_html}'
@@ -530,28 +532,18 @@ def render_main_gate() -> None:
 
 
 def render_sidebar_gate() -> None:
-    """Slim version of the gate for the sidebar. Used on desktop where the
-    sidebar is the natural place to live. Once the user is named, the
-    sidebar shows the identity card instead via render_sidebar_identity."""
+    """Sidebar half of the gate. Once the user is named it shows the
+    identity card via render_sidebar_identity. Before that it only says
+    hello: the forms live on the landing screen (render_main_gate), so
+    nobody faces two identical sign-in boxes side by side."""
     seed_admin_password_if_needed()
     if is_named():
         render_sidebar_identity()
         return
     with st.sidebar:
         st.markdown("### Welcome")
-        st.caption("Sign in, make an account, or give a name as a guest.")
-        mode = st.radio(
-            "Choose how to enter",
-            ["Sign in", "Create an account", "Continue as guest"],
-            key="auth_sidebar_mode",
-            label_visibility="collapsed",
-        )
-        if mode == "Sign in":
-            _render_signin_form("sidebar")
-        elif mode == "Create an account":
-            _render_signup_form("sidebar")
-        else:
-            _render_guest_form("sidebar")
+        st.caption("Sign in, make an account, or leave us your first "
+                   "name on the main page.")
 
 
 def _render_signin_form(scope: str) -> None:

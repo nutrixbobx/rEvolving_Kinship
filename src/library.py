@@ -14,6 +14,8 @@ what's inside before clicking.
 
 from __future__ import annotations
 
+from html import escape as _esc
+
 import streamlit as st
 
 from src import db
@@ -182,8 +184,8 @@ def render(is_admin: bool, can_edit_contribution=None, current_contributor_id: s
                      "entries. Head to your Profile to upgrade with "
                      "an access code, then come back here to add.")
         else:
-            st.info("Give yourself a name in the sidebar, then sign "
-                     "up with an access code to add to the library.")
+            st.info("Give yourself a name on the welcome screen, then "
+                     "sign up with an access code to add to the library.")
     if manage is not None:
         with manage:
             _render_manage()
@@ -340,8 +342,8 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
     me = _auth.current_user()
     contributor_id = me.get("contributor_id")
     if not contributor_id:
-        st.info("Sign in or give a guest name in the sidebar to attribute "
-                "your contributions.")
+        st.info("Sign in or give a guest name on the welcome screen to "
+                "attribute your contributions.")
         return
     st.caption(
         f"Adding as **{me.get('name')}** "
@@ -373,7 +375,7 @@ def _render_admin_entry(is_editor_or_admin: bool = False) -> None:
             script_name = st.session_state.get("addname_kbd_script_pick")
             if composed:
                 st.caption(
-                    f"Composed: **{composed}** — paste into Name below.")
+                    f"Composed: **{composed}**. Paste it into Name below.")
 
         # The form holds just the fields that don't need live interactivity.
         with st.form("add_name_form"):
@@ -787,14 +789,14 @@ def _delete_row(label: str, sub: str | None, when,
     cols = (st.columns([5, 1, 1]) if has_edit else st.columns([6, 2]))
     with cols[0]:
         when_str = _fmt_when_short(when)
-        sub_html = (f' <span style="color:#7a8d86;font-size:11px">· {sub}</span>'
+        sub_html = (f' <span style="color:#7a8d86;font-size:11px">· {_esc(str(sub))}</span>'
                     if sub else "")
         when_html = (f' <span style="color:#9ab3ab;font-size:11px">'
                      f'· {when_str}</span>'
                      if when_str else "")
         st.markdown(
             f'<div style="padding:6px 0;border-bottom:1px solid #1c2e2b;'
-            f'color:#e8f3ef">{label}{sub_html}{when_html}</div>',
+            f'color:#e8f3ef">{_esc(str(label))}{sub_html}{when_html}</div>',
             unsafe_allow_html=True,
         )
     if has_edit:
@@ -844,7 +846,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "SELECT title, body_text, language_code, region_code "
                 "FROM story WHERE story_id = :i"), {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_story_form"):
             t = st.text_input("Title", value=row[0] or "")
@@ -891,7 +893,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "SELECT name, cuisine, origin_region, description "
                 "FROM dish WHERE dish_id = :i"), {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_dish_form"):
             name = st.text_input("Name", value=row[0] or "")
@@ -933,7 +935,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "FROM cultural_connection WHERE connection_id = :i"),
                 {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_cc_form"):
             culture = st.text_input("Culture", value=row[0] or "")
@@ -977,7 +979,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "FROM species_name WHERE name_id = :i"),
                 {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_name_form"):
             n = st.text_input("Name", value=row[0] or "")
@@ -1031,7 +1033,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "FROM pantheon WHERE pantheon_id = :i"),
                 {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_pantheon_form"):
             name = st.text_input("Name", value=row[0] or "")
@@ -1069,7 +1071,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "FROM deity WHERE deity_id = :i"),
                 {"i": row_id}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         aliases_str = ", ".join(row[2]) if row[2] else ""
         with st.form(f"{key_prefix}_deity_form"):
@@ -1100,7 +1102,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
     if kind == "species_deity":
         parts = (row_id or "").split("||")
         if len(parts) != 3:
-            st.warning("Edit key shape unexpected — refresh.")
+            st.warning("Unexpected edit key. Try refreshing.")
             return
         sp_id, de_id, rel = parts
         with engine.connect() as c:
@@ -1110,7 +1112,7 @@ def _render_edit_form_inline(kind: str, row_id: str,
                 "  AND relationship = :r"),
                 {"s": sp_id, "d": de_id, "r": rel}).fetchone()
         if not row:
-            st.warning("Row not found — refresh.")
+            st.warning("Row not found. Try refreshing.")
             return
         with st.form(f"{key_prefix}_sd_form"):
             st.caption(f"Editing the note. To change the relationship "
@@ -1150,7 +1152,7 @@ def _contributor_link(name: str | None,
             st.success(f"Opened {label}'s profile in the Profile tab.")
     else:
         st.markdown(
-            f'<span style="color:#9ab3ab;font-size:11px">by {label}</span>',
+            f'<span style="color:#9ab3ab;font-size:11px">by {_esc(label)}</span>',
             unsafe_allow_html=True,
         )
 
@@ -1276,7 +1278,7 @@ def _render_manage() -> None:
             from sqlalchemy import text as _sa_text2
             with db.get_engine().connect() as _c:
                 _deity_rows = _c.execute(_sa_text2("""
-                    SELECT d.deity_id::text, d.name, d.domain,
+                    SELECT CAST(d.deity_id AS TEXT), d.name, d.domain,
                            p.name AS pantheon
                     FROM deity d
                     JOIN pantheon p ON p.pantheon_id = d.pantheon_id
@@ -1299,7 +1301,7 @@ def _render_manage() -> None:
         from sqlalchemy import text as _sa_text
         with db.get_engine().connect() as _c:
             _sd_rows = _c.execute(_sa_text("""
-                SELECT sd.species_id::text, sd.deity_id::text,
+                SELECT CAST(sd.species_id AS TEXT), CAST(sd.deity_id AS TEXT),
                        sd.relationship,
                        s.canonical_scientific_name AS species,
                        (SELECT sn.name_text FROM species_name sn
@@ -1372,7 +1374,6 @@ def _render_manage_names_table() -> None:
     or run one action across everything you ticked. The old panel listed
     300 rows of one-at-a-time widgets, which made that job tedious enough
     to avoid."""
-    from src import i18n as _i18n
 
     df = _cached_names_admin()
     if df.empty:

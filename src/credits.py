@@ -176,7 +176,7 @@ def write_credits_txt(tree_name: str, out_path) -> "Path":
     every exported tree comes with its own credits doc. Returns the
     output path."""
     rows = aggregate_tree_credits(tree_name)
-    lines = [f"Credits — {tree_name}", "=" * (10 + len(tree_name)), ""]
+    lines = [f"Credits: {tree_name}", "=" * (9 + len(tree_name)), ""]
     for r in rows:
         head = r["common"] or r["species"]
         sub = f" ({r['species']})" if r["common"] else ""

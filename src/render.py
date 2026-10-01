@@ -744,8 +744,8 @@ def _render_footer_strip(svg: str, credit_lines: list[str] | None = None,
         f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         f'text-anchor="end" dominant-baseline="middle">'
         f'<tspan font-weight="bold">Common Name</tspan> '
-        f'<tspan font-style="italic">(Scientific name)</tspan> '
-        f'— a species</text>'
+        f'<tspan font-style="italic">(Scientific name)</tspan>: '
+        f'a species</text>'
         f'<circle cx="{right_x}" cy="{y}" r="5" fill="{leaf}"/>')
     y += row_h
 
@@ -754,8 +754,8 @@ def _render_footer_strip(svg: str, credit_lines: list[str] | None = None,
         f'<text x="{right_x - 18}" y="{y}" fill="{ink}" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         f'text-anchor="end" dominant-baseline="middle">'
-        f'<tspan font-weight="bold">Clade, ###</tspan> '
-        f'— ancestral node with a known divergence age</text>'
+        f'<tspan font-weight="bold">Clade, ###</tspan>: '
+        f'ancestral node with a known divergence age</text>'
         f'<circle cx="{right_x}" cy="{y}" r="6" fill="{dated}"/>')
     y += row_h
 
@@ -764,8 +764,8 @@ def _render_footer_strip(svg: str, credit_lines: list[str] | None = None,
         f'<text x="{right_x - 18}" y="{y}" fill="{ink}" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         f'text-anchor="end" dominant-baseline="middle">'
-        f'<tspan font-weight="bold">Clade</tspan> '
-        f'— ancestral node, divergence age not added</text>'
+        f'<tspan font-weight="bold">Clade</tspan>: '
+        f'ancestral node, divergence age not added</text>'
         f'<circle cx="{right_x}" cy="{y}" r="4" fill="{plain}"/>')
     y += row_h
 
@@ -818,22 +818,22 @@ def _legend_band(svg_or_html: str) -> str:
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle" text-anchor="end">'
         '<tspan font-weight="bold">Common Name</tspan> '
-        '<tspan font-style="italic">(Scientific name)</tspan> '
-        '— a species (green tip)</text>'
+        '<tspan font-style="italic">(Scientific name)</tspan>: '
+        'a species (green tip)</text>'
         f'<circle cx="98.5%" cy="88%" r="5" fill="{LEAF_COLOR}"/>'
         # Row 2: dated clade dot
         '<text x="97%" y="91%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle" text-anchor="end">'
-        '<tspan font-weight="bold">Clade, ###</tspan> '
-        '— ancestral node with a known divergence age (amber)</text>'
+        '<tspan font-weight="bold">Clade, ###</tspan>: '
+        'ancestral node with a known divergence age (amber)</text>'
         f'<circle cx="98.5%" cy="91%" r="6.5" fill="{DATED_NODE_COLOR}"/>'
         # Row 3: undated clade dot
         '<text x="97%" y="94%" fill="#5e6f68" '
         'font-family="Helvetica,Arial,sans-serif" font-size="10" '
         'dominant-baseline="middle" text-anchor="end">'
-        '<tspan font-weight="bold">Clade</tspan> '
-        '— ancestral node, divergence age not added (teal)</text>'
+        '<tspan font-weight="bold">Clade</tspan>: '
+        'ancestral node, divergence age not added (teal)</text>'
         f'<circle cx="98.5%" cy="94%" r="4" fill="{PLAIN_NODE_COLOR}"/>'
         '</g>'
         # mya footnote — bottom-right, just above CC footer

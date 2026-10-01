@@ -264,18 +264,18 @@ def _draw_legend(fig):
     legend_ax.axis("off")
     rows = [
         (LEAF, 6, "Common Name", "(Scientific name)",
-         "— a species (green tip)"),
+         "a species (green tip)"),
         (DATED, 9, "Clade, ###", "",
-         "— ancestral node with a known divergence age (amber)"),
+         "ancestral node with a known divergence age (amber)"),
         (PLAIN, 5, "Clade", "",
-         "— ancestral node, divergence age not added (teal)"),
+         "ancestral node, divergence age not added (teal)"),
     ]
     y_positions = [0.86, 0.51, 0.16]
     for (color, size, bold, italic, rest), y in zip(rows, y_positions):
         text = bold
         if italic:
             text += f"  $\\it{{{italic}}}$"
-        text += f"  {rest}"
+        text += f": {rest}"
         legend_ax.text(
             0.965, y, text, color="#e8f3ef",
             fontsize=8, va="center", ha="right",

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-from pathlib import Path
 
 
 def _q(v: str) -> str:

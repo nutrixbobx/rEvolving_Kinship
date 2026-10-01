@@ -41,6 +41,38 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AQ (cleanup pass, 2026-09-30):
+  - One sign-in form, not two. The landing screen and the sidebar were
+    both drawing the full sign in / make an account / guest form side by
+    side on desktop. The sidebar now just says hello until you're named,
+    then shows the identity card, which is what the station.py comment
+    above the gate always described. Copy that said "in the sidebar" now
+    points at the welcome screen, and the guest profile hint points at the
+    upgrade form right below it.
+  - User-typed text is HTML-escaped wherever it lands inside an
+    unsafe_allow_html block: display names, bios, usernames, story and
+    tree titles, Library row labels, bylines. A guest named "<b>" used to
+    restyle every card that showed them. Use `html.escape` (imported as
+    `_esc`) on any new user field you put into raw HTML.
+  - SQL portability per the AO lesson: every `x::text` is now
+    `CAST(x AS TEXT)`, three bare `now()` calls are `CURRENT_TIMESTAMP`, and
+    the pending-resets 30-day window branches on dialect like
+    touch_auth_session does. Postgres behavior is identical.
+  - Em-dashes cleared from on-screen copy, tree legends (render.py,
+    image_tree.py, tree_footer.py), PDF headings, and the spectrogram
+    title. Left alone on purpose: i18n's "CODE — Name" labels (the code
+    splits on that separator) and the "—" no-change placeholder in the
+    bulk-edit selects.
+  - Lint: pyflakes is clean (three unused imports gone, a loop variable
+    in the range-map picker no longer shadows the species_profile alias).
+  - requirements.txt: Pillow's comment had drifted onto the reportlab
+    line.
+  - Heads up: offline SQLite mode cannot actually boot from scratch. The
+    schema files are Postgres-only (UUID defaults, pgcrypto, RLS, jsonb)
+    and MIGRATIONS.md has no offline recipe, even though init_db's error
+    message points there. The stale local revolving_kinship.db predates
+    v2. Local runs need a Postgres DATABASE_URL.
+
 Session AP (photos survive the tree export, 2026-09-26):
   - Why they broke: an SVG rasterized by loading it into an <img> is
     parsed in a restricted mode that refuses to fetch ANY external
@@ -904,6 +936,9 @@ are expensive.
 - 2026-09-26: Session AP fixed photos vanishing from tree exports by
   embedding them as data URIs server-side (SVG-as-image cannot fetch
   external resources, and the CDN sends no CORS headers).
+- 2026-09-30: Session AQ, a cleanup pass: one sign-in form instead of two,
+  HTML-escaped user text, ANSI casts and timestamps in SQL, em-dashes out
+  of on-screen copy and legends, pyflakes clean.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

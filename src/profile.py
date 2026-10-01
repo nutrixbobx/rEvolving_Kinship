@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import io
+from html import escape as _esc
 
 import pandas as pd
 import streamlit as st
@@ -155,8 +156,8 @@ def render() -> None:
         return
 
     if not auth.is_named():
-        st.info("Sign in or give a guest name in the sidebar to see your "
-                "profile.")
+        st.info("Sign in or give a guest name on the welcome screen to "
+                "see your profile.")
         return
 
     # Guest path: no editable profile, but the door to becoming a full
@@ -238,7 +239,7 @@ def _render_header(u: dict) -> None:
     role_glyph_html = theme.role_glyph(u.get("role"), size_px=18)
     bio_html = (
         f'<div style="color:#9ab3ab;margin-top:6px;font-size:13px">'
-        f'{u["bio"]}</div>'
+        f'{_esc(u["bio"])}</div>'
         if u.get("bio") else
         '<div style="color:#5e6f6a;margin-top:6px;font-size:12px;'
         'font-style:italic">No bio yet. Tell people what brought you to '
@@ -247,13 +248,13 @@ def _render_header(u: dict) -> None:
     if not u.get("username"):
         username_hint = (
             '<div style="color:#9ab3ab;font-size:11px;margin-top:4px">'
-            'Guest. Make an account from the sidebar to keep this profile '
+            'Guest. Make an account below to keep this profile '
             'across sessions.</div>'
         )
     else:
         username_hint = (
             f'<div style="color:#7a8d86;font-size:11px;margin-top:4px">'
-            f'@{u["username"]}</div>'
+            f'@{_esc(u["username"])}</div>'
         )
 
     st.markdown(
@@ -261,7 +262,7 @@ def _render_header(u: dict) -> None:
         f'flex-wrap:wrap;margin-bottom:12px">'
         f'  <div>{_avatar_html(u.get("avatar_url"), size_px=96)}</div>'
         f'  <div style="flex:1;min-width:240px">'
-        f'    <div style="font-size:20px;font-weight:500">{u.get("name") or ""}'
+        f'    <div style="font-size:20px;font-weight:500">{_esc(u.get("name") or "")}'
         f'      {role_glyph_html}'
         f'    </div>'
         f'    {username_hint}'
@@ -507,13 +508,13 @@ def _row_with_delete(title: str, sub: str | None, when,
     cols = st.columns([6, 2])
     with cols[0]:
         when_str = _fmt_when(when)
-        sub_html = (f' <span style="color:#7a8d86">· {sub}</span>'
+        sub_html = (f' <span style="color:#7a8d86">· {_esc(str(sub))}</span>'
                     if sub else "")
         when_html = (f'<div style="color:#9ab3ab;font-size:11px">{when_str}</div>'
                      if when_str else "")
         st.markdown(
             f'<div style="padding:8px 0;border-bottom:1px solid #1c2e2b">'
-            f'<div style="color:#e8f3ef">{title}{sub_html}</div>'
+            f'<div style="color:#e8f3ef">{_esc(str(title))}{sub_html}</div>'
             f'{when_html}</div>',
             unsafe_allow_html=True,
         )
@@ -576,8 +577,8 @@ def _render_admin_team() -> None:
     for _, row in df.iterrows():
         cols = st.columns([3, 2, 2])
         with cols[0]:
-            stat = (f"{row['display_name']}  "
-                    f"<span style='color:#7a8d86'>(@{row['username']})</span>")
+            stat = (f"{_esc(str(row['display_name']))}  "
+                    f"<span style='color:#7a8d86'>(@{_esc(str(row['username']))})</span>")
             sub_bits = []
             if row.get("trees_owned"):
                 sub_bits.append(f"{int(row['trees_owned'])} trees")
@@ -641,8 +642,8 @@ def _render_admin_review_feed() -> None:
     for _, row in df.iterrows():
         kind = row.get("kind", "?")
         row_id = row.get("row_id")
-        title = row.get("title") or "(untitled)"
-        by = row.get("contributor") or "anonymous"
+        title = _esc(str(row.get("title") or "(untitled)"))
+        by = _esc(str(row.get("contributor") or "anonymous"))
         when_str = _fmt_when(row.get("contributed_at"))
         _prof_bulk_checkbox("admin_review", f"{kind}:{row_id}")
         cols = st.columns([6, 2])
@@ -708,7 +709,7 @@ def _render_public_profile(contributor_id: str) -> None:
     glyph_html = theme.role_glyph(pub.get("role"), size_px=18)
     if pub.get("bio"):
         bio_html = (f'<div style="color:#9ab3ab;margin-top:6px;'
-                    f'font-size:13px">{pub["bio"]}</div>')
+                    f'font-size:13px">{_esc(pub["bio"])}</div>')
     else:
         bio_html = ('<div style="color:#5e6f6a;margin-top:6px;'
                     'font-size:12px;font-style:italic">'
@@ -716,7 +717,7 @@ def _render_public_profile(contributor_id: str) -> None:
 
     sub_bits = []
     if pub.get("username"):
-        sub_bits.append(f"@{pub['username']}")
+        sub_bits.append(f"@{_esc(pub['username'])}")
     elif pub.get("role") == "visitor" and not pub.get("username"):
         sub_bits.append("guest")
     sub_str = " · ".join(sub_bits)
@@ -730,7 +731,7 @@ def _render_public_profile(contributor_id: str) -> None:
         f'  <div>{_avatar_html(pub.get("avatar_url"), size_px=96)}</div>'
         f'  <div style="flex:1;min-width:240px">'
         f'    <div style="font-size:20px;font-weight:500">'
-        f'      {pub.get("display_name") or "(unnamed)"}{glyph_html}'
+        f'      {_esc(pub.get("display_name") or "(unnamed)")}{glyph_html}'
         f'    </div>'
         f'    {sub_html}{bio_html}'
         f'  </div>'
@@ -988,9 +989,9 @@ def _render_following_tab(cid: str) -> None:
                 _avatar_html(r.get("avatar_url"), size_px=40),
                 unsafe_allow_html=True)
         with cols[1]:
-            name = r.get("display_name") or "(unnamed)"
+            name = _esc(str(r.get("display_name") or "(unnamed)"))
             user_handle = (f" <span style='color:#7a8d86;font-size:11px'>"
-                           f"@{r['username']}</span>"
+                           f"@{_esc(str(r['username']))}</span>"
                            if r.get("username") else "")
             sub = (f"{int(r.get('trees',0))} trees · "
                    f"{int(r.get('stories',0))} stories")
@@ -1018,10 +1019,10 @@ def _render_favorites_tab(cid: str) -> None:
         cols = st.columns([5, 2])
         with cols[0]:
             owner = (f" <span style='color:#7a8d86;font-size:11px'>by "
-                     f"{r['owner']}</span>" if r.get("owner") else "")
+                     f"{_esc(str(r['owner']))}</span>" if r.get("owner") else "")
             st.markdown(
                 f'<div style="padding:6px 0;border-bottom:1px solid #1c2e2b">'
-                f'<div style="color:#e8f3ef">{r["tree_name"]}{owner}</div>'
+                f'<div style="color:#e8f3ef">{_esc(str(r["tree_name"]))}{owner}</div>'
                 f'<div style="color:#9ab3ab;font-size:11px">'
                 f'{int(r.get("species_count",0))} species · '
                 f'favorited {_fmt_when(r.get("favorited_at"))}</div>'

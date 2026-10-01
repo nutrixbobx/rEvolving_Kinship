@@ -130,10 +130,10 @@ def compose_with_footer(tree_png_path: Path,
     # ---- Measure everything BEFORE we allocate the final canvas ----
     legend_rows = [
         # (bold_prefix, rest, dot color, dot radius)
-        ("Common Name", " (Scientific name) — a species", LEAF, 6),
-        ("Clade, ###", " — ancestral node with a known divergence age",
+        ("Common Name", " (Scientific name): a species", LEAF, 6),
+        ("Clade, ###", ": ancestral node with a known divergence age",
          DATED, 7),
-        ("Clade", " — ancestral node, divergence age not added",
+        ("Clade", ": ancestral node, divergence age not added",
          PLAIN, 5),
     ]
     row_h_legend = 26
