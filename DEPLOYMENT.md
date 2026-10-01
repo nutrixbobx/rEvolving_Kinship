@@ -52,6 +52,7 @@ identically once these two pieces are connected.
 
        DATABASE_URL = "postgresql+psycopg2://postgres:YOUR-PASSWORD@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
        ADMIN_PASSWORD = "<your admin password>"
+       ACCESS_CODE = "<the sign-up code you hand out; leave it out and sign-ups close>"
        COOKIE_KEY = "<any 32+ char random string — used to sign remember-me tokens>"
        NCBI_TAXA_URL = "https://github.com/<you>/<repo>/releases/download/taxa/taxa.sqlite.gz"
        XENO_CANTO_API_KEY = "<your-xc-key>"

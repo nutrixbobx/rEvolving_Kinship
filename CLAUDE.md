@@ -41,6 +41,29 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AR (resets go through an admin, access code out of the repo,
+2026-09-30):
+  - Forgot-password used to set a temp password and show it on the
+    requester's own screen to anyone who typed a matching username and
+    email. Emails aren't secret, so that was an account takeover, admin
+    included. Now the form only files a pending_reset row (one open row per
+    person, no duplicates) and always gives the same reply, match or not.
+    Maya approves in Profile > Password resets: `auth.approve_password_reset`
+    (admin-only) sets a three-word temp password and shows it to her once,
+    held in session_state until she clicks "Done, I've sent it". Dismiss
+    deletes the request. must_change_password still forces a new one at
+    first sign-in. No migration: the pending_reset table already had what
+    this needs (completed_at IS NULL means open).
+  - ACCESS_CODE moved from a literal in src/auth.py (public repo) to an env
+    var / Streamlit secret, read at call time through `_access_code_ok`.
+    Unset means sign-ups are closed with a friendly message, never open.
+    Same value as before; it's in .env locally and needs adding to
+    Streamlit secrets before deploy. The old value is still in git
+    history, so rotate it if that matters.
+  - packages.txt (an untracked June leftover) deleted again; see AA.
+  - MIGRATIONS.md has a "Running locally" section now, and init_db's
+    SQLite error points to it instead of to instructions that didn't exist.
+
 Session AQ (cleanup pass, 2026-09-30):
   - One sign-in form, not two. The landing screen and the sidebar were
     both drawing the full sign in / make an account / guest form side by
@@ -856,6 +879,7 @@ Streamlit Cloud secrets, not this repo:
   - `SUPABASE_DB_URL`
   - `NCBI_TAXA_URL` (points at the taxa.sqlite.gz release asset)
   - `ADMIN_PASSWORD` (used once, on first admin bootstrap)
+  - `ACCESS_CODE` (sign-up code; unset means sign-ups are closed)
   - `XENO_CANTO_API_KEY`
 
 `.streamlit/secrets.toml` is gitignored. Env vars in
@@ -939,6 +963,8 @@ are expensive.
 - 2026-09-30: Session AQ, a cleanup pass: one sign-in form instead of two,
   HTML-escaped user text, ANSI casts and timestamps in SQL, em-dashes out
   of on-screen copy and legends, pyflakes clean.
+- 2026-09-30: Session AR routed password resets through admin approval,
+  moved ACCESS_CODE to secrets, and documented running locally.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

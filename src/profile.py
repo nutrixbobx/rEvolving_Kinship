@@ -848,12 +848,65 @@ def _render_admin_pending_resets() -> None:
     except Exception as exc:
         st.caption(f"(pending-resets table not present yet: {exc})")
         return
+    # The temp password from the last approval stays up until dismissed, so
+    # a rerun (or a slip of the mouse) doesn't lose it before it's sent.
+    _issued = st.session_state.get("_reset_issued")
+    if _issued:
+        st.success(f"Temporary password for {_issued['who']}. Send it to "
+                   f"{_issued['email'] or 'them'} yourself; it isn't shown "
+                   "anywhere else.")
+        st.code(_issued["pw"], language=None)
+        if st.button("Done, I've sent it", key="reset_issued_done"):
+            st.session_state.pop("_reset_issued", None)
+            st.rerun()
+
     if df is None or df.empty:
         st.caption("No reset requests in the last 30 days.")
         return
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    st.caption("Each reset surfaces a one-time temp password on the user's "
-                "own screen. This panel just records that they asked.")
+    st.caption("Someone asked for a new password. Approve to make a "
+               "one-time temporary password and send it to them; they "
+               "pick their own the first time they sign in. Dismiss if "
+               "the request doesn't look right.")
+    _open = df[df["completed_at"].isna()]
+    if _open.empty:
+        st.caption("Nothing waiting.")
+    for _, r in _open.iterrows():
+        rid = str(r["reset_id"])
+        who = r.get("display_name") or r.get("username") or "(unnamed)"
+        cols = st.columns([5, 1, 1])
+        with cols[0]:
+            st.markdown(
+                f'<div style="padding:6px 0">'
+                f'<div style="color:#e8f3ef">{_esc(str(who))} '
+                f'<span style="color:#7a8d86;font-size:11px">'
+                f'@{_esc(str(r.get("username") or ""))} · '
+                f'{_esc(str(r.get("email") or "no email"))}</span></div>'
+                f'<div style="color:#9ab3ab;font-size:11px">asked '
+                f'{_fmt_when(r.get("requested_at"))}</div></div>',
+                unsafe_allow_html=True)
+        with cols[1]:
+            if st.button("Approve", key=f"reset_ok_{rid}", type="primary",
+                         use_container_width=True):
+                ok, msg = auth.approve_password_reset(rid)
+                if ok:
+                    st.session_state["_reset_issued"] = {
+                        "who": str(who), "email": r.get("email"),
+                        "pw": msg}
+                    st.rerun()
+                else:
+                    st.warning(msg)
+        with cols[2]:
+            if st.button("Dismiss", key=f"reset_no_{rid}",
+                         use_container_width=True):
+                db.dismiss_password_reset(rid)
+                st.rerun()
+    _done = df[df["completed_at"].notna()]
+    if not _done.empty:
+        with st.expander(f"Approved ({len(_done)})"):
+            st.dataframe(
+                _done[["display_name", "username", "requested_at",
+                       "completed_at"]],
+                use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------

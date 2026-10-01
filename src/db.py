@@ -114,9 +114,9 @@ def init_db() -> None:
             )).scalar() or 0
         if int(n) < 6:
             raise RuntimeError(
-                "v2 schema missing in the local SQLite file. Point "
-                "DATABASE_URL at Supabase, or initialize the offline "
-                "database (see MIGRATIONS.md).")
+                "v2 schema missing in the local SQLite file. The schema "
+                "is Postgres-only, so point DATABASE_URL at Supabase or a "
+                "local Postgres (see 'Running locally' in MIGRATIONS.md).")
     # Self-heal: map any stray 2-letter language codes to the 3-letter
     # standard. Idempotent, cheap on these table sizes, and it means the
     # iso639_3 migration never has to be re-run by hand after a bad write.
@@ -1887,10 +1887,36 @@ def request_password_reset(username: str, email: str) -> dict | None:
         if not row:
             return None
         user = _row_to_user_dict(row)
-        conn.execute(text(
-            "INSERT INTO pending_reset (contributor_id) VALUES (:i)"
-        ), {"i": user["contributor_id"]})
+        already_open = conn.execute(text(
+            "SELECT 1 FROM pending_reset "
+            "WHERE contributor_id = :i AND completed_at IS NULL LIMIT 1"
+        ), {"i": user["contributor_id"]}).fetchone()
+        if not already_open:
+            conn.execute(text(
+                "INSERT INTO pending_reset (contributor_id) VALUES (:i)"
+            ), {"i": user["contributor_id"]})
         return user
+
+
+def get_open_reset_contributor(reset_id: str) -> str | None:
+    """contributor_id behind a reset request that hasn't been handled yet,
+    or None when it's already approved, dismissed, or never existed."""
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT contributor_id FROM pending_reset "
+            "WHERE reset_id = :r AND completed_at IS NULL LIMIT 1"
+        ), {"r": reset_id}).fetchone()
+    return str(row[0]) if row else None
+
+
+def dismiss_password_reset(reset_id: str) -> None:
+    """Drop a reset request without touching the account (a typo, a
+    stranger guessing, a request that got sorted out another way)."""
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            "DELETE FROM pending_reset "
+            "WHERE reset_id = :r AND completed_at IS NULL"
+        ), {"r": reset_id})
 
 
 def complete_password_reset(contributor_id: str,
@@ -1921,8 +1947,8 @@ def clear_must_change_password(contributor_id: str) -> None:
 
 
 def list_pending_resets() -> pd.DataFrame:
-    """Admin view: pending password-reset requests in the last 30 days,
-    completed or not."""
+    """Admin view: password-reset requests from the last 30 days, open or
+    approved. completed_at IS NULL means it's still waiting on an admin."""
     _cutoff = ("now() - INTERVAL '30 days'" if is_postgres()
                else "datetime('now', '-30 days')")
     return pd.read_sql(text(f"""

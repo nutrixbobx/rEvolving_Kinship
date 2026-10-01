@@ -28,10 +28,9 @@ No streamlit-authenticator dependency. Just bcrypt + auth_session table
 from __future__ import annotations
 
 import os
-
-import bcrypt
 from html import escape as _esc
 
+import bcrypt
 import streamlit as st
 
 from src import db
@@ -128,9 +127,23 @@ def can_write() -> bool:
     return is_signed_in()
 
 
-# Access code required to make a full account. Simple shared secret
-# for the invite-lite flow. If Maya wants to rotate, change it here.
-ACCESS_CODE = "666"
+# Access code required to make a full account. Simple shared secret for
+# the invite-lite flow. It lives in Streamlit secrets (ACCESS_CODE), not in
+# this public repo; Streamlit Cloud exposes top-level secrets as env vars,
+# same as ADMIN_PASSWORD, and .env covers local runs. To rotate it, change
+# the secret. With no secret set, sign-ups are closed rather than open.
+def _access_code() -> str:
+    return os.environ.get("ACCESS_CODE", "").strip()
+
+
+def _access_code_ok(entered: str | None) -> tuple[bool, str]:
+    code = _access_code()
+    if not code:
+        return (False, "Sign-ups are closed for the moment. Ask Maya.")
+    if (entered or "").strip() != code:
+        return (False, "Access code doesn't match. Ask Maya for the "
+                       "current code.")
+    return (True, "")
 
 
 def active_contributor_id() -> str | None:
@@ -363,9 +376,9 @@ def _do_signup(username: str, display_name: str, email: str,
     username = (username or "").strip()
     display_name = (display_name or "").strip()
     email = (email or "").strip() or None
-    if (access_code or "").strip() != ACCESS_CODE:
-        return (False, "Access code doesn't match. Ask Maya for the "
-                       "current code.")
+    ok, msg = _access_code_ok(access_code)
+    if not ok:
+        return (False, msg)
     if not username or not display_name or not password:
         return (False, "Username, display name, and password are required.")
     if " " in username:
@@ -406,8 +419,9 @@ def upgrade_guest_to_full(username: str, display_name: str,
     Guest history is not carried over — guests attribute contributions
     by name only, and we don't track guest contributor_id across
     sessions."""
-    if (access_code or "").strip() != ACCESS_CODE:
-        return (False, "Access code doesn't match.")
+    ok, msg = _access_code_ok(access_code)
+    if not ok:
+        return (False, msg)
     if not is_guest():
         return (False, "Only guests can upgrade this way.")
     ok, msg = _do_signup(username, display_name, email,
@@ -415,22 +429,49 @@ def upgrade_guest_to_full(username: str, display_name: str,
     return (ok, msg)
 
 
-def handle_forgot_password(username: str, email: str) -> tuple[bool, str]:
-    """Forgot-password flow — generate a one-time temp password.
-    Returns (success, temp_password_or_error_message)."""
-    user = db.request_password_reset(username, email)
-    if not user:
-        return (False, "No account matches that username and email.")
+FORGOT_PASSWORD_REPLY = (
+    "Request sent. If the username and email match an account, Maya will "
+    "see it in her admin panel and get a temporary password to you.")
+
+
+def handle_forgot_password(username: str, email: str) -> str:
+    """Forgot-password, step one: file a request for an admin to approve.
+    Nothing about the account changes here. Always returns the same reply,
+    match or not, so the form can't be used to find out who has an
+    account. (It used to set and show a temp password right on screen,
+    which let anyone who knew a username and email take that account.)"""
+    try:
+        db.request_password_reset(username, email)
+    except Exception:
+        pass
+    return FORGOT_PASSWORD_REPLY
+
+
+def _make_temp_password() -> str:
     import secrets as _secrets
     import string as _string
     words = ["river", "leaf", "moss", "stone", "willow", "heron",
              "fern", "otter", "tide", "kelp", "ember", "loam", "reed"]
-    temp_pw = "-".join([
+    return "-".join([
+        _secrets.choice(words),
         _secrets.choice(words),
         _secrets.choice(words),
         "".join(_secrets.choice(_string.digits) for _ in range(3)),
     ])
-    db.complete_password_reset(user["contributor_id"], hash_password(temp_pw))
+
+
+def approve_password_reset(reset_id: str) -> tuple[bool, str]:
+    """Forgot-password, step two (admin only): set a one-time temp password
+    for the person behind an open request and hand it back so the admin
+    can pass it along. They're asked to replace it at first sign-in.
+    Returns (success, temp_password_or_error_message)."""
+    if not is_admin():
+        return (False, "Only an admin can approve resets.")
+    cid = db.get_open_reset_contributor(reset_id)
+    if not cid:
+        return (False, "That request is already handled or gone.")
+    temp_pw = _make_temp_password()
+    db.complete_password_reset(cid, hash_password(temp_pw))
     return (True, temp_pw)
 
 
@@ -572,20 +613,15 @@ def _render_signin_form(scope: str) -> None:
         with st.form(f"forgot_pw_form_{scope}"):
             st.caption(
                 "Type your username and the email you signed up with. "
-                "If they match, you'll see a one-time temporary password "
-                "to sign in with. Change it from your Profile tab after.")
+                "Maya gets the request and sends you a one-time "
+                "temporary password. You'll pick a new one the first "
+                "time you sign in with it.")
             fp_user = st.text_input("Username", key=f"fp_user_{scope}")
             fp_email = st.text_input("Email", key=f"fp_email_{scope}")
-            if st.form_submit_button("Send reset", type="primary",
+            if st.form_submit_button("Ask for a reset", type="primary",
                                        use_container_width=True):
-                ok, msg = handle_forgot_password(fp_user.strip(),
-                                                  fp_email.strip())
-                if not ok:
-                    st.warning(msg)
-                else:
-                    st.success("Reset done. Your one-time temporary "
-                                "password is:")
-                    st.code(msg, language=None)
+                st.success(handle_forgot_password(fp_user.strip(),
+                                                  fp_email.strip()))
 
 
 def _render_signup_form(scope: str) -> None:

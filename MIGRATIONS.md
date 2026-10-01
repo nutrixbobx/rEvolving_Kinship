@@ -51,6 +51,7 @@ make the app run:
 ```toml
 DATABASE_URL = "postgresql://postgres.<project>:<password>@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
 ADMIN_PASSWORD = "<your-admin-password>"
+ACCESS_CODE = "<sign-up code; without it, sign-ups are closed>"
 COOKIE_KEY = "<32-character random string>"   # optional but recommended; used to derive the auth cookie signing key
 NCBI_TAXA_URL = "https://github.com/<you>/<repo>/releases/download/<tag>/taxa.sqlite.gz"
 XENO_CANTO_API_KEY = "<optional, for bird audio>"
@@ -61,6 +62,29 @@ HF_TOKEN = "<optional, alternative LLM provider>"
 `ADMIN_PASSWORD` is what Maya types as her admin password on first run; on
 that first run the auth module hashes it into the `maya` contributor row,
 so this env var is never read as a plaintext password after that.
+
+## Running locally
+
+The app needs Postgres. With `DATABASE_URL` unset, config.py falls back
+to a SQLite file (`revolving_kinship.db`), but the schema files here use
+Postgres-only pieces (UUID defaults, pgcrypto, row-level security, jsonb),
+so a fresh SQLite file can't be set up from them. The old
+`revolving_kinship.db` in the repo folder predates schema v2 and stops
+the app at boot.
+
+Two ways to run it on your own machine:
+
+1. **Against Supabase.** Put the same `DATABASE_URL` from Streamlit
+   secrets in `.env`. Careful: anything you do locally then lands in the
+   live data.
+2. **Against a local Postgres** (safer for trying things out). For
+   example with Homebrew: `brew install postgresql@17`, start it,
+   `createdb kinship`, run `db/wipe_and_init.sql`, `db/schema_v2.sql`, then
+   each `db/*_migration.sql` with `psql kinship -f <file>`, and set
+   `DATABASE_URL=postgresql+psycopg2://localhost/kinship` in `.env`.
+
+Also put `ADMIN_PASSWORD` and `ACCESS_CODE` in `.env` so sign-in and
+sign-up behave like the deployed app.
 
 ## Deployment cadence
 
