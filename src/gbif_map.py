@@ -316,25 +316,75 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
   base.dark.addTo(map);
 
   // Density tile recolored to the species' legend color (alpha = density).
+  // Device pixel ratio: GBIF serves these at @1x = 512px, so on a retina
+  // phone drawing them into a 256px backing store threw away half the
+  // detail and made the dots smear at some zooms. Capped at 2 so a 3x
+  // phone doesn't quadruple the work for no visible gain.
+  var DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
   var SpeciesLayer = L.GridLayer.extend({
     createTile: function(coords, done){
       var size = this.getTileSize();
       var tile = document.createElement('canvas');
-      tile.width = size.x; tile.height = size.y;
+      tile.width = size.x * DPR; tile.height = size.y * DPR;
+      tile.style.width = size.x + 'px'; tile.style.height = size.y + 'px';
       var ctx = tile.getContext('2d', { willReadFrequently:true });
       var rgb = this.options.rgb;
-      var img = new Image(); img.crossOrigin = 'anonymous';
+      var taxonKey = this.options.taxonKey;
+
+      // Leaflet keeps a tile in its "loading" state until done() is
+      // called. The recolor step reads pixels back, which THROWS if the
+      // response arrived without CORS headers and tainted the canvas, and
+      // that exception used to escape onload so done() never ran: the
+      // tile buffered forever. Everything below guarantees exactly one
+      // done(), whatever happens.
+      var settled = false, timer = null;
+      function finish(){
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        done(null, tile);
+      }
+
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.decoding = 'async';
+      var tries = 0;
+      var url = 'https://api.gbif.org/v2/map/occurrence/density/'
+        + coords.z + '/' + coords.x + '/' + coords.y
+        + '@1x.png?taxonKey=' + taxonKey + '&style=scaled.circles';
+
       img.onload = function(){
-        ctx.drawImage(img, 0, 0, size.x, size.y);
-        var id = ctx.getImageData(0, 0, size.x, size.y), d = id.data;
-        for (var i = 0; i < d.length; i += 4){
-          if (d[i+3] > 0){ d[i]=rgb[0]; d[i+1]=rgb[1]; d[i+2]=rgb[2]; d[i+3]=Math.min(255, d[i+3]*1.6); }
+        try {
+          ctx.drawImage(img, 0, 0, tile.width, tile.height);
+          var id = ctx.getImageData(0, 0, tile.width, tile.height);
+          var d = id.data;
+          for (var i = 0; i < d.length; i += 4){
+            if (d[i+3] > 0){
+              d[i] = rgb[0]; d[i+1] = rgb[1]; d[i+2] = rgb[2];
+              d[i+3] = Math.min(255, d[i+3] * 1.6);
+            }
+          }
+          ctx.putImageData(id, 0, 0);
+        } catch (e) {
+          // Tainted canvas: keep the tile as drawn (GBIF's own colors)
+          // rather than leaving it to hang.
         }
-        ctx.putImageData(id, 0, 0); done(null, tile);
+        finish();
       };
-      img.onerror = function(){ done(null, tile); };
-      img.src = 'https://api.gbif.org/v2/map/occurrence/density/'+coords.z+'/'+coords.x+'/'+coords.y
-        + '@1x.png?taxonKey='+this.options.taxonKey+'&style=scaled.circles';
+      img.onerror = function(){
+        if (tries < 2){ load(); return; }   // one retry, then give up
+        finish();
+      };
+      // A request that neither loads nor errors (dropped on mobile data)
+      // would otherwise buffer that quadrant indefinitely.
+      timer = setTimeout(finish, 12000);
+
+      function load(){
+        tries++;
+        img.src = url + (tries > 1 ? '&_retry=' + tries : '');
+      }
+      load();
       return tile;
     }
   });
@@ -342,6 +392,7 @@ _MAP_TEMPLATE = r"""<!DOCTYPE html>
   var layers = {}, on = {}, dotOpacity = 1.0;
   species.forEach(function(s){
     var ly = new SpeciesLayer({ taxonKey:s.gbif_key, rgb:s.rgb, opacity:dotOpacity, maxZoom:14,
+      updateWhenZooming:false, keepBuffer:2,
       attribution:'<a href="https://www.gbif.org/" target="_blank">GBIF</a>' });
     ly.addTo(map); layers[s.scientific_name] = ly; on[s.scientific_name] = true;
   });

@@ -41,6 +41,37 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AQ (mobile panels that would not close; map tiles stuck
+buffering, 2026-10-29):
+  - The in-canvas panels (clades, names, save) only closed on a mousedown
+    on the SVG, and the clade panel was pinned at top:54px. On a phone the
+    toolbar WRAPS to several rows, so 54px put the panel on top of the
+    very button that closes it, and tapping outside did nothing because
+    nothing listened. Now: one `closeAllPops()`, a document-level
+    `pointerdown` listener (covers mouse, touch and pen) that closes any
+    open panel when the tap is outside both the panel and the toolbar,
+    Escape to close, a Close button on the clade panel too, and panels
+    anchored under the toolbar's ACTUAL measured height instead of a
+    hard-coded offset. Under 640px they go full width with a scrolling
+    list capped at 40vh.
+  - Map tiles stuck buffering: the recolor step reads pixels back with
+    getImageData, which THROWS if a tile's response arrived without CORS
+    headers and tainted the canvas. That exception escaped img.onload, so
+    Leaflet's done() never ran and the tile stayed in its loading state
+    forever: whole quadrants buffering. createTile now guarantees exactly
+    one done() via a `settled` flag, a try/catch around the pixel work
+    (keeping GBIF's own colors when recoloring is impossible), one retry
+    on error, and a 12s timeout for a request that neither loads nor
+    errors on mobile data.
+  - Zoom smearing: GBIF serves @1x = 512px and we drew into a 256px
+    backing store, throwing away half the detail on a retina screen.
+    Canvas now honours devicePixelRatio (capped at 2), plus
+    updateWhenZooming:false and keepBuffer:2 for steadier pinching.
+  - Verified by driving createTile with fake canvases: ok, tainted,
+    error, and hang scenarios each call done() exactly once (the hang
+    recovering at 12s), where tainted previously called it zero times.
+
+
 Session AS (use_container_width retired, 2026-09-30):
   - All 97 `use_container_width=True` calls are now `width="stretch"`
     (button, form_submit_button, download_button, dataframe, data_editor,
@@ -976,6 +1007,10 @@ are expensive.
   moved ACCESS_CODE to secrets, and documented running locally.
 - 2026-09-30: Session AS swapped use_container_width for width="stretch"
   everywhere and raised the Streamlit floor to 1.49.
+- 2026-10-29: Session AQ made the in-canvas panels dismissable on touch
+  (and stopped them covering their own close button on a wrapped mobile
+  toolbar), and stopped map tiles buffering forever when a tainted canvas
+  threw inside the tile loader.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

@@ -171,8 +171,18 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .pop .it .meta { color:#9ab3ab; font-size:10.5px; }
   .pop .it.sel .meta { color:#3a3a1a; }
   .pop .it input { margin:0; accent-color:%%LABEL%%; }
-  #cladepop { top:54px; left:8px; width:250px; }
+  #cladepop { left:8px; width:250px; }
   #namepop { width:250px; }
+  .pop .list { max-height:min(46vh, 260px); }
+  @media (max-width: 640px) {
+    /* On a phone the toolbar wraps to several rows, so a panel pinned
+       near the top covered the very button that closes it. Full width,
+       anchored under the bar, with its own Close. */
+    .pop { left:8px !important; right:8px !important; width:auto !important;
+      max-width:none !important; }
+    .pop .list { max-height:40vh; }
+    .pop .it { white-space:normal; }
+  }
   #hint { position:absolute; bottom:8px; left:12px; right:12px; z-index:5;
     color:#7f978f; font-size:11px; line-height:1.4; }
   #toast { position:absolute; left:50%; bottom:40px; transform:translateX(-50%);
@@ -233,6 +243,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="pop" id="cladepop">
     <div class="ph"><span>Clade names</span>
+      <button id="cp-close">Close</button></div>
+    <div class="ph"><span></span>
       <span><button id="cp-dated">Dated</button><button id="cp-all">All</button><button id="cp-none">None</button></span></div>
     <div class="list" id="cp-list"></div>
   </div>
@@ -609,6 +621,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     });
     const r = wrap.getBoundingClientRect();
     const pop = $("namepop");
+    closeAllPops();
     pop.style.display = "block";
     const px = Math.min(Math.max(8, ev.sourceEvent.clientX - r.left + 12), r.width - 262);
     const py = Math.min(Math.max(8, ev.sourceEvent.clientY - r.top + 10), r.height - 120);
@@ -616,8 +629,31 @@ _TEMPLATE = r"""<!DOCTYPE html>
     tt.style("opacity", 0);
   }
   function closeNamePop(){ $("namepop").style.display = "none"; namePopFor = null; }
+  const POPS = ["namepop", "savepop", "cladepop"];
+  function closeAllPops(){
+    POPS.forEach(id => { const el = $(id); if (el) el.style.display = "none"; });
+    namePopFor = null;
+  }
+  // Anchor a panel just under the toolbar as it actually sits right now.
+  // The bar wraps to several rows on a narrow screen, so a hard-coded top
+  // left the panel on top of its own buttons.
+  function anchorUnderBar(el){
+    const barH = $("bar").getBoundingClientRect().height || 44;
+    el.style.top = Math.round(barH + 14) + "px";
+  }
   $("np-close").onclick = closeNamePop;
-  svg.on("mousedown.pop", () => { closeNamePop(); $("savepop").style.display = "none"; });
+  $("cp-close").onclick = () => { $("cladepop").style.display = "none"; };
+  // pointerdown covers mouse, touch and pen in one listener. Anything
+  // outside an open panel (and outside the button that opened it) closes
+  // the panels, which is what mobile was missing entirely.
+  document.addEventListener("pointerdown", function(ev){
+    const t = ev.target;
+    if (t.closest && (t.closest(".pop") || t.closest("#bar"))) return;
+    closeAllPops();
+  }, true);
+  document.addEventListener("keydown", function(ev){
+    if (ev.key === "Escape") closeAllPops();
+  });
 
   // ---------- zoom ----------
   let rafPending = false;
@@ -724,8 +760,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
       list.appendChild(row);
     });
     const pop = $("savepop");
+    closeAllPops();
     pop.style.display = "block";
-    pop.style.left = "auto"; pop.style.right = "8px"; pop.style.top = "54px";
+    pop.style.left = "auto"; pop.style.right = "8px";
+    anchorUnderBar(pop);
   }
   $("sv-close").onclick = () => { $("savepop").style.display = "none"; };
   function applyState(st){
@@ -834,7 +872,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
   $("b-rect").onclick = () => setMode("rect");
   $("b-clades").onclick = function(){
     const p = $("cladepop");
-    p.style.display = p.style.display === "block" ? "none" : "block";
+    const wasOpen = p.style.display === "block";
+    closeAllPops();
+    if (!wasOpen){ p.style.display = "block"; anchorUnderBar(p); }
   };
   $("b-labels").onclick = function(){ showLabels = !showLabels; syncButtons(); drawNodes(); };
   $("b-latin").onclick = function(){ showSci = !showSci; syncButtons(); drawNodes(); };
