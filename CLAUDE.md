@@ -41,6 +41,26 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AT (one-click import of the bundled names, 2026-11-09):
+  - Maya expected the deerpreet names to appear once the commit was
+    pushed. They do not, and that is worth stating plainly in here:
+    `data/deerpreet_names.csv` is a FILE IN THE REPO. Names only exist
+    once they are inserted into Supabase through
+    Library > Manage > Names > Import. Deploying ships the file, not the
+    rows.
+  - To close that gap the importer now lists any `data/*_names.csv` that
+    ships with the app and imports the chosen one directly, so a prepared
+    set is one button rather than something to locate and re-upload. The
+    uploader still works; both paths share one `_import_rows()` helper.
+  - Fixed a regression I caused: an earlier session converted all 97
+    `use_container_width=True` to `width="stretch"`, and my CSV importer
+    reintroduced one. Now consistent. `config` is also imported in
+    library.py, which the bundled-file lookup needs.
+  - Verified: the bundled file is discovered, all 35 rows import against
+    a fresh database, and Hydropotes inermis ends up with ENG and SPA and
+    no Punjabi row, which is the convention working as intended.
+
+
 Session AS (how uncertainty gets recorded, 2026-11-09):
   - Maya asked whether an unsure name should read "name (generic)", "N/A",
     "Unknown", or blank. Answer, now written down in
@@ -1074,6 +1094,8 @@ are expensive.
 - 2026-11-09: Session AS set the convention for uncertain names (name
   field holds only the name, doubt goes in notes, no placeholder rows)
   and fixed notes never being saved.
+- 2026-11-09: Session AT added one-click import of repo-bundled name
+  CSVs and recorded that pushing ships the file, not the rows.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

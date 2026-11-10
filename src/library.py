@@ -18,6 +18,7 @@ from html import escape as _esc
 
 import streamlit as st
 
+import config
 from src import db
 from src import i18n
 
@@ -1650,7 +1651,69 @@ def _render_manage_names_table() -> None:
             "whole tree's names in a spreadsheet and load them in one go. "
             "Rows whose species isn't in the warehouse are reported, not "
             "guessed at.")
-        up = st.file_uploader("CSV file", type=["csv"], key="mng_nm_up")
+        def _import_rows(imp) -> None:
+            """Insert every row of a names dataframe. Shared by the file
+            uploader and the files shipped in the repo's data/ folder."""
+            added, skipped, unknown = 0, 0, []
+            for _, r in imp.iterrows():
+                sci = str(r.get("scientific_name", "")).strip()
+                txt = str(r.get("name_text", "")).strip()
+                if not sci or not txt:
+                    skipped += 1
+                    continue
+                sid = db.species_id_by_scientific_name(sci)
+                if not sid:
+                    unknown.append(sci)
+                    continue
+                try:
+                    db.add_species_name(
+                        sid, txt,
+                        language=str(r.get("language") or "ENG").strip(),
+                        category=str(r.get("category") or "common").strip(),
+                        source="import",
+                        is_preferred=str(r.get("is_preferred", "")).strip()
+                        .lower() in ("1", "true", "yes"),
+                        region_code=(str(r.get("region")).strip() or None),
+                        script=(str(r.get("script")).strip() or None),
+                        notes=(str(r.get("notes")).strip() or None),
+                    )
+                    added += 1
+                except Exception as exc:
+                    st.warning(f"{sci} / {txt}: {exc}")
+            _invalidate_all_caches()
+            _cached_names_admin.clear()
+            st.success(f"Imported {added} name(s).")
+            if skipped:
+                st.caption(f"{skipped} row(s) had no species or no name "
+                           "and were skipped.")
+            if unknown:
+                st.warning("Not in the warehouse yet (add the species "
+                           "first): " + ", ".join(sorted(set(unknown))))
+            st.rerun()
+
+        # Files that ship with the repo, so a prepared set is one click
+        # away instead of something to locate and re-upload.
+        import glob as _glob
+        import os as _os
+        bundled = sorted(_glob.glob(str(config.DATA_DIR / "*_names.csv")))
+        if bundled:
+            bcols = st.columns([3, 1])
+            with bcols[0]:
+                pick_file = st.selectbox(
+                    "Files included with the app",
+                    [_os.path.basename(b) for b in bundled],
+                    key="mng_nm_bundled")
+            with bcols[1]:
+                st.write("")
+                if st.button("Import this one", key="mng_nm_dobundled",
+                             width="stretch"):
+                    import pandas as _pd
+                    _import_rows(_pd.read_csv(
+                        config.DATA_DIR / pick_file).fillna(""))
+            st.divider()
+
+        up = st.file_uploader("Or upload a CSV", type=["csv"],
+                              key="mng_nm_up")
         if up is not None:
             try:
                 import pandas as _pd
@@ -1664,54 +1727,12 @@ def _render_manage_names_table() -> None:
                 if missing:
                     st.error("Missing column(s): " + ", ".join(sorted(missing)))
                 else:
-                    st.dataframe(imp.head(25), use_container_width=True,
+                    st.dataframe(imp.head(25), width="stretch",
                                  hide_index=True)
                     st.caption(f"{len(imp)} row(s) in the file.")
                     if st.button(f"Import {len(imp)} name(s)",
                                  type="primary", key="mng_nm_doimport"):
-                        added, skipped, unknown = 0, 0, []
-                        for _, r in imp.iterrows():
-                            sci = str(r.get("scientific_name", "")).strip()
-                            txt = str(r.get("name_text", "")).strip()
-                            if not sci or not txt:
-                                skipped += 1
-                                continue
-                            sid = db.species_id_by_scientific_name(sci)
-                            if not sid:
-                                unknown.append(sci)
-                                continue
-                            try:
-                                db.add_species_name(
-                                    sid, txt,
-                                    language=str(r.get("language")
-                                                 or "ENG").strip(),
-                                    category=str(r.get("category")
-                                                 or "common").strip(),
-                                    source="import",
-                                    is_preferred=str(
-                                        r.get("is_preferred", "")
-                                    ).strip().lower() in ("1", "true", "yes"),
-                                    region_code=(str(r.get("region")).strip()
-                                                 or None),
-                                    script=(str(r.get("script")).strip()
-                                            or None),
-                                    notes=(str(r.get("notes")).strip()
-                                           or None),
-                                )
-                                added += 1
-                            except Exception as exc:
-                                st.warning(f"{sci} / {txt}: {exc}")
-                        _invalidate_all_caches()
-                        _cached_names_admin.clear()
-                        st.success(f"Imported {added} name(s).")
-                        if skipped:
-                            st.caption(f"{skipped} row(s) had no species or "
-                                       "no name and were skipped.")
-                        if unknown:
-                            st.warning(
-                                "Not in the warehouse yet (add the species "
-                                "first): " + ", ".join(sorted(set(unknown))))
-                        st.rerun()
+                        _import_rows(imp)
 
 
 def _delete_species_deity_by_names(species_name: str, deity_name: str,
