@@ -251,6 +251,50 @@ def spinner_with_tip(message: str):
             pass
 
 
+BETA_NOTICE_VERSION = "2026-11"
+
+
+def render_beta_notice() -> None:
+    """A short hello on arrival saying the piece is still being built.
+    Shows once per visit, and again when BETA_NOTICE_VERSION moves on so
+    returning people see a revised note instead of nothing."""
+    flag = "_beta_seen_" + BETA_NOTICE_VERSION
+    if st.session_state.get(flag):
+        return
+    dialog = getattr(st, "dialog", None)
+    if dialog is None:  # older Streamlit: fall back to a banner
+        st.info(
+            "**This is a beta.** {r}Evolving Kinship is a living piece and "
+            "parts of it are still rough. Trees can take a while to draw, "
+            "photos and sounds come from open archives that sometimes go "
+            "quiet, and names are added by hand so some are still missing. "
+            "If something breaks, maya@shared-rivers.org.")
+        st.session_state[flag] = True
+        return
+
+    @dialog("Welcome, and a heads up")
+    def _notice():
+        st.markdown(
+            "**{r}Evolving Kinship is in beta.** It is a living piece, "
+            "built in the open, so parts of it are still rough.\n\n"
+            "What that means while you are here:\n\n"
+            "- Trees and maps are drawn fresh, which can take a few "
+            "seconds. You will see a card with a fun fact while you wait.\n"
+            "- Photos and recordings come from open archives like GBIF, "
+            "iNaturalist and Xeno-canto. Sometimes an archive goes quiet "
+            "and a picture or a sound is missing.\n"
+            "- Common names are added by people, language by language. "
+            "Many species are still waiting for theirs.\n\n"
+            "Found something broken, or a name we have wrong? Write to "
+            "maya@shared-rivers.org. That is how this thing grows.")
+        if st.button("Got it, let me in", type="primary",
+                     width="stretch", key="beta_ok"):
+            st.session_state[flag] = True
+            st.rerun()
+
+    _notice()
+
+
 def _current_status() -> dict:
     """Read + return the shared status dict for the download."""
     st.session_state.setdefault("_ncbi_status", {

@@ -109,6 +109,11 @@ if loading.render_loading_gate_if_needed():
 # the URL is valid and we're signed in, or it isn't and we show the gate.
 auth._try_cookie_restore()
 
+# Say hello and admit this is a beta before anyone hits a rough edge.
+# Once per visit, after the taxonomy gate so it isn't stacked on top of
+# the download card.
+loading.render_beta_notice()
+
 
 def _stem(name: str) -> str:
     """Tree-name slug used for output filenames. Delegates to tree._safe so
@@ -252,18 +257,31 @@ def _ensure_tree_built(tree_name: str) -> bool:
     meta_path = config.OUTPUT_DIR / f"{stem}_nodes.json"
     if nwk.exists() and meta_path.exists():
         return True
+    # This is the slow one: it walks the taxonomy, draws the tree, then
+    # pulls photos and recordings for every species. A dozen buttons call
+    # it, so the waiting card lives here rather than at each of them.
     try:
-        from src import tree as _tree_mod
-        _res = _tree_mod.build_tree(tree_name)
-        # Warm photos + recordings straight away, so an auto-built tree
-        # arrives with its images instead of needing a manual kin-card
-        # load and a refresh.
-        try:
-            from src import pipeline as _pl
-            _pl.warm_kin_cards(_res["df"])
-        except Exception as _wexc:
-            print(f"kin card warm skipped: {_wexc}")
-        return nwk.exists() and meta_path.exists()
+        with loading.spinner_with_tip(
+                f"Building “{tree_name}”: taxonomy, branches, "
+                "then photos and recordings for each species. "
+                "First time takes the longest."):
+            from src import tree as _tree_mod
+            _res = _tree_mod.build_tree(tree_name)
+            # Warm photos + recordings straight away, so an auto-built tree
+            # arrives with its images instead of needing a manual kin-card
+            # load and a refresh.
+            try:
+                from src import pipeline as _pl
+                _pl.warm_kin_cards(_res["df"])
+            except Exception as _wexc:
+                print(f"kin card warm skipped: {_wexc}")
+        ok = nwk.exists() and meta_path.exists()
+        if ok:
+            try:
+                st.toast(f"“{tree_name}” is built.", icon="🌿")
+            except Exception:
+                pass
+        return ok
     except Exception as _exc:
         st.error(f"Auto tree build failed: {_exc}")
         return False
@@ -913,12 +931,15 @@ if active_tab == "Dashboard":
                                      key=f"dl_build_{pick_tree}_{layout_name}",
                                      width="stretch"):
                             layout_code = render_mod.LAYOUTS[layout_name]
-                            render_mod.render_files(
-                                nwk, meta,
-                                f"{stem}_tree_{layout_name.lower()}",
-                                layout=layout_code, tree_name=pick_tree,
-                                use_scaled=use_scaled_view,
-                                show_all_clades=show_all_clades)
+                            with loading.spinner_with_tip(
+                                    f"Drawing the {layout_name.lower()} "
+                                    "layout and writing the SVG..."):
+                                render_mod.render_files(
+                                    nwk, meta,
+                                    f"{stem}_tree_{layout_name.lower()}",
+                                    layout=layout_code, tree_name=pick_tree,
+                                    use_scaled=use_scaled_view,
+                                    show_all_clades=show_all_clades)
                             # The SVG always lands; the PNG only does when
                             # the host can rasterize SVG (cairosvg needs
                             # system cairo). Draw it with matplotlib
@@ -1910,12 +1931,30 @@ if active_tab == "Dashboard":
                                      or (s, c) not in _AUDIO_CACHE]
                         if _to_warm:
                             from concurrent.futures import (
-                                ThreadPoolExecutor)
+                                ThreadPoolExecutor, as_completed)
                             def _warm(sc):
                                 _cached_profile(sc[0], sc[1])
                                 _cached_audio(sc[0], sc[1])
+                                return sc[1] or sc[0]
+                            _n = len(_to_warm)
+                            _bar = st.progress(
+                                0.0, text=f"Fetching photos and recordings "
+                                          f"for {_n} species...")
+                            _done = 0
                             with ThreadPoolExecutor(max_workers=6) as _ex:
-                                list(_ex.map(_warm, _to_warm))
+                                _futs = [_ex.submit(_warm, sc)
+                                         for sc in _to_warm]
+                                for _f in as_completed(_futs):
+                                    _done += 1
+                                    try:
+                                        _who = _f.result()
+                                    except Exception:
+                                        _who = ""
+                                    _bar.progress(
+                                        _done / _n,
+                                        text=f"{_done} of {_n}"
+                                             + (f": {_who}" if _who else ""))
+                            _bar.empty()
                     for tip_name, info in tip_rows:
                         sci = (info.get("scientific_name")
                                or tip_name.replace("_", " "))

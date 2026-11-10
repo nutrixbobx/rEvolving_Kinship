@@ -623,9 +623,12 @@ def add_species_name(species_id: str, name_text: str,
                      contributor_id: str | None = None,
                      region_code: str | None = None,
                      script: str | None = None,
-                     notes: str | None = None) -> None:
+                     notes: str | None = None) -> str:
+    """Add one name. Returns "added", "merged" (a name that differs only by
+    letter case or spacing was already on file, so this one folded into it),
+    or "skipped" (nothing to add)."""
     if not name_text or not name_text.strip():
-        return
+        return "skipped"
     name_text = name_text.strip()
     # Normalize at the write boundary so a stray 2-letter code can never
     # land in the DB again (every reader filters on the 3-letter form).
@@ -636,7 +639,25 @@ def add_species_name(species_id: str, name_text: str,
     # as the code.
     script = normalize_script_code(script)
     engine = get_engine()
+    outcome = "added"
     with engine.begin() as conn:
+        # The UNIQUE constraint catches an exact repeat, but not
+        # "cempasuchil" vs "Cempasuchil" vs "cempasuchil " ... so look for a
+        # name that is the same once case and spacing are set aside. If one
+        # is on file, reuse its exact spelling: the ON CONFLICT below then
+        # lands on that row and updates it instead of making a twin.
+        existing = conn.execute(
+            text("SELECT name_text FROM species_name "
+                 "WHERE species_id = :s AND language_code = :l "
+                 "AND name_category = :c"),
+            {"s": species_id, "l": language, "c": category},
+        ).fetchall()
+        key = name_key(name_text)
+        for (stored,) in existing:
+            if stored is not None and name_key(stored) == key:
+                name_text = str(stored)
+                outcome = "merged"
+                break
         # If marking this as preferred, demote any others first so there is
         # only one preferred name per (species, language, category).
         if is_preferred:
@@ -685,6 +706,40 @@ def add_species_name(species_id: str, name_text: str,
             """), {"s": species_id, "n": name_text, "l": language,
                    "c": category, "r": region_code, "src": source,
                    "p": is_preferred, "by": contributor_id})
+    return outcome
+
+
+def name_key(s) -> str:
+    """The form two names have to share to count as the same name: case
+    folded, accents kept, every run of whitespace squeezed to one space."""
+    if s is None:
+        return ""
+    return " ".join(str(s).split()).casefold()
+
+
+def find_duplicate_names() -> pd.DataFrame:
+    """Names already on file that collide once case and spacing are set
+    aside. One row per name, grouped so the Library can show the clusters."""
+    df = list_names_admin()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    cols = [c for c in ("species_id", "language_code", "name_category")
+            if c in df.columns]
+    if "name_text" not in df.columns or not cols:
+        return pd.DataFrame()
+    work = df.copy()
+    work["_key"] = work["name_text"].map(name_key)
+    grouped = work.groupby(cols + ["_key"])["name_text"].transform("size")
+    dupes = work[grouped > 1].copy()
+    if dupes.empty:
+        return pd.DataFrame()
+    dupes = dupes.sort_values(cols + ["_key", "name_text"])
+    # A stable label per collision, so the caller can count clusters and
+    # show which rows belong together without redoing the grouping.
+    keys = dupes[cols + ["_key"]].astype(str).agg("|".join, axis=1)
+    dupes["cluster"] = keys.map(
+        {k: i + 1 for i, k in enumerate(dict.fromkeys(keys))})
+    return dupes.drop(columns=["_key"])
 
 
 # ---------------------------------------------------------------------------

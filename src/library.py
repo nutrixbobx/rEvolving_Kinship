@@ -1661,10 +1661,14 @@ def _render_manage_names_table() -> None:
         def _import_rows(imp) -> None:
             """Insert every row of a names dataframe. Shared by the file
             uploader and the files shipped in the repo's data/ folder."""
-            added, skipped, unknown = 0, 0, []
-            for _, r in imp.iterrows():
+            added, merged, skipped, unknown = 0, 0, 0, []
+            total = len(imp)
+            bar = st.progress(0.0, text=f"Reading {total} row(s)...")
+            for i, (_, r) in enumerate(imp.iterrows(), start=1):
                 sci = str(r.get("scientific_name", "")).strip()
                 txt = str(r.get("name_text", "")).strip()
+                bar.progress(i / max(total, 1),
+                             text=f"Row {i} of {total}: {txt or sci or '...'}")
                 if not sci or not txt:
                     skipped += 1
                     continue
@@ -1673,7 +1677,7 @@ def _render_manage_names_table() -> None:
                     unknown.append(sci)
                     continue
                 try:
-                    db.add_species_name(
+                    outcome = db.add_species_name(
                         sid, txt,
                         language=str(r.get("language") or "ENG").strip(),
                         category=str(r.get("category") or "common").strip(),
@@ -1684,12 +1688,20 @@ def _render_manage_names_table() -> None:
                         script=(str(r.get("script")).strip() or None),
                         notes=(str(r.get("notes")).strip() or None),
                     )
-                    added += 1
+                    if outcome == "merged":
+                        merged += 1
+                    else:
+                        added += 1
                 except Exception as exc:
                     st.warning(f"{sci} / {txt}: {exc}")
+            bar.empty()
             _invalidate_all_caches()
             _cached_names_admin.clear()
             st.success(f"Imported {added} name(s).")
+            if merged:
+                st.info(f"{merged} row(s) were already on file (same name "
+                        "apart from capitals or spacing) and folded into "
+                        "the existing entry instead of doubling it up.")
             if skipped:
                 st.caption(f"{skipped} row(s) had no species or no name "
                            "and were skipped.")
@@ -1740,6 +1752,38 @@ def _render_manage_names_table() -> None:
                     if st.button(f"Import {len(imp)} name(s)",
                                  type="primary", key="mng_nm_doimport"):
                         _import_rows(imp)
+
+    # ---- near-duplicate cleanup -------------------------------------
+    with st.expander("Check for duplicate names", expanded=False):
+        st.caption(
+            "New names are checked on the way in, so a repeat can't be "
+            "saved twice. This finds the ones already on file from before "
+            "that check existed: same species, same language, same "
+            "category, and the same name once capitals and extra spaces "
+            "are set aside.")
+        if st.button("Look for duplicates", key="mng_nm_dupscan"):
+            st.session_state["_mng_nm_dupes"] = True
+        if st.session_state.get("_mng_nm_dupes"):
+            with st.spinner("Comparing every name in the library..."):
+                dupes = db.find_duplicate_names()
+            if dupes is None or dupes.empty:
+                st.success("No duplicates. The library is clean.")
+            else:
+                show = [c for c in ("cluster", "scientific_name", "name_text",
+                                    "language_code", "name_category",
+                                    "script", "is_preferred", "notes")
+                        if c in dupes.columns]
+                groups = int(dupes["cluster"].nunique())
+                st.warning(f"{len(dupes)} name(s) across {groups} "
+                           "group(s) look like the same name.")
+                st.dataframe(dupes[show], width="stretch", hide_index=True)
+                st.caption(
+                    "Nothing is removed automatically, since the right "
+                    "spelling is a judgement call. Edit or delete the ones "
+                    "you don't want in the table above this expander, then "
+                    "scan again.")
+                _csv_download(dupes[show], "library_name_duplicates",
+                              "mng_nm_dupcsv")
 
 
 def _delete_species_deity_by_names(species_name: str, deity_name: str,
