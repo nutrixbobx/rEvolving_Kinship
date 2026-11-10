@@ -19,6 +19,7 @@ into the **Supabase SQL Editor** and run, in this order:
 | 5 | `db/iso639_3_migration.sql`                   | Upgrades existing 2-letter language codes (en, hy, ...) to uppercase 3-letter ISO 639-3 (ENG, HYE, ...).      |
 | 6 | `db/species_name_script_migration.sql`        | Adds optional `script` column to `species_name` for non-Latin entries.                                        |
 | 7 | `db/tree_view_migration.sql`                  | Creates `tree_view` for saved interactive-tree arrangements: one shared view per tree plus one per person.      |
+| 8 | `db/script_iso15924_migration.sql`            | Normalizes `species_name.script` from picker labels ("Gurmukhi (Panjabi)") to ISO 15924 codes (`Guru`).         |
 | 7 | `db/auth_session_migration.sql`               | Creates `auth_session` table backing the URL-token remember-me (was cookies before — see git history). Required for refresh-stays-signed-in.      |
 | 8 | `db/fk_indexes_migration.sql`                | Adds 11 indexes on foreign-key columns that were missing them (joins on contributor_id, deity_id, etc.). Speeds up Profile + Library queries.   |
 | 9 | `db/view_security_invoker_migration.sql`     | Flips public views from SECURITY DEFINER to INVOKER. Silences the Supabase linter and is the right posture before turning RLS on.                                   |

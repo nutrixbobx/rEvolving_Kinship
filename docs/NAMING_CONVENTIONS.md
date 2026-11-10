@@ -54,6 +54,22 @@ romanized form (`script = Latn`) as two rows in the same language, and note
 in the romanized row which spelling it transliterates. Readers who cannot
 read the script still deserve the name, and the script form stays primary.
 
+## 7. Script codes are ISO 15924, four letters.
+
+`Guru` is Gurmukhi, `Deva` is Devanagari, `Latn` is Latin, `Arab` is
+Arabic, `Cyrl` is Cyrillic. They look like typos and are not; they are the
+same kind of standard as the ISO 639-3 language codes (`PAN`, `SPA`,
+`ENG`) this library already uses, and they are what lets us count and
+filter by writing system.
+
+The app accepts whatever you type (`Gurmukhi`, `gurmukhi (panjabi)`,
+`guru`) and stores the code. The screen shows the readable name.
+
+Leave it blank when the writing system adds nothing: an English or Spanish
+name does not need to announce that it is in Latin script. Set `Latn`
+only when it is doing work, which in practice means marking a
+romanization of a name whose own script is recorded on another row.
+
 ## Importing in bulk
 
 Library → Manage → Names → *Import names from a CSV*. Columns:

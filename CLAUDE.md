@@ -41,6 +41,32 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AU (script codes: one standard, not two, 2026-11-09):
+  - Maya asked whether `Latn` and `Guru` in the names CSV were typos. They
+    are ISO 15924 script codes, but she was right that something was off:
+    the Add-name form stores the PICKER'S LABEL verbatim
+    ("Gurmukhi (Panjabi)"), so a name typed into the app and a name
+    imported from a CSV recorded the same writing system two different
+    ways, and neither could be filtered or counted against the other.
+  - Resolved toward the standard, because the project already made this
+    choice for languages (ISO 639-3, via db/iso639_3_migration.sql); ISO
+    15924 is its sibling. `i18n.normalize_script_code()` accepts the
+    picker labels, bare names, and codes, and returns the code;
+    `i18n.script_label()` gives the readable name for display.
+    `add_species_name` and `update_species_name` normalize at the write
+    boundary, exactly as they already did for language.
+  - NEW MIGRATION: `db/script_iso15924_migration.sql` (row 8) rewrites
+    existing label values to codes and nulls empty strings. Idempotent.
+  - `script` is now a column in the Manage batch editor, so a wrong value
+    is fixable in place and accepts a loose spelling.
+  - Convention written down as rule 7: blank when the writing system adds
+    nothing, `Latn` only when marking a romanization whose own script is
+    on another row.
+  - Verified: a name saved the way the form saves it and a name saved the
+    way the CSV saves it both land as `Guru`, and the editor accepts
+    "gurmukhi" and stores `Guru`.
+
+
 Session AT (one-click import of the bundled names, 2026-11-09):
   - Maya expected the deerpreet names to appear once the commit was
     pushed. They do not, and that is worth stating plainly in here:
@@ -1096,6 +1122,9 @@ are expensive.
   and fixed notes never being saved.
 - 2026-11-09: Session AT added one-click import of repo-bundled name
   CSVs and recorded that pushing ships the file, not the rows.
+- 2026-11-09: Session AU unified script tagging on ISO 15924 (the form
+  had been storing picker labels while CSVs carried codes) with a
+  migration and in-editor fixing.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

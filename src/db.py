@@ -629,8 +629,12 @@ def add_species_name(species_id: str, name_text: str,
     name_text = name_text.strip()
     # Normalize at the write boundary so a stray 2-letter code can never
     # land in the DB again (every reader filters on the 3-letter form).
-    from src.i18n import normalize_language_code
+    from src.i18n import normalize_language_code, normalize_script_code
     language = normalize_language_code(language)
+    # Same boundary treatment for the writing system: the picker
+    # hands us its label, a CSV hands us the ISO code, both land
+    # as the code.
+    script = normalize_script_code(script)
     engine = get_engine()
     with engine.begin() as conn:
         # If marking this as preferred, demote any others first so there is
@@ -2008,6 +2012,7 @@ def _names_admin_query(engine, with_notes: bool):
                    sn.language_code      AS language_code,
                    sn.name_category      AS name_category,
                    sn.region_code        AS region_code,
+                   sn.script             AS script,
                    {notes_col}
                    sn.is_preferred       AS is_preferred,
                    s.canonical_scientific_name      AS species,
@@ -2021,8 +2026,8 @@ def _names_admin_query(engine, with_notes: bool):
         """)).fetchall()
     df = pd.DataFrame(rows, columns=[
         "name_id", "name_text", "language_code", "name_category",
-        "region_code", "notes", "is_preferred", "species", "species_id",
-        "contributor"])
+        "region_code", "script", "notes", "is_preferred", "species",
+        "species_id", "contributor"])
     if not df.empty:
         # Cast in pandas, not SQL: ::text and a `false` literal are
         # Postgres-only and blow up the offline SQLite mode.
@@ -2046,12 +2051,16 @@ def update_species_name(name_id: str, fields: dict) -> bool:
     demotes any other preferred name for the same (species, language,
     category) to keep the invariant. Returns True if a row was updated."""
     allowed = {"name_text", "language_code", "name_category",
-               "region_code", "is_preferred", "notes"}
-    if "language_code" in fields:
-        from src.i18n import normalize_language_code
+               "region_code", "is_preferred", "notes", "script"}
+    if "language_code" in fields or "script" in fields:
+        from src.i18n import (normalize_language_code,
+                              normalize_script_code)
         fields = dict(fields)
-        fields["language_code"] = normalize_language_code(
-            fields["language_code"])
+        if "language_code" in fields:
+            fields["language_code"] = normalize_language_code(
+                fields["language_code"])
+        if "script" in fields:
+            fields["script"] = normalize_script_code(fields["script"])
     sets, params = [], {"i": name_id}
     for k, v in fields.items():
         if k in allowed:

@@ -99,6 +99,85 @@ TWO_TO_THREE = {
 OTHER_LABEL = "Other (type a code)"
 
 
+# ---------------------------------------------------------------------------
+# Scripts (ISO 15924)
+#
+# Languages were standardized to ISO 639-3 by db/iso639_3_migration.sql;
+# scripts get the same treatment with their sibling standard. The picker
+# used to store its own label verbatim ("Gurmukhi (Panjabi)"), so a CSV
+# written with the real code and a name added through the form disagreed
+# about the same writing system. Everything normalizes to the 4-letter
+# code now, and the label is only for display.
+# ---------------------------------------------------------------------------
+SCRIPT_NAME_BY_CODE = {
+    "Latn": "Latin",
+    "Deva": "Devanagari",
+    "Guru": "Gurmukhi",
+    "Beng": "Bengali",
+    "Taml": "Tamil",
+    "Armn": "Armenian",
+    "Arab": "Arabic",
+    "Hebr": "Hebrew",
+    "Cyrl": "Cyrillic",
+    "Grek": "Greek",
+    "Hira": "Hiragana",
+    "Kana": "Katakana",
+    "Hani": "Han",
+    "Jpan": "Japanese",
+    "Kore": "Korean",
+    "Thai": "Thai",
+    "Geor": "Georgian",
+    "Ethi": "Ethiopic",
+}
+
+# Everything we might meet on the way in: the picker's own labels, bare
+# script names, and the codes themselves.
+_SCRIPT_ALIASES = {
+    "devanagari (hindi, sanskrit, marathi)": "Deva",
+    "gurmukhi (panjabi)": "Guru",
+    "gurmukhi (punjabi)": "Guru",
+    "cyrillic (russian, ukrainian, etc.)": "Cyrl",
+    "hiragana (japanese)": "Hira",
+    "katakana (japanese)": "Kana",
+    "panjabi": "Guru",
+    "punjabi": "Guru",
+    "roman": "Latn",
+    "romanized": "Latn",
+}
+
+
+def normalize_script_code(raw: str | None) -> str | None:
+    """Any way of naming a writing system -> its ISO 15924 code, or None.
+
+    Accepts the script picker's labels, a bare script name, or the code
+    itself in any case. Returns None for blanks so an untagged name stays
+    untagged rather than acquiring a bogus script."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low in _SCRIPT_ALIASES:
+        return _SCRIPT_ALIASES[low]
+    for code, name in SCRIPT_NAME_BY_CODE.items():
+        if low == code.lower() or low == name.lower():
+            return code
+    # Unknown but plausible 4-letter code: keep it in canonical casing
+    # rather than discard a contributor's entry.
+    if len(s) == 4 and s.isalpha():
+        return s.capitalize()
+    return s[:16]
+
+
+def script_label(code: str | None) -> str:
+    """Human-readable name for a script code, for display only."""
+    if not code:
+        return ""
+    c = normalize_script_code(code) or ""
+    return SCRIPT_NAME_BY_CODE.get(c, c)
+
+
 def normalize_language_code(raw: str | None) -> str:
     """Take whatever's stored in the DB or typed by a user and return a
     canonical three-letter code (uppercased). Falls back to MIS for blanks

@@ -1443,8 +1443,9 @@ def _render_manage_names_table() -> None:
 
     # ---- editable table ----
     editable = view[["name_id", "name_text", "language_code",
-                     "name_category", "region_code", "is_preferred",
-                     "notes", "species", "contributor"]].copy()
+                     "name_category", "region_code", "script",
+                     "is_preferred", "notes", "species",
+                     "contributor"]].copy()
     editable.insert(0, "pick", False)
     lang_opts = sorted(set(langs) | {"ENG", "SPA", "HYE", "NCI", "MIS"})
 
@@ -1475,6 +1476,11 @@ def _render_manage_names_table() -> None:
                 "Category", options=_NAME_CATEGORIES, width="small"),
             "region_code": st.column_config.TextColumn("Region",
                                                         width="small"),
+            "script": st.column_config.TextColumn(
+                "Script", width="small",
+                help="ISO 15924 code: Guru for Gurmukhi, Deva for "
+                     "Devanagari, Latn for a romanization. Blank when the "
+                     "writing system adds nothing."),
             "is_preferred": st.column_config.CheckboxColumn("★",
                                                             width="small"),
             "notes": st.column_config.TextColumn(
@@ -1515,7 +1521,8 @@ def _render_manage_names_table() -> None:
                     continue
                 fields = {}
                 for col in ("name_text", "language_code", "name_category",
-                            "region_code", "notes", "is_preferred"):
+                            "region_code", "script", "notes",
+                            "is_preferred"):
                     new_v, old_v = row[col], before[col]
                     if col == "is_preferred":
                         new_v, old_v = bool(new_v), bool(old_v)
@@ -1524,7 +1531,7 @@ def _render_manage_names_table() -> None:
                                  if new_v is not None else "")
                         old_v = (str(old_v).strip()
                                  if old_v is not None else "")
-                        if col in ("region_code", "notes"):
+                        if col in ("region_code", "notes", "script"):
                             new_v = new_v or None
                             old_v = old_v or None
                     if new_v != old_v:
