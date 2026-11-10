@@ -19,6 +19,7 @@ with the latest tree data.
 from __future__ import annotations
 
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -39,107 +40,161 @@ MUTED = "#5e6f68"
 # ---------------------------------------------------------------------------
 # Multi-font Unicode handling
 # ---------------------------------------------------------------------------
-# Map each Unicode block we care about to (script_key, candidate font files).
-# Streamlit Cloud's Debian base ships fonts-noto-core + fonts-noto-cjk +
-# fonts-noto-extra via packages.txt, so these paths typically exist.
+# System font directories, kept because a self-hosted run may well have
+# them. They are no longer relied on: packages.txt installs nothing now.
 _NOTO_DIR = "/usr/share/fonts/truetype/noto"
 _NOTO_CJK_DIR = "/usr/share/fonts/opentype/noto"
 _DEJAVU_DIR = "/usr/share/fonts/truetype/dejavu"
 
-# (label, font filename candidates, range_predicate) per script
-_SCRIPT_FALLBACKS = [
-    ("latin",      [f"{_NOTO_DIR}/NotoSans-Regular.ttf",
-                    f"{_DEJAVU_DIR}/DejaVuSans.ttf"],
-                   lambda cp: cp < 0x0080 or 0x00A0 <= cp <= 0x024F),
-    ("devanagari", [f"{_NOTO_DIR}/NotoSansDevanagari-Regular.ttf"],
-                   lambda cp: 0x0900 <= cp <= 0x097F),
-    ("bengali",    [f"{_NOTO_DIR}/NotoSansBengali-Regular.ttf"],
-                   lambda cp: 0x0980 <= cp <= 0x09FF),
-    ("gurmukhi",   [f"{_NOTO_DIR}/NotoSansGurmukhi-Regular.ttf"],
-                   lambda cp: 0x0A00 <= cp <= 0x0A7F),
-    ("tamil",      [f"{_NOTO_DIR}/NotoSansTamil-Regular.ttf"],
-                   lambda cp: 0x0B80 <= cp <= 0x0BFF),
-    ("thai",       [f"{_NOTO_DIR}/NotoSansThai-Regular.ttf"],
-                   lambda cp: 0x0E00 <= cp <= 0x0E7F),
-    ("arabic",     [f"{_NOTO_DIR}/NotoSansArabic-Regular.ttf",
-                    f"{_NOTO_DIR}/NotoNaskhArabic-Regular.ttf"],
-                   lambda cp: 0x0600 <= cp <= 0x06FF
-                              or 0x0750 <= cp <= 0x077F
-                              or 0xFB50 <= cp <= 0xFDFF
-                              or 0xFE70 <= cp <= 0xFEFF),
-    ("hebrew",     [f"{_NOTO_DIR}/NotoSansHebrew-Regular.ttf"],
-                   lambda cp: 0x0590 <= cp <= 0x05FF),
-    ("armenian",   [f"{_NOTO_DIR}/NotoSansArmenian-Regular.ttf"],
-                   lambda cp: 0x0530 <= cp <= 0x058F),
-    ("greek",      [f"{_NOTO_DIR}/NotoSans-Regular.ttf"],
-                   lambda cp: 0x0370 <= cp <= 0x03FF
-                              or 0x1F00 <= cp <= 0x1FFF),
-    ("cyrillic",   [f"{_NOTO_DIR}/NotoSans-Regular.ttf"],
-                   lambda cp: 0x0400 <= cp <= 0x04FF
-                              or 0x0500 <= cp <= 0x052F),
-    ("cjk",        [f"{_NOTO_CJK_DIR}/NotoSansCJK-Regular.ttc",
-                    f"{_NOTO_DIR}/NotoSansCJK-Regular.ttc"],
-                   lambda cp: (0x3000 <= cp <= 0x303F)
-                              or (0x3040 <= cp <= 0x309F)
-                              or (0x30A0 <= cp <= 0x30FF)
-                              or (0x3400 <= cp <= 0x4DBF)
-                              or (0x4E00 <= cp <= 0x9FFF)
-                              or (0xAC00 <= cp <= 0xD7AF)),
+# Where to look for fonts, best first. The bundled folder leads because
+# it is the only one guaranteed to exist: packages.txt no longer apt-installs
+# anything, so on Streamlit Cloud /usr/share/fonts/.../noto is mostly empty
+# and the old hardcoded paths all missed. A miss used to leave the base font
+# as Helvetica, which is why even a Latin name like "kasturi" with macrons
+# came out as boxes.
+_BUNDLED_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+_FONT_SEARCH_DIRS = [
+    _BUNDLED_FONT_DIR,
+    Path(_NOTO_DIR),
+    Path(_NOTO_CJK_DIR),
+    Path("/usr/share/fonts/truetype/noto"),
+    Path("/usr/share/fonts/opentype/noto"),
+    Path(_DEJAVU_DIR),
+    Path("/usr/share/fonts/truetype/google-fonts"),
 ]
+# Fonts that cover a lot but draw badly as body text, or that we only ever
+# want as a last resort for a script nothing else has.
+_FONT_SKIP = ("Mono", "Emoji", "Symbols", "Bold", "Italic", "Oblique")
 
 
+def _font_coverage(path: Path) -> set:
+    """The set of code points a font file actually draws, read from its
+    cmap. Replaces guessing by Unicode block: a font either has the glyph
+    or it doesn't, and that is a question the file can answer."""
+    try:
+        from fontTools.ttLib import TTFont as _FTFont, TTCollection
+        covered: set = set()
+        if path.suffix.lower() == ".ttc":
+            coll = TTCollection(str(path), lazy=True)
+            faces = list(coll.fonts)[:1]
+        else:
+            faces = [_FTFont(str(path), lazy=True, fontNumber=0)]
+        for face in faces:
+            for table in face["cmap"].tables:
+                covered |= set(table.cmap.keys())
+            face.close()
+        return covered
+    except Exception as exc:
+        print(f"font coverage {path.name}: {exc}")
+        return set()
+
+
+@lru_cache(maxsize=1)
+def _discover_fonts() -> list:
+    """Every usable font on this machine, as (name, path, covered_cps),
+    ordered so the preferred body font comes first. Cached: reading cmaps
+    costs a few hundred milliseconds and the answer never changes within
+    a run."""
+    found = []
+    seen_names = set()
+    for d in _FONT_SEARCH_DIRS:
+        try:
+            if not d.is_dir():
+                continue
+            files = sorted(list(d.glob("*.ttf")) + list(d.glob("*.otf"))
+                           + list(d.glob("*.ttc")))
+        except Exception:
+            continue
+        for p in files:
+            if any(s in p.stem for s in _FONT_SKIP):
+                continue
+            if p.stem in seen_names:
+                continue
+            cov = _font_coverage(p)
+            if not cov:
+                continue
+            seen_names.add(p.stem)
+            found.append((f"Kin-{p.stem}", p, cov))
+    # NotoSans first when present: it is the house face and covers Latin,
+    # Greek and Cyrillic, so most text stays in one font.
+    found.sort(key=lambda t: (0 if t[1].stem == "NotoSans-Regular"
+                              else 1 if t[1].stem.startswith("NotoSans")
+                              else 2, t[1].stem))
+    return found
+
+
+@lru_cache(maxsize=1)
 def _register_unicode_fonts() -> tuple[dict, str, str]:
-    """Register every Noto script font we can find. Returns:
-      ({script_key: registered_font_name}, base_font, italic_font)
-    base_font is the one used for plain Latin text; italic_font is
-    its oblique variant when available, else the same font."""
+    """Register every font we found with ReportLab. Returns:
+      ({code_point: registered_font_name}, base_font, italic_font)
+    The map is built per code point from real glyph coverage, so a script
+    is handled the moment a font covering it lands in assets/fonts, with
+    no range table to update."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+    fonts = _discover_fonts()
     registered: dict = {}
     base = "Helvetica"
     italic = "Helvetica-Oblique"
-    for script, candidates, _pred in _SCRIPT_FALLBACKS:
-        for path in candidates:
-            if not Path(path).exists():
-                continue
-            font_name = f"Noto-{script}"
-            try:
-                # .ttc collections need a sub-font index
-                if path.endswith(".ttc"):
-                    pdfmetrics.registerFont(
-                        TTFont(font_name, path, subfontIndex=0))
-                else:
-                    pdfmetrics.registerFont(TTFont(font_name, path))
-                registered[script] = font_name
-                # If this is the Latin font, set it as base + register
-                # the italic variant when available.
-                if script == "latin":
-                    base = font_name
-                    italic_path = path.replace(
-                        "-Regular.ttf", "-Italic.ttf")
-                    if (Path(italic_path).exists()
-                            and italic_path != path):
-                        try:
-                            pdfmetrics.registerFont(
-                                TTFont(f"{font_name}-Italic", italic_path))
-                            italic = f"{font_name}-Italic"
-                        except Exception:
-                            italic = font_name
-                    else:
-                        italic = font_name
-                break
-            except Exception as exc:
+    live = []
+    for font_name, path, cov in fonts:
+        try:
+            if path.suffix.lower() == ".ttc":
+                pdfmetrics.registerFont(
+                    TTFont(font_name, str(path), subfontIndex=0))
+            else:
+                pdfmetrics.registerFont(TTFont(font_name, str(path)))
+        except Exception as exc:
+            # ReportLab cannot embed CFF/PostScript outlines, which is what
+            # the Noto CJK .ttc collections use. Expected, not a fault.
+            if "postscript outlines" not in str(exc).lower():
                 print(f"register {font_name} from {path}: {exc}")
-                continue
+            continue
+        live.append((font_name, path, cov))
+        # First registered font that draws plain ASCII becomes the body
+        # face, with its italic cut if the file is next to it.
+        if base == "Helvetica" and ord("A") in cov and ord("ū") in cov:
+            base = font_name
+            ital_p = path.with_name(
+                path.name.replace("-Regular", "-Italic"))
+            if ital_p.exists() and ital_p != path:
+                try:
+                    pdfmetrics.registerFont(
+                        TTFont(f"{font_name}-Italic", str(ital_p)))
+                    italic = f"{font_name}-Italic"
+                except Exception:
+                    italic = font_name
+            else:
+                italic = font_name
+    # Flatten to code point -> font, first font winning, so the body face
+    # keeps everything it can draw and the rest fills the gaps.
+    for font_name, _path, cov in live:
+        for cp in cov:
+            if cp not in registered:
+                registered[cp] = font_name
+    if not live:
+        print("press_pdf: no TrueType font found, falling back to "
+              "Helvetica (non-Latin text will not draw)")
     return registered, base, italic
+
+
+def missing_script_report(text: str) -> list:
+    """Characters in `text` that no installed font can draw, so a caller
+    can say which script needs a font file instead of shipping boxes
+    silently."""
+    registered, _b, _i = _register_unicode_fonts()
+    gaps = []
+    for ch in dict.fromkeys(text or ""):
+        if ch.isspace():
+            continue
+        if ord(ch) not in registered:
+            gaps.append(ch)
+    return gaps
 
 
 def _font_for_codepoint(cp: int, registered: dict) -> str | None:
     """Pick the registered font that covers this code point."""
-    for script, _candidates, pred in _SCRIPT_FALLBACKS:
-        if pred(cp) and script in registered:
-            return registered[script]
-    return None
+    return registered.get(cp)
 
 
 def _tag_runs(text: str, registered: dict, default_font: str) -> str:

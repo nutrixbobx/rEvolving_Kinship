@@ -268,7 +268,7 @@ def render_beta_notice() -> None:
             "parts of it are still rough. Trees can take a while to draw, "
             "photos and sounds come from open archives that sometimes go "
             "quiet, and names are added by hand so some are still missing. "
-            "If something breaks, maya@shared-rivers.org.")
+            "If something breaks, nutrixbobx@gmail.com")
         st.session_state[flag] = True
         return
 
@@ -286,7 +286,7 @@ def render_beta_notice() -> None:
             "- Common names are added by people, language by language. "
             "Many species are still waiting for theirs.\n\n"
             "Found something broken, or a name we have wrong? Write to "
-            "maya@shared-rivers.org. That is how this thing grows.")
+            "nutrixbobx@gmail.com. That is how this thing grows.")
         if st.button("Got it, let me in", type="primary",
                      width="stretch", key="beta_ok"):
             st.session_state[flag] = True

@@ -1035,6 +1035,14 @@ if active_tab == "Dashboard":
                          "spectral tree, spectrogram blend + range map, "
                          "credits, kin cards.")
               press_pdf_path = config.OUTPUT_DIR / f"{stem}_kinship_report.pdf"
+              _fg = st.session_state.pop("_pdf_font_gaps", None)
+              if _fg:
+                  st.warning(
+                      "No installed font can draw these characters, so they "
+                      "come out as boxes in the PDF: " + " ".join(_fg[:40])
+                      + "\n\nDrop the matching Noto font into "
+                      "`assets/fonts` and push. The README in that folder "
+                      "lists which file to grab.")
               _rep_cols = st.columns([1, 1])
               with _rep_cols[0]:
                   if st.button("Build / refresh kinship report",
@@ -1050,7 +1058,21 @@ if active_tab == "Dashboard":
                                   raise RuntimeError("Tree build failed.")
                               from src import press_pdf
                               press_pdf.build_press_pdf(pick_tree)
-                              st.success("Built. Download below.")
+                              # Say which characters had no font rather
+                              # than handing over a PDF full of boxes.
+                              try:
+                                  _nm = _cached_tree_names(pick_tree)
+                                  _all = " ".join(
+                                      str(v) for v in
+                                      (_nm.values() if isinstance(_nm, dict)
+                                       else _nm or []))
+                                  _gaps = press_pdf.missing_script_report(
+                                      _all)
+                              except Exception:
+                                  _gaps = []
+                              # Survives the rerun below, which is what
+                              # puts the download button on screen.
+                              st.session_state["_pdf_font_gaps"] = _gaps
                               st.rerun()
                           except Exception as exc:
                               st.error(f"PDF build failed: {exc}")

@@ -61,15 +61,26 @@ def register_matplotlib_fonts() -> None:
     try:
         import matplotlib
         from matplotlib import font_manager
-        for name in BUNDLED_FONTS:
-            p = FONT_DIR / name
-            if p.exists():
-                try:
-                    font_manager.fontManager.addfont(str(p))
-                except Exception:
-                    pass
+        # Register everything in assets/fonts, not a hardcoded list, so
+        # adding a script font to the folder is the whole job: the PDF
+        # builder reads the same folder and both pick it up.
+        added = []
+        try:
+            files = sorted(list(FONT_DIR.glob("*.ttf"))
+                           + list(FONT_DIR.glob("*.otf")))
+        except Exception:
+            files = []
+        for p in files:
+            try:
+                font_manager.fontManager.addfont(str(p))
+                added.append(
+                    font_manager.FontProperties(fname=str(p)).get_name())
+            except Exception:
+                pass
         matplotlib.rcParams["font.family"] = "sans-serif"
-        chain = ["DejaVu Sans", "Noto Sans", "Noto Sans Armenian"]
+        # DejaVu first because it is matplotlib's own and metrically safe,
+        # then every bundled face as per-glyph fallback (matplotlib 3.6+).
+        chain = ["DejaVu Sans"] + [n for n in dict.fromkeys(added) if n]
         existing = list(matplotlib.rcParams.get("font.sans-serif", []))
         matplotlib.rcParams["font.sans-serif"] = (
             chain + [f for f in existing if f not in chain])
