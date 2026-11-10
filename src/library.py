@@ -1443,7 +1443,7 @@ def _render_manage_names_table() -> None:
     # ---- editable table ----
     editable = view[["name_id", "name_text", "language_code",
                      "name_category", "region_code", "is_preferred",
-                     "species", "contributor"]].copy()
+                     "notes", "species", "contributor"]].copy()
     editable.insert(0, "pick", False)
     lang_opts = sorted(set(langs) | {"ENG", "SPA", "HYE", "NCI", "MIS"})
 
@@ -1476,6 +1476,11 @@ def _render_manage_names_table() -> None:
                                                         width="small"),
             "is_preferred": st.column_config.CheckboxColumn("★",
                                                             width="small"),
+            "notes": st.column_config.TextColumn(
+                "Notes", width="medium",
+                help="Where the name came from, and how far it reaches. "
+                     "Scope and provenance live here, never inside the "
+                     "name itself."),
             "species": st.column_config.TextColumn("Species", disabled=True),
             "contributor": st.column_config.TextColumn("By", disabled=True),
         },
@@ -1509,7 +1514,7 @@ def _render_manage_names_table() -> None:
                     continue
                 fields = {}
                 for col in ("name_text", "language_code", "name_category",
-                            "region_code", "is_preferred"):
+                            "region_code", "notes", "is_preferred"):
                     new_v, old_v = row[col], before[col]
                     if col == "is_preferred":
                         new_v, old_v = bool(new_v), bool(old_v)
@@ -1518,7 +1523,7 @@ def _render_manage_names_table() -> None:
                                  if new_v is not None else "")
                         old_v = (str(old_v).strip()
                                  if old_v is not None else "")
-                        if col == "region_code":
+                        if col in ("region_code", "notes"):
                             new_v = new_v or None
                             old_v = old_v or None
                     if new_v != old_v:

@@ -2,37 +2,35 @@ scientific_name,name_text,language,category,script,notes
 Zea mays,maize,ENG,common,,
 Zea mays,corn,ENG,common,,North American usage
 Zea mays,maíz,SPA,common,,
-Zea mays,makkī,PAN,common,Latn,romanized Punjabi
+Zea mays,makkī,PAN,common,Latn,romanization of ਮੱਕੀ
 Zea mays,ਮੱਕੀ,PAN,common,Guru,
 Cenchrus americanus,pearl millet,ENG,common,,
 Cenchrus americanus,mijo perla,SPA,common,,
-Cenchrus americanus,bājrā,PAN,common,Latn,romanized Punjabi
+Cenchrus americanus,bājrā,PAN,common,Latn,romanization of ਬਾਜਰਾ
 Cenchrus americanus,ਬਾਜਰਾ,PAN,common,Guru,
 Helianthus annuus,common sunflower,ENG,common,,
 Helianthus annuus,girasol,SPA,common,,
-Helianthus annuus,sūrajmukhī,PAN,common,Latn,romanized Punjabi; literally sun-facing
-Helianthus annuus,ਸੂਰਜਮੁਖੀ,PAN,common,Guru,
+Helianthus annuus,sūrajmukhī,PAN,common,Latn,romanization of ਸੂਰਜਮੁਖੀ; literally sun-facing
+Helianthus annuus,ਸੂਰਜਮੁਖੀ,PAN,common,Guru,literally sun-facing
 Tagetes erecta,African marigold,ENG,common,,
 Tagetes erecta,Aztec marigold,ENG,common,,
 Tagetes erecta,cempasúchil,SPA,common,,from Nahuatl cempōhualxōchitl
 Tagetes erecta,flor de muerto,SPA,folk,,Día de Muertos usage
-Tagetes erecta,gaindā,PAN,common,Latn,romanized Punjabi; also written genda
-Tagetes erecta,ਗੇਂਦਾ,PAN,common,Guru,widely used for marigolds in general
+Tagetes erecta,gaindā,PAN,common,Latn,"romanization of ਗੇਂਦਾ; also written genda. Reaches all marigolds, not this species alone"
+Tagetes erecta,ਗੇਂਦਾ,PAN,common,Guru,"Reaches all marigolds, not this species alone"
 Tectona grandis,teak,ENG,common,,
 Tectona grandis,teca,SPA,common,,
-Tectona grandis,sāgvān,PAN,common,Latn,romanized Punjabi
+Tectona grandis,sāgvān,PAN,common,Latn,romanization of ਸਾਗਵਾਨ
 Tectona grandis,ਸਾਗਵਾਨ,PAN,common,Guru,
 Cucurbita pepo,field pumpkin,ENG,common,,
 Cucurbita pepo,summer squash,ENG,common,,for the squash cultivars
 Cucurbita pepo,calabaza,SPA,common,,
 Cucurbita pepo,calabacín,SPA,common,,for the zucchini cultivars
-Cucurbita pepo,kaddū,PAN,common,Latn,"romanized Punjabi; REVIEW: covers pumpkins and gourds broadly, not this species alone"
-Cucurbita pepo,ਕੱਦੂ,PAN,common,Guru,REVIEW: broad term for pumpkin/gourd
+Cucurbita pepo,kaddū,PAN,common,Latn,"romanization of ਕੱਦੂ. Reaches pumpkins and gourds generally, not this species alone"
+Cucurbita pepo,ਕੱਦੂ,PAN,common,Guru,"Reaches pumpkins and gourds generally, not this species alone"
 Moschus moschiferus,Siberian musk deer,ENG,common,,
 Moschus moschiferus,ciervo almizclero siberiano,SPA,common,,
-Moschus moschiferus,kastūrī hiran,PAN,common,Latn,"romanized Punjabi; kastūrī = musk. Attested for musk deer generally, not the Siberian species specifically"
-Moschus moschiferus,ਕਸਤੂਰੀ ਹਿਰਨ,PAN,common,Guru,musk deer; see note
+Moschus moschiferus,kastūrī hiran,PAN,common,Latn,"romanization of ਕਸਤੂਰੀ ਹਿਰਨ; kastūrī = musk. Reaches musk deer generally, not the Siberian species alone"
+Moschus moschiferus,ਕਸਤੂਰੀ ਹਿਰਨ,PAN,common,Guru,"kastūrī = musk. Reaches musk deer generally, not the Siberian species alone"
 Hydropotes inermis,Chinese water deer,ENG,common,,
 Hydropotes inermis,ciervo de agua chino,SPA,common,,
-Hydropotes inermis,chīnī pāṇī hiran,PAN,common,Latn,"REVIEW: descriptive coinage, not an attested Punjabi folk name"
-Hydropotes inermis,ਚੀਨੀ ਪਾਣੀ ਹਿਰਨ,PAN,common,Guru,"REVIEW: descriptive coinage, not attested"

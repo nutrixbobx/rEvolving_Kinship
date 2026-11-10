@@ -41,6 +41,31 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AS (how uncertainty gets recorded, 2026-11-09):
+  - Maya asked whether an unsure name should read "name (generic)", "N/A",
+    "Unknown", or blank. Answer, now written down in
+    `docs/NAMING_CONVENTIONS.md`: none of those. A qualifier inside the
+    name field breaks search, prints wrong on the tree and in the report,
+    and becomes the name. A placeholder row invents a record that sorts
+    and exports as though it were a name. So: the name field holds only
+    the name; scope and doubt live in notes; a language with no name for
+    a being gets NO ROW, because the absence is itself the information.
+  - A name that reaches wider than one species (ਕੱਦੂ for pumpkins and
+    gourds, ਗੇਂਦਾ for marigolds, ਕਸਤੂਰੀ ਹਿਰਨ for musk deer) is real and is
+    kept, with its reach stated in notes. Inventing one is not: the
+    descriptive Punjabi coinage for the Chinese water deer was dropped,
+    so that species now has English and Spanish names and no Punjabi row.
+  - For this to be workable, notes had to be visible and editable, which
+    turned up two real bugs: `add_species_name` took a `notes` argument
+    and never inserted it (the column was missing from the INSERT even
+    though the ON CONFLICT clause referenced EXCLUDED.notes), and
+    `update_species_name` did not allow notes. Both fixed; notes is now a
+    column in the Manage batch editor. `list_names_admin` carries notes
+    and falls back cleanly on a database without name_notes_migration.
+  - `data/deerpreet_names.csv` rewritten to the convention: 35 names, no
+    placeholders, no qualifiers inside a name field.
+
+
 Session AR (two crashes + CSV name import, 2026-11-09):
   - `_cached_tree_species_picker.clear()` raised AttributeError. My fault
     in Session AG: inserting `_cached_tree_names` directly above it put
@@ -1046,6 +1071,9 @@ are expensive.
 - 2026-11-09: Session AR fixed the stolen-decorator crash and a NaN
   contributor name, and added CSV name import with a prepared Punjabi /
   Spanish / English name set for the deerpreet tree.
+- 2026-11-09: Session AS set the convention for uncertain names (name
+  field holds only the name, doubt goes in notes, no placeholder rows)
+  and fixed notes never being saved.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.

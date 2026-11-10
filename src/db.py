@@ -653,8 +653,9 @@ def add_species_name(species_id: str, name_text: str,
             conn.execute(text("""
                 INSERT INTO species_name
                     (species_id, name_text, language_code, name_category,
-                     region_code, source, is_preferred, contributed_by, script)
-                VALUES (:s, :n, :l, :c, :r, :src, :p, :by, :sc)
+                     region_code, source, is_preferred, contributed_by,
+                     script, notes)
+                VALUES (:s, :n, :l, :c, :r, :src, :p, :by, :sc, :nt)
                 ON CONFLICT (species_id, name_text, language_code, name_category)
                 DO UPDATE SET is_preferred = EXCLUDED.is_preferred,
                               region_code  = COALESCE(EXCLUDED.region_code,
@@ -1987,13 +1988,27 @@ def list_names_admin() -> pd.DataFrame:
     marathon. This returns the flat, editable truth: one row per
     species_name, with the genus split out so the editor can filter by it."""
     engine = get_engine()
+    try:
+        return _names_admin_query(engine, with_notes=True)
+    except Exception:
+        # species_name.notes arrives with db/name_notes_migration.sql; a
+        # database without it still gets the editor, minus that column.
+        df = _names_admin_query(engine, with_notes=False)
+        df["notes"] = ""
+        return df
+
+
+def _names_admin_query(engine, with_notes: bool):
+    notes_col = ("sn.notes              AS notes,"
+                 if with_notes else "'' AS notes,")
     with engine.connect() as conn:
-        rows = conn.execute(text("""
+        rows = conn.execute(text(f"""
             SELECT sn.name_id            AS name_id,
                    sn.name_text          AS name_text,
                    sn.language_code      AS language_code,
                    sn.name_category      AS name_category,
                    sn.region_code        AS region_code,
+                   {notes_col}
                    sn.is_preferred       AS is_preferred,
                    s.canonical_scientific_name      AS species,
                    s.species_id          AS species_id,
@@ -2006,7 +2021,7 @@ def list_names_admin() -> pd.DataFrame:
         """)).fetchall()
     df = pd.DataFrame(rows, columns=[
         "name_id", "name_text", "language_code", "name_category",
-        "region_code", "is_preferred", "species", "species_id",
+        "region_code", "notes", "is_preferred", "species", "species_id",
         "contributor"])
     if not df.empty:
         # Cast in pandas, not SQL: ::text and a `false` literal are
@@ -2031,7 +2046,7 @@ def update_species_name(name_id: str, fields: dict) -> bool:
     demotes any other preferred name for the same (species, language,
     category) to keep the invariant. Returns True if a row was updated."""
     allowed = {"name_text", "language_code", "name_category",
-               "region_code", "is_preferred"}
+               "region_code", "is_preferred", "notes"}
     if "language_code" in fields:
         from src.i18n import normalize_language_code
         fields = dict(fields)
