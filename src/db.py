@@ -600,6 +600,21 @@ def get_or_create_species(ncbi_taxid: int, scientific_name: str,
         return str(new[0])
 
 
+def species_id_by_scientific_name(sci: str) -> str | None:
+    """Resolve a canonical scientific name to its species_id, case- and
+    whitespace-insensitively. Used by the Library's CSV name import so a
+    file can address species by name instead of by surrogate id."""
+    if not sci or not str(sci).strip():
+        return None
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT species_id FROM species "
+            "WHERE lower(trim(canonical_scientific_name)) = :s LIMIT 1"
+        ), {"s": str(sci).strip().lower()}).fetchone()
+    return str(row[0]) if row else None
+
+
 def add_species_name(species_id: str, name_text: str,
                      language: str = "ENG",
                      category: str = "common",

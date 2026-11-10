@@ -1144,7 +1144,11 @@ def _contributor_link(name: str | None,
     """Render a contributor name as a small button that, when clicked, sets
     session_state['viewing_profile_of'] so the Profile tab shows them.
     Falls back to plain text when there's no contributor_id."""
-    label = name or "anonymous"
+    # `name or "anonymous"` let a pandas NaN through, because NaN is
+    # truthy, and html.escape() then called .replace on a float. Same trap
+    # as the NaN common name that broke the tree renderers.
+    label = name if isinstance(name, str) and name.strip() else None
+    label = label or "anonymous"
     if contributor_id:
         if st.button(f"by {label}", key=key,
                      help=f"View {label}'s profile"):
@@ -1631,6 +1635,78 @@ def _render_manage_names_table() -> None:
 
     _csv_download(view.drop(columns=["species_id"], errors="ignore"),
                   "library_names_filtered", "mng_nm_csv")
+
+    # ---- CSV import -------------------------------------------------
+    with st.expander("Import names from a CSV", expanded=False):
+        st.caption(
+            "Columns: **scientific_name**, **name_text**, and optionally "
+            "language, category, script, region, notes, is_preferred. "
+            "Species are matched by scientific name, so you can prepare a "
+            "whole tree's names in a spreadsheet and load them in one go. "
+            "Rows whose species isn't in the warehouse are reported, not "
+            "guessed at.")
+        up = st.file_uploader("CSV file", type=["csv"], key="mng_nm_up")
+        if up is not None:
+            try:
+                import pandas as _pd
+                imp = _pd.read_csv(up).fillna("")
+            except Exception as exc:
+                st.error(f"Could not read that CSV: {exc}")
+                imp = None
+            if imp is not None:
+                need = {"scientific_name", "name_text"}
+                missing = need - set(imp.columns)
+                if missing:
+                    st.error("Missing column(s): " + ", ".join(sorted(missing)))
+                else:
+                    st.dataframe(imp.head(25), use_container_width=True,
+                                 hide_index=True)
+                    st.caption(f"{len(imp)} row(s) in the file.")
+                    if st.button(f"Import {len(imp)} name(s)",
+                                 type="primary", key="mng_nm_doimport"):
+                        added, skipped, unknown = 0, 0, []
+                        for _, r in imp.iterrows():
+                            sci = str(r.get("scientific_name", "")).strip()
+                            txt = str(r.get("name_text", "")).strip()
+                            if not sci or not txt:
+                                skipped += 1
+                                continue
+                            sid = db.species_id_by_scientific_name(sci)
+                            if not sid:
+                                unknown.append(sci)
+                                continue
+                            try:
+                                db.add_species_name(
+                                    sid, txt,
+                                    language=str(r.get("language")
+                                                 or "ENG").strip(),
+                                    category=str(r.get("category")
+                                                 or "common").strip(),
+                                    source="import",
+                                    is_preferred=str(
+                                        r.get("is_preferred", "")
+                                    ).strip().lower() in ("1", "true", "yes"),
+                                    region_code=(str(r.get("region")).strip()
+                                                 or None),
+                                    script=(str(r.get("script")).strip()
+                                            or None),
+                                    notes=(str(r.get("notes")).strip()
+                                           or None),
+                                )
+                                added += 1
+                            except Exception as exc:
+                                st.warning(f"{sci} / {txt}: {exc}")
+                        _invalidate_all_caches()
+                        _cached_names_admin.clear()
+                        st.success(f"Imported {added} name(s).")
+                        if skipped:
+                            st.caption(f"{skipped} row(s) had no species or "
+                                       "no name and were skipped.")
+                        if unknown:
+                            st.warning(
+                                "Not in the warehouse yet (add the species "
+                                "first): " + ", ".join(sorted(set(unknown))))
+                        st.rerun()
 
 
 def _delete_species_deity_by_names(species_name: str, deity_name: str,

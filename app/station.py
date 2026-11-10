@@ -178,7 +178,6 @@ def _cached_read_tree(tree_name):
     return db.read_tree(tree_name)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 @st.cache_data(ttl=120, show_spinner=False)
 def _cached_tree_names(tree_name):
     """Library names per species for this tree. Short TTL so a name added
@@ -186,6 +185,7 @@ def _cached_tree_names(tree_name):
     return db.list_tree_species_with_names(tree_name)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_tree_species_picker(tree_name):
     """Cache the per-tree name picker. The query is a 1-shot scan of
     tree_species + species_name; caching it 60s removes a noticeable hit

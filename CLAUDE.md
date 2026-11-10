@@ -41,6 +41,38 @@ Auth model: admin / editor / visitor / guest.
 
 ## What just landed (Sessions A through E, 2026-07-01)
 
+Session AR (two crashes + CSV name import, 2026-11-09):
+  - `_cached_tree_species_picker.clear()` raised AttributeError. My fault
+    in Session AG: inserting `_cached_tree_names` directly above it put
+    the new def under the picker's `@st.cache_data`, so the new function
+    carried two decorators and the picker carried none, losing .clear().
+    Each function has its own decorator again. Lesson: when inserting a
+    def immediately above an existing one, check whose decorator you just
+    adopted.
+  - `_contributor_link` crashed in html.escape: `name or "anonymous"` let
+    a pandas NaN through (NaN is truthy), and escape() called .replace on
+    a float. Same trap as the NaN common name. Now isinstance-checked.
+  - Swept both patterns across station/library/profile: every other
+    .clear() target is properly cached (two apparent misses are qualified
+    `_p._cached_*` calls into profile.py, which are decorated there), and
+    the remaining `or "(untitled)"` sites only feed f-strings, which
+    tolerate a float.
+  - NEW: CSV name import in Library > Manage > Names, plus
+    `db.species_id_by_scientific_name()`. Columns: scientific_name,
+    name_text, and optional language, category, script, region, notes,
+    is_preferred. Species are matched by scientific name, so a whole
+    tree's names can be prepared in a spreadsheet and loaded in one go;
+    rows whose species isn't in the warehouse are reported rather than
+    guessed at, and the existing unique constraint makes re-import a
+    no-op instead of a duplicate.
+  - `data/deerpreet_names.csv`: 37 English, Spanish, and Punjabi
+    (Gurmukhi script + romanized) names across the 8 species of that
+    tree. Four rows are marked REVIEW in the notes column because they
+    are broad terms or descriptive coinages rather than attested names
+    for that species, which matters for a project about what things are
+    actually called.
+
+
 Session AQ (mobile panels that would not close; map tiles stuck
 buffering, 2026-10-29):
   - The in-canvas panels (clades, names, save) only closed on a mousedown
@@ -1011,6 +1043,9 @@ are expensive.
   (and stopped them covering their own close button on a wrapped mobile
   toolbar), and stopped map tiles buffering forever when a tainted canvas
   threw inside the tile loader.
+- 2026-11-09: Session AR fixed the stolen-decorator crash and a NaN
+  contributor name, and added CSV name import with a prepared Punjabi /
+  Spanish / English name set for the deerpreet tree.
 - 2026-07-01: created after Session E for the Fable cleanup pass.
   Whoever picks this up next: keep this section current so future
   sessions know what changed.
